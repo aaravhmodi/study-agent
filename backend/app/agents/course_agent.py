@@ -30,35 +30,55 @@ class CourseAgent:
         home_url = f"{self.settings.learn_url.rstrip('/')}/d2l/home"
         snapshot = await self.browser.inspect_page(home_url, wait_seconds=6)
         courses: dict[str, CourseSummary] = {}
+        warnings: list[str] = []
         for link in snapshot.links:
             if not _is_course_link(link.href):
                 continue
             course = _course_from_link(link.text, link.href)
             if course is not None:
-                courses[str(course.url)] = course
-        warnings = [] if courses else ["No active course links were visible on the LEARN homepage."]
+                courses[course.code or str(course.url)] = course
+
+        try:
+            outline = await self.browser.inspect_page(
+                "https://outline.uwaterloo.ca/viewer/", wait_seconds=5
+            )
+            for outline_course in _outline_courses(outline):
+                key = outline_course.code or str(outline_course.url)
+                existing = courses.get(key)
+                if existing is None:
+                    courses[key] = outline_course
+                else:
+                    existing.outline_url = outline_course.outline_url
+        except BrowserClientError as exc:
+            warnings.append(f"Unable to inspect Outline enrollment: {exc}")
+
+        if not courses:
+            warnings.append("No active course links were visible on LEARN or Outline.")
         return CourseDiscoveryResult(courses=list(courses.values()), warnings=warnings)
 
     async def scan_course(self, course: CourseSummary) -> CourseScanResult:
         course_url = str(course.url)
         ou = _course_offering_id(course_url)
-        if ou is None:
-            raise BrowserClientError(f"Could not identify the LEARN offering id for {course.name}.")
 
         warnings: list[str] = []
         snapshots: list[BrowserPageSnapshot] = []
-        home = await self.browser.inspect_page(course_url, wait_seconds=4)
-        snapshots.append(home)
+        if ou is not None:
+            home = await self.browser.inspect_page(course_url, wait_seconds=4)
+            snapshots.append(home)
 
-        for page_url in (
-            f"{self.settings.learn_url.rstrip('/')}/d2l/le/calendar/{ou}",
-            f"{self.settings.learn_url.rstrip('/')}/d2l/le/content/{ou}/Home",
-            f"{self.settings.learn_url.rstrip('/')}/d2l/lms/news/main.d2l?ou={ou}",
-        ):
-            try:
-                snapshots.append(await self.browser.inspect_page(page_url, wait_seconds=4))
-            except BrowserClientError as exc:
-                warnings.append(f"Unable to inspect {page_url}: {exc}")
+            for page_url in (
+                f"{self.settings.learn_url.rstrip('/')}/d2l/le/calendar/{ou}",
+                f"{self.settings.learn_url.rstrip('/')}/d2l/le/content/{ou}/Home",
+                f"{self.settings.learn_url.rstrip('/')}/d2l/lms/news/main.d2l?ou={ou}",
+            ):
+                try:
+                    snapshots.append(await self.browser.inspect_page(page_url, wait_seconds=4))
+                except BrowserClientError as exc:
+                    warnings.append(f"Unable to inspect {page_url}: {exc}")
+        else:
+            warnings.append(
+                f"LEARN course shell was not exposed for {course.name}; scanning its Outline."
+            )
 
         outline_snapshot = await self._inspect_outline(course, warnings)
         if outline_snapshot is not None:
@@ -80,7 +100,11 @@ class CourseAgent:
         self, course: CourseSummary, warnings: list[str]
     ) -> BrowserPageSnapshot | None:
         search = quote(course.code or course.name)
-        outline_url = f"https://outline.uwaterloo.ca/viewer/?q={search}"
+        outline_url = (
+            str(course.outline_url)
+            if course.outline_url
+            else (f"https://outline.uwaterloo.ca/viewer/?q={search}")
+        )
         try:
             snapshot = await self.browser.inspect_page(outline_url, wait_seconds=5)
         except BrowserClientError as exc:
@@ -121,6 +145,46 @@ class CourseAgent:
         return _dedupe_assessments(assessments)
 
 
+def _outline_courses(snapshot: BrowserPageSnapshot) -> list[CourseSummary]:
+    """Read the current-term enrolled-course table and its ordered VIEW links."""
+
+    lines = [line.strip() for line in snapshot.text.splitlines()]
+    term_index = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if re.fullmatch(r"(?:Fall|Winter|Spring) \d{4}", line)
+        ),
+        None,
+    )
+    if term_index is None:
+        return []
+    term = lines[term_index]
+    view_links = [link.href for link in snapshot.links if "/viewer/view/" in link.href]
+    view_index = 0
+    courses: list[CourseSummary] = []
+    course_pattern = re.compile(r"^(?P<code>[A-Z]{2,8} \d{3}[A-Z]?)\t(?P<title>[^\t]+)")
+    for line in lines[term_index + 1 :]:
+        if re.fullmatch(r"(?:Fall|Winter|Spring) \d{4}", line):
+            break
+        match = course_pattern.match(line)
+        if match is None or view_index >= len(view_links):
+            continue
+        code = match.group("code")
+        outline_url = _HTTP_URL.validate_python(view_links[view_index])
+        view_index += 1
+        courses.append(
+            CourseSummary(
+                name=f"{code} - {term}",
+                code=code,
+                url=outline_url,
+                term=term,
+                outline_url=outline_url,
+            )
+        )
+    return courses
+
+
 def _is_course_link(href: str) -> bool:
     parsed = urlsplit(href)
     if parsed.netloc != "learn.uwaterloo.ca":
@@ -135,6 +199,8 @@ def _course_from_link(text: str, href: str) -> CourseSummary | None:
     if not name or name.lower() in {"course home", "home"}:
         return None
     match = re.match(r"^(?P<code>[A-Z]{2,8}\s*\d{3}[A-Z]?)\s*-\s*(?P<term>.+)$", name)
+    if match is None:
+        return None
     code = match.group("code") if match else None
     term = match.group("term") if match else None
     if code:
@@ -213,6 +279,12 @@ def _extract_announcements(snapshots: list[BrowserPageSnapshot]) -> list[Announc
 def _extract_resources(snapshots: list[BrowserPageSnapshot]) -> list[ResourceExtraction]:
     unique: dict[str, ResourceExtraction] = {}
     for snapshot in snapshots:
+        if snapshot.url and "outline.uwaterloo.ca/viewer/view/" in str(snapshot.url):
+            unique[str(snapshot.url)] = ResourceExtraction(
+                title=f"{snapshot.title or 'Course outline'} (course outline)",
+                resource_type="LINK",
+                url=_HTTP_URL.validate_python(snapshot.url),
+            )
         for link in snapshot.links:
             title = " ".join(link.text.split())
             if not title or link.href.startswith("javascript:"):

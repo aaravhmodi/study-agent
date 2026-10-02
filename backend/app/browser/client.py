@@ -161,7 +161,13 @@ target_url = {encoded_url}
 tabs = list_tabs()
 matching = [tab for tab in tabs if target_url.split('/')[2] in str(tab.get('url', ''))]
 if matching:
-    switch_tab(matching[0].get('id') or matching[0].get('index') or matching[0])
+    switch_tab(
+        matching[0].get('id')
+        or matching[0].get('targetId')
+        or matching[0].get('target_id')
+        or matching[0].get('index')
+        or matching[0]
+    )
 else:
     new_tab(target_url)
 wait_for_load()
@@ -222,9 +228,9 @@ if target_url:
             or current.path.endswith('/' + target_ou)
         ):
             matching.append(tab)
-        elif target.path in ('', '/') and current.path.startswith('/d2l/home'):
+        elif target.path in ('', '/') and current.path == '/d2l/home':
             matching.append(tab)
-        elif target.path not in ('', '/') and current.path.startswith(
+        elif target.path not in ('', '/', '/d2l/home') and current.path.startswith(
             target.path.rstrip('/') + '/'
         ):
             matching.append(tab)
@@ -232,7 +238,13 @@ if target_url:
             matching.append(tab)
     matching.sort(key=lambda tab: 0 if urlsplit(str(tab.get('url', ''))).path == target.path else 1)
     if matching:
-        switch_tab(matching[0].get('id') or matching[0].get('index') or matching[0])
+        switch_tab(
+            matching[0].get('id')
+            or matching[0].get('targetId')
+            or matching[0].get('target_id')
+            or matching[0].get('index')
+            or matching[0]
+        )
     else:
         new_tab(target_url)
     wait_for_load()

@@ -8,6 +8,7 @@ class CourseSummary(BaseModel):
     code: str | None = None
     url: AnyHttpUrl
     term: str | None = None
+    outline_url: AnyHttpUrl | None = None
 
 
 class CourseDiscoveryResult(BaseModel):

@@ -54,6 +54,9 @@ class SyncService:
                     resources_found=0,
                     changes_found=0,
                 )
+                discovered_urls = {str(course.url) for course in discovery.courses}
+                for existing_course in session.scalars(select(Course)).all():
+                    existing_course.active = existing_course.url in discovered_urls
                 failures: list[str] = []
                 for course_summary in discovery.courses:
                     course = _upsert_course(session, course_summary)
