@@ -416,12 +416,6 @@ def _extract_resources(snapshots: list[BrowserPageSnapshot]) -> list[ResourceExt
                     resource_type=resource_type,
                     url=_HTTP_URL.validate_python(link.href),
                 )
-            elif "outline.uwaterloo.ca/viewer/view/" in link.href:
-                unique[link.href] = ResourceExtraction(
-                    title=f"{title} (course outline)" if title else "Course outline",
-                    resource_type="LINK",
-                    url=_HTTP_URL.validate_python(link.href),
-                )
     return list(unique.values())
 
 

@@ -38,6 +38,7 @@ uv run study-agent browser test
 uv run study-agent sync
 uv run study-agent courses
 uv run study-agent assessments
+uv run study-agent resources
 ```
 
 `sync` uses the authenticated Chrome session to discover active LEARN course shells, inspect each course, traverse its Content modules, collect PDF/document/slide/page resources, check its Outline page, parse concrete Outline assessment dates, and persist the extracted records in SQLite. Authentication remains browser-managed; complete any sign-in or Duo prompt in Chrome.
@@ -53,7 +54,7 @@ uv run study-agent courses
 uv run study-agent assessments
 ```
 
-`browser test` verifies the connection. `sync` rescans all six enrolled Fall 2026 SYDE courses and checks each course's Outline page on every run. `courses` confirms the active course list, and `assessments` shows upcoming work currently available from LEARN.
+`browser test` verifies the connection. `sync` rescans all six enrolled Fall 2026 SYDE courses and checks each course's Outline page on every run. `courses` confirms the active course list, `assessments` shows upcoming work from LEARN and dated Outline rows, and `resources` lists the collected study material.
 
 If Waterloo asks for a password or Duo verification, complete it in Chrome, then rerun `browser test` and `sync`. The application does not store Waterloo credentials, MFA codes, or browser cookies.
 

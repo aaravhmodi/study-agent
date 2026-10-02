@@ -10,7 +10,7 @@ from app.browser.client import BrowserClientError, BrowserUseClient, MockBrowser
 from app.config import get_settings
 from app.db.database import Base, SessionLocal, engine
 from app.logging import configure_logging
-from app.models import Assessment, Course
+from app.models import Assessment, Course, Resource
 from app.services.sync_service import SyncService
 
 app = typer.Typer(help="Local-first academic agent for Waterloo LEARN.")
@@ -134,6 +134,27 @@ def assessments() -> None:
                 assessment.assessment_type,
                 due,
                 status,
+            )
+    console.print(table)
+
+
+@app.command()
+def resources() -> None:
+    """List study resources collected from LEARN Content and course Outlines."""
+    table = Table("Course", "Type", "Resource", "Source URL")
+    with SessionLocal() as session:
+        statement = (
+            select(Resource, Course)
+            .join(Course, Resource.course_id == Course.id)
+            .where(Course.active.is_(True))
+            .order_by(Course.code, Resource.resource_type, Resource.title)
+        )
+        for resource, course in session.execute(statement):
+            table.add_row(
+                course.code or course.name,
+                resource.resource_type,
+                resource.title,
+                resource.url or "-",
             )
     console.print(table)
 
