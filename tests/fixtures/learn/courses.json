@@ -1,0 +1,7 @@
+{
+  "courses": [
+    {"name": "Introduction to Economics", "code": "ECON 101", "url": "https://learn.uwaterloo.ca/d2l/home/10101", "term": "Fall 2026"},
+    {"name": "Physics 111", "code": "PHYS 111", "url": "https://learn.uwaterloo.ca/d2l/home/20202", "term": "Fall 2026"}
+  ],
+  "warnings": []
+}
