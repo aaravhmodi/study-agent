@@ -8,14 +8,14 @@ StudyAgent is a local-first academic workload assistant for University of Waterl
 - Python 3.12 (or let `uv` provision it).
 - [`uv`](https://docs.astral.sh/uv/) for environment and dependency management.
 - A Chrome session already signed in to Waterloo LEARN.
-- The current Browser Use CLI. Install it with:
+- The current Browser Use CLI. Install it into the project-local environment with:
 
 ```powershell
-uv tool install --python 3.12 --upgrade --force "browser-use @ git+https://github.com/browser-use/browser-use.git"
-browser-use skill install
+uv venv --python 3.12 .browser-use-venv
+uv pip install --python .browser-use-venv\Scripts\python.exe "browser-use @ git+https://github.com/browser-use/browser-use.git"
 ```
 
-Browser Use local mode attaches to the running Chrome session over CDP. It may ask once for remote-debugging permission. The app never asks for or stores a Waterloo password.
+Browser Use local mode attaches to the running Chrome session over CDP. It may ask once for remote-debugging permission. The app never asks for or stores a Waterloo password or MFA code. If LEARN shows a sign-in or verification step, complete it yourself in Chrome and rerun the browser test.
 
 ## Setup
 
