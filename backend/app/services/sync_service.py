@@ -117,16 +117,24 @@ def _external_id(url: str) -> str | None:
 def _persist_scan(session: Session, course: Course, scan: CourseScanResult) -> tuple[int, int]:
     now = datetime.now(UTC)
     for assessment in scan.assessments:
-        existing_assessment = cast(
-            Assessment | None,
-            session.scalar(
+        source_url = str(assessment.source_url) if assessment.source_url else None
+        candidates = list(
+            session.scalars(
                 select(Assessment).where(
                     Assessment.course_id == course.id,
                     Assessment.title == assessment.title,
-                    Assessment.due_at == assessment.due_at,
                 )
-            ),
+            ).all()
         )
+        same_source = [candidate for candidate in candidates if candidate.source_url == source_url]
+        existing_assessment = (
+            same_source[0] if same_source else (candidates[0] if candidates else None)
+        )
+        for duplicate in candidates:
+            if duplicate is not existing_assessment:
+                session.delete(duplicate)
+        if candidates:
+            session.flush()
         if existing_assessment is None:
             existing_assessment = Assessment(
                 course_id=course.id,
@@ -139,9 +147,7 @@ def _persist_scan(session: Session, course: Course, scan: CourseScanResult) -> t
         existing_assessment.due_at = assessment.due_at
         existing_assessment.weight_percent = assessment.weight_percent
         existing_assessment.description = assessment.description
-        existing_assessment.source_url = (
-            str(assessment.source_url) if assessment.source_url else None
-        )
+        existing_assessment.source_url = source_url
         existing_assessment.last_seen_at = now
         existing_assessment.status = (
             "OVERDUE" if assessment.due_at and assessment.due_at < now else "UPCOMING"

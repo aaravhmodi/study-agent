@@ -40,7 +40,7 @@ uv run study-agent courses
 uv run study-agent assessments
 ```
 
-`sync` uses the authenticated Chrome session to discover active LEARN course shells, inspect each course, check Outline.uwaterloo.ca, and persist the extracted records in SQLite. Authentication remains browser-managed; complete any sign-in or Duo prompt in Chrome.
+`sync` uses the authenticated Chrome session to discover active LEARN course shells, inspect each course, traverse its Content modules, collect PDF/document/slide/page resources, check its Outline page, parse concrete Outline assessment dates, and persist the extracted records in SQLite. Authentication remains browser-managed; complete any sign-in or Duo prompt in Chrome.
 
 ## Daily workflow
 

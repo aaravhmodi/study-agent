@@ -37,6 +37,10 @@ class BrowserClient(ABC):
     ) -> BrowserPageSnapshot:
         """Read the visible page and links without performing a write action."""
 
+    @abstractmethod
+    async def inspect_content(self, url: str, wait_seconds: int = 2) -> list[BrowserPageSnapshot]:
+        """Open a LEARN content page and read its visible modules/topics."""
+
 
 class MockBrowserClient(BrowserClient):
     def __init__(self, payload: dict[str, Any] | None = None) -> None:
@@ -62,6 +66,11 @@ class MockBrowserClient(BrowserClient):
     ) -> BrowserPageSnapshot:
         del url, wait_seconds
         return BrowserPageSnapshot.model_validate(self.payload)
+
+    async def inspect_content(self, url: str, wait_seconds: int = 0) -> list[BrowserPageSnapshot]:
+        del url, wait_seconds
+        pages = self.payload.get("content_pages", [])
+        return [BrowserPageSnapshot.model_validate(page) for page in pages]
 
 
 class BrowserUseClient(BrowserClient):
@@ -128,6 +137,28 @@ class BrowserUseClient(BrowserClient):
             return BrowserPageSnapshot.model_validate(_extract_result(completed.stdout))
         except Exception as exc:
             raise BrowserClientError(f"Browser Use returned invalid page data: {exc}") from exc
+
+    async def inspect_content(self, url: str, wait_seconds: int = 2) -> list[BrowserPageSnapshot]:
+        if not self.is_installed():
+            raise BrowserClientError(
+                "Browser Use CLI was not found. Install it with uv venv and uv pip install."
+            )
+        completed = await asyncio.to_thread(
+            _run_cli,
+            self.executable,
+            _content_script(url, wait_seconds),
+        )
+        if completed.returncode != 0:
+            detail = completed.stderr.strip() or "unknown Browser Use error"
+            raise BrowserClientError(f"Browser Use content inspection failed: {detail[-2000:]}")
+        try:
+            payload = _extract_result(completed.stdout)
+            pages = payload.get("pages")
+            if not isinstance(pages, list):
+                raise BrowserClientError("Browser Use content inspection returned no pages")
+            return [BrowserPageSnapshot.model_validate(page) for page in pages]
+        except Exception as exc:
+            raise BrowserClientError(f"Browser Use returned invalid content data: {exc}") from exc
 
 
 def _run_cli(executable: str, script: str) -> subprocess.CompletedProcess[str]:
@@ -264,4 +295,103 @@ print('STUDY_AGENT_RESULT=' + json.dumps({{
     'text': payload.get('text', ''),
     'links': payload.get('links', [])
 }}))
+"""
+
+
+def _content_script(url: str, wait_seconds: int) -> str:
+    encoded_url = json.dumps(url)
+    expression = """JSON.stringify({
+    url: window.location.href.split('?')[0],
+    title: document.title || null,
+    text: document.body.innerText.slice(0, 100000),
+    links: Array.from(document.querySelectorAll('a')).map(a => {
+      const raw = String(a.href || '');
+      try {
+        const parsed = new URL(raw);
+        const params = new URLSearchParams();
+        for (const [key, value] of parsed.searchParams.entries()) {
+          if (['ou', 'q', 'term', 'id', 'page'].includes(key)) params.set(key, value);
+        }
+        return {
+          text: (a.innerText || a.textContent || '').trim(),
+          href: parsed.origin + parsed.pathname + (params.toString() ? '?' + params.toString() : '')
+        };
+      } catch (_) {
+        return {text: (a.innerText || a.textContent || '').trim(), href: raw};
+      }
+    }).slice(0, 1000)
+})"""
+    ids_expression = """JSON.stringify(Array.from(document.querySelectorAll('[id^="TreeItem"]'))
+  .map(node => node.id)
+  .filter(id => /^TreeItem\\d+$/.test(id)))"""
+    del expression
+    return f"""import json
+import time
+from urllib.parse import urlsplit
+
+target_url = {encoded_url}
+target = urlsplit(target_url)
+tabs = list_tabs()
+matching = []
+for tab in tabs:
+    current = urlsplit(str(tab.get('url', '')))
+    if current.netloc == target.netloc and current.path == target.path:
+        matching.append(tab)
+if matching:
+    switch_tab(
+        matching[0].get('id')
+        or matching[0].get('targetId')
+        or matching[0].get('target_id')
+        or matching[0].get('index')
+        or matching[0]
+    )
+else:
+    new_tab(target_url)
+wait_for_load()
+time.sleep({max(0, min(wait_seconds, 15))})
+parts = target.path.split('/')
+offering_id = parts[4] if len(parts) > 4 else ''
+module_ids_raw = js({json.dumps(ids_expression)})
+module_ids = json.loads(module_ids_raw) if isinstance(module_ids_raw, str) else []
+for module_id in list(module_ids):
+    js(f"document.getElementById({{json.dumps(module_id)}})?.click(); 'expanded'")
+    time.sleep(0.25)
+module_ids_raw = js({json.dumps(ids_expression)})
+module_ids = json.loads(module_ids_raw) if isinstance(module_ids_raw, str) else module_ids
+pages = []
+for request_id, tree_id in enumerate(module_ids[:100], start=1):
+    module_id = tree_id.removeprefix('TreeItem')
+    module_expression = f'''(async () => {{{{
+  const response = await fetch(
+    '/d2l/le/content/{{offering_id}}/ModuleDetailsPartial'
+    + '?mId={{module_id}}&writeHistoryEntry=0'
+    + '&_d2l_prc%24headingLevel=2&_d2l_prc%24scope='
+    + '&_d2l_prc%24hasActiveForm=false&isXhr=true&requestId={{request_id}}',
+    {{{{credentials: 'include'}}}}
+  );
+  const html = await response.text();
+  const normalized = html.split(String.fromCharCode(92, 34)).join(String.fromCharCode(34));
+  const regex = /href=\"([^\"]*viewContent[^\"]*)\"[^>]*title=\"([^\"]*)\"/g;
+  const decode = value => {{{{
+    const element = document.createElement('textarea');
+    element.innerHTML = value;
+    return element.value;
+  }}}};
+  return JSON.stringify([...normalized.matchAll(regex)].map(match => ({{{{
+    text: decode(match[2]),
+    href: new URL(decode(match[1]), window.location.origin).href
+  }}}})));
+}}}})()'''
+    raw = js(module_expression)
+    links = json.loads(raw) if isinstance(raw, str) else []
+    if links:
+        pages.append(
+            {{
+                'url': target_url,
+                'title': f'Module {{module_id}}',
+                'text': '',
+                'links': links,
+            }}
+        )
+print('STUDY_AGENT_RESULT=' + json.dumps({{'pages': pages}}))
 """

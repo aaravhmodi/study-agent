@@ -66,15 +66,22 @@ class CourseAgent:
             home = await self.browser.inspect_page(course_url, wait_seconds=4)
             snapshots.append(home)
 
+            content_url = f"{self.settings.learn_url.rstrip('/')}/d2l/le/content/{ou}/Home"
             for page_url in (
                 f"{self.settings.learn_url.rstrip('/')}/d2l/le/calendar/{ou}",
-                f"{self.settings.learn_url.rstrip('/')}/d2l/le/content/{ou}/Home",
+                content_url,
                 f"{self.settings.learn_url.rstrip('/')}/d2l/lms/news/main.d2l?ou={ou}",
             ):
                 try:
                     snapshots.append(await self.browser.inspect_page(page_url, wait_seconds=4))
                 except BrowserClientError as exc:
                     warnings.append(f"Unable to inspect {page_url}: {exc}")
+            try:
+                snapshots.extend(await self.browser.inspect_content(content_url, wait_seconds=1))
+            except BrowserClientError as exc:
+                warnings.append(
+                    f"Unable to traverse LEARN content modules for {course.name}: {exc}"
+                )
         else:
             warnings.append(
                 f"LEARN course shell was not exposed for {course.name}; scanning its Outline."
@@ -85,6 +92,11 @@ class CourseAgent:
             snapshots.append(outline_snapshot)
 
         assessments = await self._extract_assessments(snapshots)
+        if outline_snapshot is not None:
+            assessments.extend(
+                _extract_outline_assessments(outline_snapshot, self.settings.timezone)
+            )
+            assessments = _dedupe_assessments(assessments)
         announcements = _extract_announcements(snapshots)
         resources = _extract_resources(snapshots)
         return CourseScanResult(
@@ -246,11 +258,109 @@ def _parse_due_at(text: str, timezone_name: str) -> datetime | None:
         return None
 
 
+def _extract_outline_assessments(
+    snapshot: BrowserPageSnapshot, timezone_name: str
+) -> list[AssessmentExtraction]:
+    lines = snapshot.text.splitlines()
+    headings = [
+        index for index, line in enumerate(lines) if line.strip() == "Assessments & Activities"
+    ]
+    if not headings:
+        return []
+    start = headings[-1] + 1
+    end = next(
+        (
+            index
+            for index in range(start, len(lines))
+            if lines[index].strip() == "Late / Missed Content"
+        ),
+        len(lines),
+    )
+    year_match = re.search(r"(?:Fall|Winter|Spring)\s+(\d{4})", snapshot.text)
+    default_year = int(year_match.group(1)) if year_match else datetime.now().year
+    assessments: list[AssessmentExtraction] = []
+    for line in lines[start:end]:
+        fields = [field.strip() for field in line.split("\t")]
+        if len(fields) < 2 or not fields[0] or not fields[1]:
+            continue
+        title = fields[0]
+        raw_details = " ".join(field for field in fields[1:] if field)
+        if raw_details.lower().startswith("all lectures"):
+            continue
+        combined = f"{title} {raw_details}"
+        due_at = _parse_outline_due(combined, default_year, timezone_name)
+        if due_at is None:
+            continue
+        title = (
+            re.sub(
+                r"\s*:\s*(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+                r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b.*$",
+                "",
+                title,
+                flags=re.IGNORECASE,
+            ).strip()
+            or fields[0]
+        )
+        weight_match = re.search(r"\b(\d+(?:\.\d+)?)\s*%", raw_details)
+        if weight_match:
+            weight = float(weight_match.group(1))
+        elif len(fields) >= 4 and re.fullmatch(r"\d+(?:\.\d+)?", fields[3]):
+            weight = float(fields[3])
+        else:
+            weight = None
+        assessments.append(
+            AssessmentExtraction(
+                title=title,
+                assessment_type=_assessment_type(title),
+                due_at=due_at,
+                weight_percent=weight,
+                description=f"Outline date: {raw_details}",
+                source_url=_HTTP_URL.validate_python(snapshot.url),
+            )
+        )
+    return _dedupe_assessments(assessments)
+
+
+def _parse_outline_due(text: str, default_year: int, timezone_name: str) -> datetime | None:
+    match = re.search(
+        r"(?P<month>January|February|March|April|May|June|July|August|September|October|"
+        r"November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+"
+        r"(?P<day>\d{1,2})(?:st|nd|rd|th)?(?:,|\s)+"
+        r"(?:(?P<year>\d{4})(?:,|\s)*)?"
+        r"(?P<time>\d{1,2}:\d{2}\s*(?:AM|PM|am|pm))?",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    year = int(match.group("year") or default_year)
+    time_text = match.group("time")
+    try:
+        if time_text:
+            parsed = datetime.strptime(
+                f"{match.group('month')} {match.group('day')} {year} {time_text.upper()}",
+                "%B %d %Y %I:%M%p",
+            )
+        else:
+            parsed = datetime.strptime(
+                f"{match.group('month')} {match.group('day')} {year}", "%B %d %Y"
+            ).replace(hour=23, minute=59)
+        return parsed.replace(tzinfo=ZoneInfo(timezone_name)).astimezone(ZoneInfo("UTC"))
+    except ValueError:
+        try:
+            parsed = datetime.strptime(
+                f"{match.group('month')} {match.group('day')} {year}", "%b %d %Y"
+            ).replace(hour=23, minute=59)
+            return parsed.replace(tzinfo=ZoneInfo(timezone_name)).astimezone(ZoneInfo("UTC"))
+        except ValueError:
+            return None
+
+
 def _assessment_type(title: str) -> str:
     lowered = title.lower()
-    for kind in ("quiz", "test", "exam", "assignment", "lab", "project"):
+    for kind in ("quiz", "test", "exam", "midterm", "assignment", "lab", "project"):
         if kind in lowered:
-            return kind
+            return "test" if kind == "midterm" else kind
     return "other"
 
 
@@ -289,12 +399,20 @@ def _extract_resources(snapshots: list[BrowserPageSnapshot]) -> list[ResourceExt
             title = " ".join(link.text.split())
             if not title or link.href.startswith("javascript:"):
                 continue
-            if "/d2l/le/content/" in link.href and (
-                "viewContent" in link.href or "PDF" in title.upper() or "SLIDE" in title.upper()
-            ):
-                resource_type = "PDF" if "PDF" in title.upper() else "PAGE"
+            is_content_resource = (
+                "/d2l/le/content/" in link.href
+                and (
+                    "viewContent" in link.href
+                    or any(
+                        token in title.upper()
+                        for token in ("PDF", "DOCUMENT", "WORD", "SLIDE", "POWERPOINT")
+                    )
+                )
+            ) or "/d2l/common/viewFile" in link.href
+            if is_content_resource:
+                resource_type = _resource_type(title, link.href)
                 unique[link.href] = ResourceExtraction(
-                    title=title,
+                    title=_clean_resource_title(title),
                     resource_type=resource_type,
                     url=_HTTP_URL.validate_python(link.href),
                 )
@@ -305,3 +423,30 @@ def _extract_resources(snapshots: list[BrowserPageSnapshot]) -> list[ResourceExt
                     url=_HTTP_URL.validate_python(link.href),
                 )
     return list(unique.values())
+
+
+def _resource_type(title: str, href: str) -> str:
+    lowered = f"{title} {href}".lower()
+    if "pdf" in lowered or lowered.endswith(".pdf"):
+        return "PDF"
+    if any(token in lowered for token in ("doc", "word", "document")):
+        return "DOCUMENT"
+    if any(token in lowered for token in ("ppt", "powerpoint", "slide", "presentation")):
+        return "SLIDES"
+    if any(token in lowered for token in ("xls", "spreadsheet")):
+        return "DOCUMENT"
+    if "viewcontent" in lowered:
+        return "PAGE"
+    return "OTHER"
+
+
+def _clean_resource_title(title: str) -> str:
+    cleaned = re.sub(
+        r"^['\"]|['\"]\s*-\s*(?:PDF document|Word document|PowerPoint presentation|"
+        r"Microsoft Word document|Microsoft PowerPoint presentation|CAP File|"
+        r"External Learning Tool)$",
+        "",
+        title,
+        flags=re.IGNORECASE,
+    )
+    return cleaned.strip() or title
