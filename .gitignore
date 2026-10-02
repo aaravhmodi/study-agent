@@ -1,6 +1,7 @@
 .env
 .venv/
 .venv312/
+.browser-use-venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/

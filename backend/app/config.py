@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/study_agent.db"
     learn_url: str = "https://learn.uwaterloo.ca"
     browser_use_api_key: str | None = None
+    browser_use_executable: str = "browser-use"
     timezone: str = "America/Toronto"
 
     @property

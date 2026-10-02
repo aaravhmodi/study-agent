@@ -58,9 +58,14 @@ class BrowserUseClient(BrowserClient):
     added in the course-agent milestone; this milestone uses its read-only probe.
     """
 
-    def __init__(self, settings: Settings, executable: str = "browser-use") -> None:
+    def __init__(self, settings: Settings, executable: str | None = None) -> None:
         self.settings = settings
-        self.executable = executable
+        local_executable = (
+            settings.project_root / ".browser-use-venv" / "Scripts" / "browser-use.exe"
+        )
+        self.executable = executable or (
+            str(local_executable) if local_executable.exists() else settings.browser_use_executable
+        )
 
     def is_installed(self) -> bool:
         return shutil.which(self.executable) is not None
@@ -84,9 +89,7 @@ class BrowserUseClient(BrowserClient):
             _run_cli, self.executable, _probe_script(self.settings.learn_url)
         )
         if completed.returncode != 0:
-            detail = (
-                completed.stderr.strip() or completed.stdout.strip() or "unknown Browser Use error"
-            )
+            detail = completed.stderr.strip() or "unknown Browser Use error"
             raise BrowserClientError(f"Browser Use failed: {detail[-2000:]}")
         try:
             return BrowserTestResult.model_validate(_extract_result(completed.stdout))
@@ -119,6 +122,7 @@ def _extract_result(stdout: str) -> dict[str, Any]:
 def _probe_script(learn_url: str) -> str:
     encoded_url = json.dumps(learn_url)
     return f"""import json
+from urllib.parse import urlsplit, urlunsplit
 
 target_url = {encoded_url}
 tabs = list_tabs()
@@ -130,11 +134,16 @@ else:
 wait_for_load()
 info = page_info()
 url = str(info.get('url', ''))
+parsed = urlsplit(url)
+safe_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', ''))
+safe_title = ''.join(
+    character for character in str(info.get('title') or '') if ord(character) < 128
+)
 print('STUDY_AGENT_RESULT=' + json.dumps({{
     'browser_connected': True,
-    'learn_reachable': 'learn.uwaterloo.ca' in url,
-    'url': url or None,
-    'title': info.get('title'),
+    'learn_reachable': (parsed.hostname or '').lower() == 'learn.uwaterloo.ca',
+    'url': safe_url or None,
+    'title': safe_title or None,
     'message': 'Read-only Browser Use probe completed.'
 }}))
 """

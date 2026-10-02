@@ -29,21 +29,21 @@ def setup() -> None:
     settings = get_settings()
     settings.data_dir.joinpath("downloads").mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(engine)
-    console.print("[green]✓[/green] Local directories ready")
-    console.print("[green]✓[/green] SQLite database initialized")
-    console.print(f"[green]✓[/green] Browser mode: {settings.browser_mode}")
+    console.print("[green][OK][/green] Local directories ready")
+    console.print("[green][OK][/green] SQLite database initialized")
+    console.print(f"[green][OK][/green] Browser mode: {settings.browser_mode}")
     if settings.openai_api_key:
-        console.print("[green]✓[/green] OpenAI API key configured")
+        console.print("[green][OK][/green] OpenAI API key configured")
     else:
         console.print(
-            "[yellow]⚠[/yellow] OPENAI_API_KEY is not set (not required for Milestones 1–2)"
+            "[yellow][WARN][/yellow] OPENAI_API_KEY is not set (not required for Milestones 1-2)"
         )
     if settings.browser_mode == "mock":
-        console.print("[green]✓[/green] Mock browser mode selected")
+        console.print("[green][OK][/green] Mock browser mode selected")
     elif shutil.which("browser-use"):
-        console.print("[green]✓[/green] Browser Use CLI detected")
+        console.print("[green][OK][/green] Browser Use CLI detected")
     else:
-        console.print("[yellow]⚠[/yellow] Browser Use CLI not found on PATH")
+        console.print("[yellow][WARN][/yellow] Browser Use CLI not found on PATH")
     console.print(
         "Next: keep Chrome signed in to LEARN and run [cyan]study-agent browser test[/cyan]."
     )
@@ -57,14 +57,14 @@ def browser_test() -> None:
     try:
         result = asyncio.run(_browser_client().test_connection())
     except (BrowserClientError, OSError, TimeoutError) as exc:
-        console.print(f"[red]✗ Browser test failed:[/red] {exc}")
+        console.print(f"[red][FAIL] Browser test failed:[/red] {exc}")
         raise typer.Exit(code=1) from exc
-    console.print("[green]✓[/green] Browser session connected")
+    console.print("[green][OK][/green] Browser session connected")
     if result.learn_reachable:
-        console.print("[green]✓[/green] Waterloo LEARN reachable")
+        console.print("[green][OK][/green] Waterloo LEARN reachable")
     else:
         console.print(
-            "[yellow]⚠[/yellow] Browser connected, but the current page did not confirm LEARN"
+            "[yellow][WARN][/yellow] Browser connected, but the current page did not confirm LEARN"
         )
     if result.url:
         console.print(f"  URL: {result.url}")
