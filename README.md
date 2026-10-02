@@ -1,6 +1,6 @@
 # StudyAgent
 
-StudyAgent is a local-first academic workload assistant for University of Waterloo LEARN / D2L Brightspace. Milestone 1 and 2 provide the Python/FastAPI/SQLite foundation, mock fixtures, and a read-only Browser Use connection test.
+StudyAgent is a local-first academic workload assistant for University of Waterloo LEARN / D2L Brightspace. It discovers active course shells, reads announcements, calendar due items, content resources, and checks Outline.uwaterloo.ca without changing LMS data.
 
 ## Prerequisites
 
@@ -35,9 +35,12 @@ Keep Chrome open and signed in to LEARN, then run:
 
 ```powershell
 uv run study-agent browser test
+uv run study-agent sync
+uv run study-agent courses
+uv run study-agent assessments
 ```
 
-The command runs a read-only Browser Use probe against `https://learn.uwaterloo.ca`, reports whether the local Chrome session is connected and whether LEARN is reachable, and leaves navigation/extraction for the next milestones.
+`sync` uses the authenticated Chrome session to discover active LEARN course shells, inspect each course, check Outline.uwaterloo.ca, and persist the extracted records in SQLite. Authentication remains browser-managed; complete any sign-in or Duo prompt in Chrome.
 
 Use the underlying diagnostic when needed:
 
@@ -56,4 +59,4 @@ uv run pytest
 
 ## Current scope
 
-Milestone 1 includes the repository structure, SQLAlchemy models, Alembic migration, Typer CLI, FastAPI health endpoint, mock LEARN fixtures, and tests. Milestone 2 adds Browser Use detection and the read-only Chrome/LEARN connection probe. Course discovery and course scanning begin in Milestone 3.
+Milestones 1–3 include the repository structure, SQLAlchemy models, Alembic migration, Typer CLI, FastAPI health endpoint, mock LEARN fixtures, Browser Use detection, active-course discovery, read-only course scanning, announcement/resource persistence, calendar assessment extraction, and Outline checks. Topic extraction, change detection, planning, and conversational queries remain later milestones.

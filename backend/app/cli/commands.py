@@ -1,13 +1,17 @@
 import asyncio
-import shutil
+from datetime import UTC, datetime
 
 import typer
 from rich.console import Console
+from rich.table import Table
+from sqlalchemy import select
 
 from app.browser.client import BrowserClientError, BrowserUseClient, MockBrowserClient
 from app.config import get_settings
-from app.db.database import Base, engine
+from app.db.database import Base, SessionLocal, engine
 from app.logging import configure_logging
+from app.models import Assessment, Course
+from app.services.sync_service import SyncService
 
 app = typer.Typer(help="Local-first academic agent for Waterloo LEARN.")
 browser_app = typer.Typer(help="Browser connection and diagnostics.")
@@ -36,11 +40,11 @@ def setup() -> None:
         console.print("[green][OK][/green] OpenAI API key configured")
     else:
         console.print(
-            "[yellow][WARN][/yellow] OPENAI_API_KEY is not set (not required for Milestones 1-2)"
+            "[yellow][WARN][/yellow] OPENAI_API_KEY is not set (semantic AI extraction is disabled)"
         )
     if settings.browser_mode == "mock":
         console.print("[green][OK][/green] Mock browser mode selected")
-    elif shutil.which("browser-use"):
+    elif BrowserUseClient(settings).is_installed():
         console.print("[green][OK][/green] Browser Use CLI detected")
     else:
         console.print("[yellow][WARN][/yellow] Browser Use CLI not found on PATH")
@@ -74,17 +78,72 @@ def browser_test() -> None:
 
 @app.command()
 def sync() -> None:
-    """Synchronize LMS data (course discovery begins in Milestone 3)."""
+    """Discover active courses and read assessment, announcement, content, and outline surfaces."""
+    configure_logging()
+    console.print("Connecting to Waterloo LEARN and scanning active courses...")
+    service = SyncService(get_settings(), browser=_browser_client(), progress=console.print)
+    try:
+        summary = asyncio.run(service.run())
+    except Exception as exc:
+        console.print(f"[red][FAIL] Sync failed:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
     console.print(
-        "[yellow]Sync is scheduled for Milestone 3; run `study-agent browser test` "
-        "for now.[/yellow]"
+        f"[green][OK][/green] Sync complete: {summary.courses_found} courses, "
+        f"{summary.assessments_found} assessments, {summary.resources_found} resources"
     )
 
 
 @app.command()
 def courses() -> None:
-    """List stored courses."""
-    console.print("Course listing begins in Milestone 3.")
+    """List stored active courses."""
+    table = Table("Code", "Course", "Term", "Last scanned")
+    with SessionLocal() as session:
+        for course in session.scalars(
+            select(Course).where(Course.active.is_(True)).order_by(Course.name)
+        ):
+            table.add_row(
+                course.code or "-",
+                course.name,
+                course.term or "-",
+                course.last_scanned_at.strftime("%Y-%m-%d %H:%M UTC")
+                if course.last_scanned_at
+                else "never",
+            )
+    console.print(table)
+
+
+@app.command()
+def assessments() -> None:
+    """List upcoming and overdue assessments stored from the last sync."""
+    table = Table("Course", "Assessment", "Type", "Due", "Status")
+    now = datetime.now(UTC)
+    with SessionLocal() as session:
+        statement = (
+            select(Assessment, Course)
+            .join(Course, Assessment.course_id == Course.id)
+            .where(Course.active.is_(True))
+            .order_by(Assessment.due_at.is_(None), Assessment.due_at)
+        )
+        for assessment, course in session.execute(statement):
+            due_at = _as_utc(assessment.due_at)
+            due = due_at.astimezone().strftime("%Y-%m-%d %H:%M") if due_at else "unknown"
+            status = "OVERDUE" if due_at and due_at < now else assessment.status
+            table.add_row(
+                course.code or course.name,
+                assessment.title,
+                assessment.assessment_type,
+                due,
+                status,
+            )
+    console.print(table)
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 if __name__ == "__main__":
