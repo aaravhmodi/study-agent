@@ -393,8 +393,25 @@ async function load(){
 }
 document.querySelector('#courses').addEventListener('click',event=>{const target=event.target.closest('[data-course]');if(target)openCourse(target.dataset.course).catch(showError)});
 document.querySelector('#assessments').addEventListener('click',event=>{const target=event.target.closest('[data-assessment]');if(target)openAssessment(target.dataset.assessment).catch(showError)});
-document.querySelector('#detail').addEventListener('click',event=>{const target=event.target.closest('button');if(!target)return;if(target.hasAttribute('data-close'))closeDetail();if(target.dataset.assessment)openAssessment(target.dataset.assessment).catch(showError);if(target.dataset.complete)changeStatus(target.dataset.complete,'complete');if(target.dataset.reopen)changeStatus(target.dataset.reopen,'reopen')});
-async function changeStatus(id,action){await getJson(`/assessments/${id}/${action}`,{method:'POST'});await load();await openAssessment(id)}
-function showError(error){showDetail(`<p class="overdue">${esc(error)}</p>`)}
+document.querySelector('#detail').addEventListener('click',event=>{
+ const target=event.target.closest('button');
+ if(!target)return;
+ if(target.hasAttribute('data-close')){event.preventDefault();closeDetail();return}
+ if(target.dataset.assessment){event.preventDefault();openAssessment(target.dataset.assessment).catch(showError);return}
+ if(target.dataset.complete){event.preventDefault();event.stopPropagation();changeStatus(target.dataset.complete,'complete',target);return}
+ if(target.dataset.reopen){event.preventDefault();event.stopPropagation();changeStatus(target.dataset.reopen,'reopen',target);return}
+});
+async function changeStatus(id,action,button){
+ if(button){button.disabled=true;button.textContent='Saving...'}
+ try{
+  await getJson(`/assessments/${encodeURIComponent(id)}/${action}`,{method:'POST'});
+  await load();
+  await openAssessment(id);
+ }catch(error){
+  if(button){button.disabled=false;button.textContent=action==='complete'?'Mark completed':'Mark not completed'}
+  showError(error);
+ }
+}
+function showError(error){showDetail(`<p class="overdue">Could not save this change: ${esc(error?.message||error)}</p>`)}
 load().catch(showError);
 </script></body></html>"""
