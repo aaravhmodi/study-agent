@@ -88,6 +88,26 @@ def test_outline_assessment_dates_and_weights_are_extracted() -> None:
     assert assessments[0].weight_percent == 20
 
 
+def test_outline_explicit_deliverable_deadlines_are_extracted() -> None:
+    snapshot = BrowserPageSnapshot(
+        url="https://outline.uwaterloo.ca/viewer/view/syde252",
+        title="Fall 2026: SYDE 252",
+        text=(
+            "Deliverables schedule\n"
+            "Assignments due\n"
+            "at 11:59 PM\n"
+            "Phase 1 due: October 30, 11:59 PM\n"
+            "Phase 2 due: November 23, 11:59 PM\n"
+            "Late / Missed Content\n"
+        ),
+    )
+    assessments = _extract_outline_assessments(snapshot, "America/Toronto")
+    assert [assessment.title for assessment in assessments] == ["Phase 1", "Phase 2"]
+    assert all(assessment.assessment_type == "project" for assessment in assessments)
+    assert assessments[0].due_at is not None
+    assert assessments[0].due_at.astimezone(ZoneInfo("America/Toronto")).day == 30
+
+
 def test_content_documents_are_classified_as_resources() -> None:
     snapshot = BrowserPageSnapshot(
         url="https://learn.uwaterloo.ca/d2l/le/content/123/Home",

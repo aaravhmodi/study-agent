@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -15,6 +15,7 @@ class Resource(Base):
         ForeignKey("courses.id", ondelete="CASCADE"), nullable=False, index=True
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     resource_type: Mapped[str] = mapped_column(String(30), nullable=False, default="OTHER")
     url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     local_path: Mapped[str | None] = mapped_column(String(2048), nullable=True)

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.agents.course_agent import CourseAgent
 from app.browser.client import BrowserClient, BrowserUseClient
 from app.config import Settings
-from app.db.database import SessionLocal
+from app.db.database import SessionLocal, ensure_schema
 from app.models import Announcement, Assessment, Course, Resource, SyncRun
 from app.schemas.course import CourseSummary
 from app.schemas.extraction import CourseScanResult
@@ -32,6 +32,7 @@ class SyncService:
         self.progress = progress or (lambda message: logger.info(message))
 
     async def run(self) -> SyncSummary:
+        ensure_schema()
         started_at = datetime.now(UTC)
         sync_run = SyncRun(started_at=started_at, status="RUNNING")
         with SessionLocal() as session:
@@ -201,6 +202,7 @@ def _persist_scan(session: Session, course: Course, scan: CourseScanResult) -> t
         existing_resource.resource_type = resource.resource_type
         existing_resource.url = extracted_url
         existing_resource.uploaded_at = resource.uploaded_at
+        existing_resource.description = resource.description
 
     course.last_scanned_at = now
     session.flush()

@@ -362,25 +362,30 @@ pages = []
 for request_id, tree_id in enumerate(module_ids[:100], start=1):
     module_id = tree_id.removeprefix('TreeItem')
     module_expression = f'''(async () => {{{{
-  const response = await fetch(
-    '/d2l/le/content/{{offering_id}}/ModuleDetailsPartial'
-    + '?mId={{module_id}}&writeHistoryEntry=0'
-    + '&_d2l_prc%24headingLevel=2&_d2l_prc%24scope='
-    + '&_d2l_prc%24hasActiveForm=false&isXhr=true&requestId={{request_id}}',
-    {{{{credentials: 'include'}}}}
-  );
-  const html = await response.text();
-  const normalized = html.split(String.fromCharCode(92, 34)).join(String.fromCharCode(34));
-  const regex = /href=\"([^\"]*viewContent[^\"]*)\"[^>]*title=\"([^\"]*)\"/g;
-  const decode = value => {{{{
-    const element = document.createElement('textarea');
-    element.innerHTML = value;
-    return element.value;
-  }}}};
-  return JSON.stringify([...normalized.matchAll(regex)].map(match => ({{{{
-    text: decode(match[2]),
-    href: new URL(decode(match[1]), window.location.origin).href
-  }}}})));
+  try {{{{
+    const response = await fetch(
+      '/d2l/le/content/{{offering_id}}/ModuleDetailsPartial'
+      + '?mId={{module_id}}&writeHistoryEntry=0'
+      + '&_d2l_prc%24headingLevel=2&_d2l_prc%24scope='
+      + '&_d2l_prc%24hasActiveForm=false&isXhr=true&requestId={{request_id}}',
+      {{{{credentials: 'include'}}}}
+    );
+    if (!response.ok) return JSON.stringify([]);
+    const html = await response.text();
+    const normalized = html.split(String.fromCharCode(92, 34)).join(String.fromCharCode(34));
+    const regex = /href=\"([^\"]*viewContent[^\"]*)\"[^>]*title=\"([^\"]*)\"/g;
+    const decode = value => {{{{
+      const element = document.createElement('textarea');
+      element.innerHTML = value;
+      return element.value;
+    }}}};
+    return JSON.stringify([...normalized.matchAll(regex)].map(match => ({{{{
+      text: decode(match[2]),
+      href: new URL(decode(match[1]), window.location.origin).href
+    }}}})));
+  }}}} catch (_) {{{{
+    return JSON.stringify([]);
+  }}}}
 }}}})()'''
     raw = js(module_expression)
     links = json.loads(raw) if isinstance(raw, str) else []
@@ -393,5 +398,68 @@ for request_id, tree_id in enumerate(module_ids[:100], start=1):
                 'links': links,
             }}
         )
+# Brightspace can intermittently reject the partial GET even though the
+# rendered Content page is available. Fall back to selecting each module and
+# reading the resulting DOM; this remains navigation-only and read-only.
+if not pages:
+    fallback_expression = '''JSON.stringify({{
+  title: document.title || null,
+  text: document.body.innerText.slice(0, 100000),
+  links: Array.from(document.querySelectorAll('a')).map(a => ({{
+    text: (a.innerText || a.textContent || '').trim(),
+    href: a.href
+  }})).filter(link => link.href.includes('/d2l/le/content/') ||
+    link.href.includes('/d2l/common/viewFile'))
+}})'''
+    for tree_id in module_ids[:100]:
+        js(f"document.getElementById({{json.dumps(tree_id)}})?.click(); 'selected'")
+        time.sleep(0.35)
+        raw = js(fallback_expression)
+        detail = json.loads(raw) if isinstance(raw, str) else {{}}
+        links = detail.get('links', [])
+        if links:
+            pages.append({{
+                'url': target_url,
+                'title': detail.get('title') or f'Module {{tree_id}}',
+                'text': detail.get('text', ''),
+                'links': links,
+            }})
+# Read every discovered Content item in the same authenticated browser context.
+# This is intentionally a GET-only traversal: no buttons, forms, submissions, or
+# other write actions are invoked.  HTML pages expose their instructions and
+# Dropbox wording; binary files remain represented as resources for later parsing.
+resource_urls = []
+seen_urls = set()
+for page in pages:
+    for link in page.get('links', []):
+        href = str(link.get('href', ''))
+        if href and href not in seen_urls:
+            seen_urls.add(href)
+            resource_urls.append(href)
+for resource_url in resource_urls[:200]:
+    resource_expression = f'''(async () => {{{{
+  try {{{{
+    const response = await fetch({{json.dumps(resource_url)}}, {{{{credentials: 'include'}}}});
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('text/html')) return JSON.stringify({{{{text: '', links: []}}}});
+    const html = await response.text();
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const links = Array.from(doc.querySelectorAll('a')).map(a => ({{{{
+      text: (a.innerText || a.textContent || '').trim(),
+      href: new URL(a.href, {{json.dumps(resource_url)}}).href
+    }}}}));
+    return JSON.stringify({{{{text: (doc.body?.innerText || '').slice(0, 100000), links}}}});
+  }}}} catch (_) {{{{
+    return JSON.stringify({{{{text: '', links: []}}}});
+  }}}}
+}}}})()'''
+    raw = js(resource_expression)
+    detail = json.loads(raw) if isinstance(raw, str) else {{}}
+    pages.append({{
+        'url': resource_url,
+        'title': resource_url.rsplit('/', 1)[-1],
+        'text': detail.get('text', ''),
+        'links': detail.get('links', []),
+    }})
 print('STUDY_AGENT_RESULT=' + json.dumps({{'pages': pages}}))
 """

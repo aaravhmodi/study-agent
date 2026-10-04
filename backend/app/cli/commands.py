@@ -1,4 +1,5 @@
 import asyncio
+import time
 from datetime import UTC, datetime
 
 import typer
@@ -8,7 +9,7 @@ from sqlalchemy import select
 
 from app.browser.client import BrowserClientError, BrowserUseClient, MockBrowserClient
 from app.config import get_settings
-from app.db.database import Base, SessionLocal, engine
+from app.db.database import SessionLocal, ensure_schema
 from app.logging import configure_logging
 from app.models import Assessment, Course, Resource
 from app.services.sync_service import SyncService
@@ -32,7 +33,7 @@ def setup() -> None:
     configure_logging()
     settings = get_settings()
     settings.data_dir.joinpath("downloads").mkdir(parents=True, exist_ok=True)
-    Base.metadata.create_all(engine)
+    ensure_schema()
     console.print("[green][OK][/green] Local directories ready")
     console.print("[green][OK][/green] SQLite database initialized")
     console.print(f"[green][OK][/green] Browser mode: {settings.browser_mode}")
@@ -91,6 +92,38 @@ def sync() -> None:
         f"[green][OK][/green] Sync complete: {summary.courses_found} courses, "
         f"{summary.assessments_found} assessments, {summary.resources_found} resources"
     )
+
+
+@app.command()
+def daemon(
+    interval_minutes: float = typer.Option(
+        60.0,
+        "--interval-minutes",
+        min=1.0,
+        help="Minutes between full read-only LEARN/Outline scans.",
+    ),
+) -> None:
+    """Keep the agent running and periodically refresh the local database."""
+    configure_logging()
+    console.print(
+        f"Background sync started; scanning every {interval_minutes:g} minutes. "
+        "Press Ctrl+C to stop."
+    )
+    while True:
+        try:
+            service = SyncService(get_settings(), browser=_browser_client(), progress=console.print)
+            summary = asyncio.run(service.run())
+            console.print(
+                f"[green][OK][/green] Background scan complete: "
+                f"{summary.courses_found} courses, {summary.assessments_found} assessments, "
+                f"{summary.resources_found} resources"
+            )
+        except KeyboardInterrupt:
+            console.print("\nBackground sync stopped.")
+            return
+        except Exception as exc:
+            console.print(f"[yellow][WARN][/yellow] Background scan failed: {exc}")
+        time.sleep(interval_minutes * 60)
 
 
 @app.command()
@@ -156,6 +189,27 @@ def resources() -> None:
                 resource.title,
                 resource.url or "-",
             )
+    console.print(table)
+
+
+@app.command()
+def submissions() -> None:
+    """Show read-only submission and Dropbox notes found in Content pages."""
+    table = Table("Course", "Resource", "Submission notes")
+    with SessionLocal() as session:
+        statement = (
+            select(Resource, Course)
+            .join(Course, Resource.course_id == Course.id)
+            .where(Course.active.is_(True), Resource.description.is_not(None))
+            .order_by(Course.code, Resource.title)
+        )
+        for resource, course in session.execute(statement):
+            if resource.description:
+                table.add_row(
+                    course.code or course.name,
+                    resource.title,
+                    resource.description,
+                )
     console.print(table)
 
 

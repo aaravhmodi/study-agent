@@ -77,7 +77,7 @@ class CourseAgent:
                 except BrowserClientError as exc:
                     warnings.append(f"Unable to inspect {page_url}: {exc}")
             try:
-                snapshots.extend(await self.browser.inspect_content(content_url, wait_seconds=1))
+                snapshots.extend(await self.browser.inspect_content(content_url, wait_seconds=3))
             except BrowserClientError as exc:
                 warnings.append(
                     f"Unable to traverse LEARN content modules for {course.name}: {exc}"
@@ -265,60 +265,88 @@ def _extract_outline_assessments(
     headings = [
         index for index, line in enumerate(lines) if line.strip() == "Assessments & Activities"
     ]
-    if not headings:
-        return []
-    start = headings[-1] + 1
-    end = next(
-        (
-            index
-            for index in range(start, len(lines))
-            if lines[index].strip() == "Late / Missed Content"
-        ),
-        len(lines),
-    )
     year_match = re.search(r"(?:Fall|Winter|Spring)\s+(\d{4})", snapshot.text)
     default_year = int(year_match.group(1)) if year_match else datetime.now().year
     assessments: list[AssessmentExtraction] = []
-    for line in lines[start:end]:
-        fields = [field.strip() for field in line.split("\t")]
-        if len(fields) < 2 or not fields[0] or not fields[1]:
+    if headings:
+        start = headings[-1] + 1
+        end = next(
+            (
+                index
+                for index in range(start, len(lines))
+                if lines[index].strip() == "Late / Missed Content"
+            ),
+            len(lines),
+        )
+        for line in lines[start:end]:
+            fields = [field.strip() for field in line.split("\t")]
+            if len(fields) < 2 or not fields[0] or not fields[1]:
+                continue
+            title = fields[0]
+            raw_details = " ".join(field for field in fields[1:] if field)
+            if raw_details.lower().startswith("all lectures"):
+                continue
+            due_at = _parse_outline_due(f"{title} {raw_details}", default_year, timezone_name)
+            if due_at is None:
+                continue
+            title = _clean_outline_title(title)
+            weight_match = re.search(r"\b(\d+(?:\.\d+)?)\s*%", raw_details)
+            if weight_match:
+                weight = float(weight_match.group(1))
+            elif len(fields) >= 4 and re.fullmatch(r"\d+(?:\.\d+)?", fields[3]):
+                weight = float(fields[3])
+            else:
+                weight = None
+            assessments.append(
+                AssessmentExtraction(
+                    title=title,
+                    assessment_type=_assessment_type(title),
+                    due_at=due_at,
+                    weight_percent=weight,
+                    description=f"Outline date: {raw_details}",
+                    source_url=_HTTP_URL.validate_python(snapshot.url),
+                )
+            )
+
+    # Some Waterloo outlines leave the assessment table dates blank and put the
+    # real deadlines in a later deliverables/project schedule.  Only accept an
+    # explicit "<item> due: <date>" or "<item> due on <date>" statement so
+    # ordinary prose such as "late assignments" cannot become an assessment.
+    explicit_due_pattern = re.compile(
+        r"^(?P<title>[^:\t]{2,100}?)\s+(?:due|deadline)\s*(?::|on)\s*"
+        r"(?P<details>.+)$",
+        flags=re.IGNORECASE,
+    )
+    for line in lines:
+        match = explicit_due_pattern.match(" ".join(line.split()))
+        if match is None:
             continue
-        title = fields[0]
-        raw_details = " ".join(field for field in fields[1:] if field)
-        if raw_details.lower().startswith("all lectures"):
-            continue
-        combined = f"{title} {raw_details}"
-        due_at = _parse_outline_due(combined, default_year, timezone_name)
+        title = _clean_outline_title(match.group("title"))
+        details = match.group("details").strip()
+        due_at = _parse_outline_due(details, default_year, timezone_name)
         if due_at is None:
             continue
-        title = (
-            re.sub(
-                r"\s*:\s*(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
-                r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b.*$",
-                "",
-                title,
-                flags=re.IGNORECASE,
-            ).strip()
-            or fields[0]
-        )
-        weight_match = re.search(r"\b(\d+(?:\.\d+)?)\s*%", raw_details)
-        if weight_match:
-            weight = float(weight_match.group(1))
-        elif len(fields) >= 4 and re.fullmatch(r"\d+(?:\.\d+)?", fields[3]):
-            weight = float(fields[3])
-        else:
-            weight = None
         assessments.append(
             AssessmentExtraction(
                 title=title,
                 assessment_type=_assessment_type(title),
                 due_at=due_at,
-                weight_percent=weight,
-                description=f"Outline date: {raw_details}",
+                description=f"Outline explicit deadline: {details}",
                 source_url=_HTTP_URL.validate_python(snapshot.url),
             )
         )
     return _dedupe_assessments(assessments)
+
+
+def _clean_outline_title(title: str) -> str:
+    cleaned = re.sub(
+        r"\s*:\s*(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+        r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b.*$",
+        "",
+        title,
+        flags=re.IGNORECASE,
+    ).strip()
+    return cleaned or title.strip()
 
 
 def _parse_outline_due(text: str, default_year: int, timezone_name: str) -> datetime | None:
@@ -337,8 +365,9 @@ def _parse_outline_due(text: str, default_year: int, timezone_name: str) -> date
     time_text = match.group("time")
     try:
         if time_text:
+            normalized_time = time_text.replace(" ", "").upper()
             parsed = datetime.strptime(
-                f"{match.group('month')} {match.group('day')} {year} {time_text.upper()}",
+                f"{match.group('month')} {match.group('day')} {year} {normalized_time}",
                 "%B %d %Y %I:%M%p",
             )
         else:
@@ -358,9 +387,18 @@ def _parse_outline_due(text: str, default_year: int, timezone_name: str) -> date
 
 def _assessment_type(title: str) -> str:
     lowered = title.lower()
-    for kind in ("quiz", "test", "exam", "midterm", "assignment", "lab", "project"):
+    for kind in (
+        "quiz",
+        "test",
+        "exam",
+        "midterm",
+        "assignment",
+        "lab",
+        "project",
+        "phase",
+    ):
         if kind in lowered:
-            return "test" if kind == "midterm" else kind
+            return "test" if kind == "midterm" else "project" if kind == "phase" else kind
     return "other"
 
 
@@ -388,12 +426,29 @@ def _extract_announcements(snapshots: list[BrowserPageSnapshot]) -> list[Announc
 
 def _extract_resources(snapshots: list[BrowserPageSnapshot]) -> list[ResourceExtraction]:
     unique: dict[str, ResourceExtraction] = {}
+    known_titles = {
+        link.href: _clean_resource_title(" ".join(link.text.split()))
+        for snapshot in snapshots
+        for link in snapshot.links
+        if link.href and link.text.strip()
+    }
     for snapshot in snapshots:
-        if snapshot.url and "outline.uwaterloo.ca/viewer/view/" in str(snapshot.url):
+        snapshot_url = str(snapshot.url)
+        if "outline.uwaterloo.ca/viewer/view/" in snapshot_url:
             unique[str(snapshot.url)] = ResourceExtraction(
                 title=f"{snapshot.title or 'Course outline'} (course outline)",
                 resource_type="LINK",
                 url=_HTTP_URL.validate_python(snapshot.url),
+                description=_resource_notes(snapshot.text),
+            )
+        elif "/d2l/le/content/" in snapshot_url and "viewContent" in snapshot_url:
+            unique[snapshot_url] = ResourceExtraction(
+                title=known_titles.get(
+                    snapshot_url, _clean_resource_title(snapshot.title or "Content item")
+                ),
+                resource_type=_resource_type(snapshot.title or "", snapshot_url),
+                url=_HTTP_URL.validate_python(snapshot_url),
+                description=_resource_notes(snapshot.text),
             )
         for link in snapshot.links:
             title = " ".join(link.text.split())
@@ -415,8 +470,24 @@ def _extract_resources(snapshots: list[BrowserPageSnapshot]) -> list[ResourceExt
                     title=_clean_resource_title(title),
                     resource_type=resource_type,
                     url=_HTTP_URL.validate_python(link.href),
+                    description=_resource_notes(snapshot.text),
                 )
+                if not unique[link.href].description:
+                    unique[link.href].description = _resource_notes(snapshot.text)
     return list(unique.values())
+
+
+def _resource_notes(text: str) -> str | None:
+    """Keep useful read-only instructions without storing an entire page dump."""
+    lines = [" ".join(line.split()) for line in text.splitlines() if line.strip()]
+    relevant = [
+        line
+        for line in lines
+        if re.search(r"\b(dropbox|submit|submission|deliverable|upload|turnitin)\b", line, re.I)
+    ]
+    if not relevant:
+        return None
+    return "\n".join(relevant)[:4000]
 
 
 def _resource_type(title: str, href: str) -> str:

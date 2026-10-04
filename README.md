@@ -39,9 +39,36 @@ uv run study-agent sync
 uv run study-agent courses
 uv run study-agent assessments
 uv run study-agent resources
+uv run study-agent submissions
 ```
 
-`sync` uses the authenticated Chrome session to discover active LEARN course shells, inspect each course, traverse its Content modules, collect PDF/document/slide/page resources, check its Outline page, parse concrete Outline assessment dates, and persist the extracted records in SQLite. Authentication remains browser-managed; complete any sign-in or Duo prompt in Chrome.
+`sync` uses the authenticated Chrome session to discover active LEARN course shells, inspect each course, traverse every visible Content module and its discovered Content items, collect PDF/document/slide/page resources, capture read-only Dropbox/submission notes from HTML pages, check its Outline page, parse concrete Outline assessment dates, and persist the extracted records in SQLite. It never clicks Submit or changes LMS data. Authentication remains browser-managed; complete any sign-in or Duo prompt in Chrome.
+
+## Keep it running in the background
+
+With Chrome open and signed in, run this in a separate PowerShell window:
+
+```powershell
+uv run study-agent daemon --interval-minutes 60
+```
+
+It performs one full sync immediately and repeats every hour. Leave that window running; press `Ctrl+C` to stop it. Because local Chrome mode uses your existing interactive browser session, Chrome must remain open and signed in for background scans to succeed.
+
+## Dashboard
+
+Start the local read-only dashboard from the repository root:
+
+```powershell
+uv run uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
+```
+
+Open <http://127.0.0.1:8000/dashboard>. The page shows the last sync, active courses, assessment deadlines, resource counts, and stored change events. The JSON API is available at `/api/dashboard`, `/courses`, `/assessments`, `/resources`, and `/changes`.
+
+`submissions` shows the Dropbox/submission wording captured from readable LEARN Content pages:
+
+```powershell
+uv run study-agent submissions
+```
 
 ## Daily workflow
 

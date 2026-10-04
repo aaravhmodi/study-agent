@@ -30,6 +30,7 @@ class ResourceExtraction(BaseModel):
     resource_type: str = "OTHER"
     url: AnyHttpUrl | None = None
     uploaded_at: datetime | None = None
+    description: str | None = None
 
 
 class TopicExtraction(BaseModel):
