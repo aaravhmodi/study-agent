@@ -151,9 +151,10 @@ def _persist_scan(session: Session, course: Course, scan: CourseScanResult) -> t
         existing_assessment.source_url = source_url
         existing_assessment.last_seen_at = now
         if existing_assessment.status != "COMPLETED":
-            existing_assessment.status = (
-                "OVERDUE" if assessment.due_at and assessment.due_at < now else "UPCOMING"
-            )
+            if assessment.due_at is None:
+                existing_assessment.status = "UNKNOWN"
+            else:
+                existing_assessment.status = "OVERDUE" if assessment.due_at < now else "UPCOMING"
 
     for announcement in scan.announcements:
         existing_announcement = cast(

@@ -91,7 +91,23 @@ class CourseAgent:
         if outline_snapshot is not None:
             snapshots.append(outline_snapshot)
 
+        # Announcement list pages only expose a title and a link. Open the
+        # read-only detail pages too: due dates are often announced there
+        # before they appear in the LEARN calendar.
+        announcement_urls = {
+            link.href
+            for snapshot in snapshots
+            for link in snapshot.links
+            if _is_news_detail_url(link.href)
+        }
+        for announcement_url in list(announcement_urls)[:30]:
+            try:
+                snapshots.append(await self.browser.inspect_page(announcement_url, wait_seconds=2))
+            except BrowserClientError as exc:
+                warnings.append(f"Unable to inspect announcement {announcement_url}: {exc}")
+
         assessments = await self._extract_assessments(snapshots)
+        assessments.extend(_extract_announced_assessments(snapshots, self.settings.timezone))
         if outline_snapshot is not None:
             assessments.extend(
                 _extract_outline_assessments(outline_snapshot, self.settings.timezone)
@@ -280,16 +296,25 @@ def _extract_outline_assessments(
         )
         for line in lines[start:end]:
             fields = [field.strip() for field in line.split("\t")]
-            if len(fields) < 2 or not fields[0] or not fields[1]:
+            if len(fields) < 2 or not fields[0]:
                 continue
-            title = fields[0]
+            raw_title = fields[0]
             raw_details = " ".join(field for field in fields[1:] if field)
-            if raw_details.lower().startswith("all lectures"):
+            if raw_title.casefold() == "component / activity":
                 continue
-            due_at = _parse_outline_due(f"{title} {raw_details}", default_year, timezone_name)
-            if due_at is None:
+            if not re.search(
+                r"\b(assignment|quiz|test|exam|midterm|final|lab|project|phase|"
+                r"participation|report|activity|assessment|grading|review)\b",
+                raw_title,
+                flags=re.IGNORECASE,
+            ):
+                # Waterloo sometimes wraps a table row across the next line,
+                # e.g. the SYDE 286 midterm location and its 25% weight.
+                continuation_weight = re.search(r"(?:^|\s)(\d+(?:\.\d+)?)\s*%?$", raw_details)
+                if assessments and continuation_weight:
+                    assessments[-1].weight_percent = float(continuation_weight.group(1))
                 continue
-            title = _clean_outline_title(title)
+            title = _clean_outline_title(raw_title)
             weight_match = re.search(r"\b(\d+(?:\.\d+)?)\s*%", raw_details)
             if weight_match:
                 weight = float(weight_match.group(1))
@@ -297,16 +322,47 @@ def _extract_outline_assessments(
                 weight = float(fields[3])
             else:
                 weight = None
-            assessments.append(
-                AssessmentExtraction(
-                    title=title,
-                    assessment_type=_assessment_type(title),
-                    due_at=due_at,
-                    weight_percent=weight,
-                    description=f"Outline date: {raw_details}",
-                    source_url=_HTTP_URL.validate_python(snapshot.url),
+            # Keep rows such as "Midterm exam | TBD | In person | 25%". A
+            # missing date is useful information and is intentionally stored
+            # as UNKNOWN instead of silently dropping the assessment.
+            labeled_dates = list(
+                re.finditer(
+                    r"(?:^|\s)(?P<label>[A-Za-z][A-Za-z0-9 /_-]{1,60}?):\s*"
+                    r"(?=(?:January|February|March|April|May|June|July|August|September|October|November|December|"
+                    r"Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+\d)",
+                    raw_details,
+                    flags=re.IGNORECASE,
                 )
             )
+            if len(labeled_dates) > 1:
+                for labeled_date in labeled_dates:
+                    label = " ".join(labeled_date.group("label").split())
+                    date_details = raw_details[labeled_date.start() :]
+                    due_at = _parse_outline_due(date_details, default_year, timezone_name)
+                    assessments.append(
+                        AssessmentExtraction(
+                            title=f"{title} - {label}",
+                            assessment_type=_assessment_type(title),
+                            due_at=due_at,
+                            weight_percent=weight,
+                            description=f"Outline date: {raw_details}",
+                            source_url=_HTTP_URL.validate_python(snapshot.url),
+                        )
+                    )
+            else:
+                due_at = _parse_outline_due(
+                    f"{raw_title} {raw_details}", default_year, timezone_name
+                )
+                assessments.append(
+                    AssessmentExtraction(
+                        title=title,
+                        assessment_type=_assessment_type(title),
+                        due_at=due_at,
+                        weight_percent=weight,
+                        description=f"Outline assessment row: {raw_details or 'Date not provided'}",
+                        source_url=_HTTP_URL.validate_python(snapshot.url),
+                    )
+                )
 
     # Some Waterloo outlines leave the assessment table dates blank and put the
     # real deadlines in a later deliverables/project schedule.  Only accept an
@@ -352,8 +408,8 @@ def _clean_outline_title(title: str) -> str:
 def _parse_outline_due(text: str, default_year: int, timezone_name: str) -> datetime | None:
     match = re.search(
         r"(?P<month>January|February|March|April|May|June|July|August|September|October|"
-        r"November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+"
-        r"(?P<day>\d{1,2})(?:st|nd|rd|th)?(?:,|\s)+"
+        r"November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+"
+        r"(?P<day>\d{1,2})(?:st|nd|rd|th)?(?:,|\s)*"
         r"(?:(?P<year>\d{4})(?:,|\s)*)?"
         r"(?P<time>\d{1,2}:\d{2}\s*(?:AM|PM|am|pm))?",
         text,
@@ -363,22 +419,23 @@ def _parse_outline_due(text: str, default_year: int, timezone_name: str) -> date
         return None
     year = int(match.group("year") or default_year)
     time_text = match.group("time")
+    month_text = match.group("month").rstrip(".")
     try:
         if time_text:
             normalized_time = time_text.replace(" ", "").upper()
             parsed = datetime.strptime(
-                f"{match.group('month')} {match.group('day')} {year} {normalized_time}",
+                f"{month_text} {match.group('day')} {year} {normalized_time}",
                 "%B %d %Y %I:%M%p",
             )
         else:
             parsed = datetime.strptime(
-                f"{match.group('month')} {match.group('day')} {year}", "%B %d %Y"
+                f"{month_text} {match.group('day')} {year}", "%B %d %Y"
             ).replace(hour=23, minute=59)
         return parsed.replace(tzinfo=ZoneInfo(timezone_name)).astimezone(ZoneInfo("UTC"))
     except ValueError:
         try:
             parsed = datetime.strptime(
-                f"{match.group('month')} {match.group('day')} {year}", "%b %d %Y"
+                f"{month_text} {match.group('day')} {year}", "%b %d %Y"
             ).replace(hour=23, minute=59)
             return parsed.replace(tzinfo=ZoneInfo(timezone_name)).astimezone(ZoneInfo("UTC"))
         except ValueError:
@@ -396,31 +453,165 @@ def _assessment_type(title: str) -> str:
         "lab",
         "project",
         "phase",
+        "final",
     ):
         if kind in lowered:
-            return "test" if kind == "midterm" else "project" if kind == "phase" else kind
+            return (
+                "test"
+                if kind == "midterm"
+                else "project"
+                if kind == "phase"
+                else "exam"
+                if kind == "final"
+                else kind
+            )
     return "other"
 
 
 def _dedupe_assessments(items: list[AssessmentExtraction]) -> list[AssessmentExtraction]:
-    unique: dict[tuple[str, datetime | None], AssessmentExtraction] = {}
+    unique: list[AssessmentExtraction] = []
     for item in items:
-        key = (item.title.casefold(), item.due_at)
-        unique[key] = item
-    return list(unique.values())
+        matching_indexes = [
+            index
+            for index, existing in enumerate(unique)
+            if _assessment_titles_match(existing.title, item.title)
+        ]
+        if not matching_indexes:
+            unique.append(item)
+            continue
+        matching_index = matching_indexes[0]
+        existing = unique[matching_index]
+        if existing.due_at is None and item.due_at is not None:
+            unique[matching_index] = item
+        elif existing.due_at == item.due_at:
+            if existing.description is None and item.description:
+                existing.description = item.description
+            if existing.weight_percent is None and item.weight_percent is not None:
+                existing.weight_percent = item.weight_percent
+        elif item.due_at is not None and existing.due_at is not None:
+            unique.append(item)
+    return unique
+
+
+def _assessment_titles_match(left: str, right: str) -> bool:
+    left_tokens = _assessment_title_tokens(left)
+    right_tokens = _assessment_title_tokens(right)
+    if not left_tokens or not right_tokens:
+        return False
+    if left_tokens == right_tokens:
+        return True
+    common = left_tokens & right_tokens
+    if len(common) >= 2 and (
+        left_tokens.issubset(right_tokens) or right_tokens.issubset(left_tokens)
+    ):
+        return True
+    # "Midterm" and "Midterm exam" are the same outline item, while a
+    # generic "Final" must not swallow "Final Project" or "Final Report".
+    return common == {"midterm"}
+
+
+def _assessment_title_tokens(title: str) -> set[str]:
+    tokens = set(re.findall(r"[a-z0-9]+", title.casefold()))
+    return tokens - {"the", "a", "an", "exam", "assessment", "activity"}
+
+
+def _is_news_detail_url(href: str) -> bool:
+    return "/d2l/le/news/" in href and "/view" in href
+
+
+def _extract_announced_assessments(
+    snapshots: list[BrowserPageSnapshot], timezone_name: str
+) -> list[AssessmentExtraction]:
+    """Extract dated assessment statements from read-only LEARN announcements."""
+
+    assessments: list[AssessmentExtraction] = []
+    current_year = datetime.now().year
+    for snapshot in snapshots:
+        if not _is_news_detail_url(snapshot.url):
+            continue
+        announcement_title = _news_title(snapshot)
+        lines = [" ".join(line.split()) for line in snapshot.text.splitlines() if line.strip()]
+        for index, line in enumerate(lines):
+            if not re.search(
+                r"\b(assignment|quiz|test|exam|midterm|final|lab|project|report|activity|assessment)\b",
+                f"{announcement_title} {line}",
+                flags=re.IGNORECASE,
+            ):
+                continue
+            due_at = _parse_outline_due(line, current_year, timezone_name)
+            if due_at is None and index + 1 < len(lines):
+                due_at = _parse_outline_due(lines[index + 1], current_year, timezone_name)
+            if due_at is None or not re.search(
+                r"\b(due|deadline|scheduled|held|takes place|on)\b",
+                line,
+                flags=re.IGNORECASE,
+            ):
+                continue
+            title = _clean_announced_title(line, announcement_title)
+            assessments.append(
+                AssessmentExtraction(
+                    title=title,
+                    assessment_type=_assessment_type(title),
+                    due_at=due_at,
+                    description=f"Announced in LEARN: {line}",
+                    source_url=_HTTP_URL.validate_python(snapshot.url),
+                )
+            )
+    return _dedupe_assessments(assessments)
+
+
+def _news_title(snapshot: BrowserPageSnapshot) -> str:
+    title = " ".join((snapshot.title or "").split())
+    if title and title.casefold() not in {"news", "announcement", "waterloo learn"}:
+        return title
+    for line in (" ".join(line.split()) for line in snapshot.text.splitlines()):
+        if line and not re.search(r"^(news|announcement|published|close)$", line, re.I):
+            return line[:255]
+    return "LEARN announcement"
+
+
+def _clean_announced_title(line: str, fallback: str) -> str:
+    title = re.sub(
+        r"\s+(?:is\s+)?(?:due|deadline|scheduled|held|takes place|on)\b.*$",
+        "",
+        line,
+        flags=re.I,
+    ).strip(" -:;")
+    title = re.sub(
+        r"(?:January|February|March|April|May|June|July|August|September|October|November|December|"
+        r"Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+\d{1,2}.*$",
+        "",
+        title,
+        flags=re.I,
+    ).strip(" -:;")
+    return (title or fallback or "Announced assessment")[:255]
 
 
 def _extract_announcements(snapshots: list[BrowserPageSnapshot]) -> list[AnnouncementExtraction]:
     unique: dict[str, AnnouncementExtraction] = {}
+    details = {
+        snapshot.url: snapshot for snapshot in snapshots if _is_news_detail_url(snapshot.url)
+    }
     for snapshot in snapshots:
         for link in snapshot.links:
-            if "/d2l/le/news/" not in link.href or "/view" not in link.href:
+            if not _is_news_detail_url(link.href):
                 continue
             title = " ".join(link.text.split())
             if title:
+                detail = details.get(link.href)
                 unique[link.href] = AnnouncementExtraction(
-                    title=title, source_url=_HTTP_URL.validate_python(link.href)
+                    title=title[:255],
+                    body=(detail.text[:8000] if detail and detail.text else None),
+                    source_url=_HTTP_URL.validate_python(link.href),
                 )
+    for url, detail in details.items():
+        if url in unique:
+            continue
+        unique[url] = AnnouncementExtraction(
+            title=_news_title(detail)[:255],
+            body=detail.text[:8000] if detail.text else None,
+            source_url=_HTTP_URL.validate_python(url),
+        )
     return list(unique.values())
 
 

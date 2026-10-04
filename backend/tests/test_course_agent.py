@@ -108,6 +108,93 @@ def test_outline_explicit_deliverable_deadlines_are_extracted() -> None:
     assert assessments[0].due_at.astimezone(ZoneInfo("America/Toronto")).day == 30
 
 
+def test_outline_keeps_unknown_midterm_and_final_rows() -> None:
+    snapshot = BrowserPageSnapshot(
+        url="https://outline.uwaterloo.ca/viewer/view/syde252",
+        title="Fall 2026: SYDE 252",
+        text=(
+            "Assessments & Activities\n"
+            "Component / Activity\tDate or Due Date\tLocation\tWeight (%)\n"
+            "Midterm exam\t\tIn person\t25%\n"
+            "Final exam\tTBD\tIn Person\t35%\n"
+            "Late / Missed Content\n"
+        ),
+    )
+    assessments = _extract_outline_assessments(snapshot, "America/Toronto")
+    assert {assessment.title for assessment in assessments} == {"Midterm exam", "Final exam"}
+    assert all(assessment.due_at is None for assessment in assessments)
+
+
+def test_outline_attaches_weight_from_wrapped_continuation_row() -> None:
+    snapshot = BrowserPageSnapshot(
+        url="https://outline.uwaterloo.ca/viewer/view/syde286",
+        title="Fall 2026: SYDE 286",
+        text=(
+            "Assessments & Activities\n"
+            "Component / Activity\tDate or Due Date\tLocation\tWeight (%)\n"
+            "Midterm Test\tWednesday, October 21\n"
+            "5:30 PM - 7:00 PM\n"
+            "E5-6006 and E5-6008\tin person\t25\n"
+            "Late / Missed Content\n"
+        ),
+    )
+    assessments = _extract_outline_assessments(snapshot, "America/Toronto")
+    assert len(assessments) == 1
+    assert assessments[0].title == "Midterm Test"
+    assert assessments[0].weight_percent == 25
+    assert assessments[0].due_at is not None
+
+
+def test_outline_accepts_abbreviated_month_with_period_and_splits_labeled_dates() -> None:
+    snapshot = BrowserPageSnapshot(
+        url="https://outline.uwaterloo.ca/viewer/view/syde212",
+        title="Fall 2026: SYDE 212",
+        text=(
+            "Assessments & Activities\n"
+            "Component / Activity\tDate or Due Date\tLocation\tWeight (%)\n"
+            "Midterm\tOct. 23rd\tIn person\t40%\n"
+            "Cumulative assessment\tProposal: October 9th, 11:59pm "
+            "Final Report: December 8th, 2026, 11:59pm\tCrowdmark\t10%\n"
+            "Late / Missed Content\n"
+        ),
+    )
+    assessments = _extract_outline_assessments(snapshot, "America/Toronto")
+    assert any(item.title == "Midterm" and item.due_at is not None for item in assessments)
+    labeled = {item.title for item in assessments if item.title.startswith("Cumulative assessment")}
+    assert labeled == {"Cumulative assessment - Proposal", "Cumulative assessment - Final Report"}
+
+
+def test_dedupe_prefers_dated_item_over_unknown_outline_row() -> None:
+    snapshot = BrowserPageSnapshot(
+        url="https://outline.uwaterloo.ca/viewer/view/syde252",
+        title="Fall 2026: SYDE 252",
+        text=(
+            "Assessments & Activities\n"
+            "Component / Activity\tDate or Due Date\tLocation\tWeight (%)\n"
+            "Project Phase 1\t\tLearn Dropbox\t10%\n"
+            "Late / Missed Content\n"
+            "Phase 1 due: October 30, 11:59 PM\n"
+        ),
+    )
+    assessments = _extract_outline_assessments(snapshot, "America/Toronto")
+    phase_one = [item for item in assessments if "Phase 1" in item.title]
+    assert len(phase_one) == 1
+    assert phase_one[0].due_at is not None
+
+
+def test_announced_assessment_is_extracted_from_news_detail() -> None:
+    from app.agents.course_agent import _extract_announced_assessments
+
+    snapshot = BrowserPageSnapshot(
+        url="https://learn.uwaterloo.ca/d2l/le/news/123/456/view",
+        title="Quiz 2 information",
+        text="Quiz 2 is due Friday, October 23, 2026 at 11:59 PM.",
+    )
+    assessments = _extract_announced_assessments([snapshot], "America/Toronto")
+    assert len(assessments) == 1
+    assert assessments[0].title == "Quiz 2"
+
+
 def test_content_documents_are_classified_as_resources() -> None:
     snapshot = BrowserPageSnapshot(
         url="https://learn.uwaterloo.ca/d2l/le/content/123/Home",
