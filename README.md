@@ -62,7 +62,9 @@ Start the local read-only dashboard from the repository root:
 uv run uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
 ```
 
-Open <http://127.0.0.1:8000/dashboard>. The page shows the last sync, active courses, assessment deadlines, resource counts, and stored change events. The JSON API is available at `/api/dashboard`, `/courses`, `/assessments`, `/resources`, and `/changes`.
+Open <http://127.0.0.1:8000/dashboard>. Click a course to see its assessments, collected coursework, announcements, and locally marked completion count. Click an assessment to see ranked relevant coursework and study instructions tailored to quizzes/tests versus assignments/labs/projects. The assessment panel lets you mark work completed or reopen it; this is stored locally and survives future syncs. The JSON API is available at `/api/dashboard`, `/courses/{id}`, `/assessments/{id}`, `/resources`, and `/changes`.
+
+Completion is deliberately explicit: StudyAgent does not claim that an assessment is complete just because you opened a page or viewed a file. Resources are shown as collected coursework; actual assessment completion is marked by you from the dashboard.
 
 `submissions` shows the Dropbox/submission wording captured from readable LEARN Content pages:
 
