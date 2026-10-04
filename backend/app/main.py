@@ -3,13 +3,14 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 
 from app.config import get_settings
 from app.db.database import SessionLocal, ensure_schema
 from app.models import Assessment, ChangeEvent, Course, Resource, SyncRun
+from app.services.study_context import relevant_coursework, study_guidance
 
 app = FastAPI(title="StudyAgent", version="0.1.0")
 
@@ -41,6 +42,16 @@ def courses() -> list[dict[str, Any]]:
         ]
 
 
+@app.get("/courses/{course_id}")
+def course_detail(course_id: str) -> dict[str, Any]:
+    ensure_schema()
+    with SessionLocal() as session:
+        course = session.get(Course, course_id)
+        if course is None or not course.active:
+            raise HTTPException(status_code=404, detail="Course not found")
+        return _course_detail_payload(course)
+
+
 @app.get("/assessments")
 def assessments() -> list[dict[str, Any]]:
     ensure_schema()
@@ -54,6 +65,8 @@ def assessments() -> list[dict[str, Any]]:
         return [
             {
                 "id": assessment.id,
+                "course_id": course.id,
+                "id": assessment.id,
                 "course": course.code or course.name,
                 "title": assessment.title,
                 "type": assessment.assessment_type,
@@ -63,6 +76,33 @@ def assessments() -> list[dict[str, Any]]:
             }
             for assessment, course in rows
         ]
+
+
+@app.get("/assessments/{assessment_id}")
+def assessment_detail(assessment_id: str) -> dict[str, Any]:
+    ensure_schema()
+    with SessionLocal() as session:
+        assessment = session.get(Assessment, assessment_id)
+        if assessment is None or not assessment.course.active:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+        return _assessment_detail_payload(assessment)
+
+
+@app.post("/assessments/{assessment_id}/complete")
+def complete_assessment(assessment_id: str) -> dict[str, Any]:
+    return _set_assessment_status(assessment_id, "COMPLETED")
+
+
+@app.post("/assessments/{assessment_id}/reopen")
+def reopen_assessment(assessment_id: str) -> dict[str, Any]:
+    ensure_schema()
+    with SessionLocal() as session:
+        assessment = session.get(Assessment, assessment_id)
+        if assessment is None or not assessment.course.active:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+        assessment.status = _assessment_status(assessment.due_at, "UPCOMING")
+        session.commit()
+        return _assessment_detail_payload(assessment)
 
 
 @app.get("/resources")
@@ -106,6 +146,86 @@ def changes() -> list[dict[str, Any]]:
         ]
 
 
+def _course_detail_payload(course: Course) -> dict[str, Any]:
+    assessments_data = [
+        _assessment_summary(assessment, course)
+        for assessment in sorted(
+            course.assessments,
+            key=lambda item: (item.due_at is None, item.due_at or datetime.max.replace(tzinfo=UTC)),
+        )
+    ]
+    return {
+        "id": course.id,
+        "code": course.code,
+        "name": course.name,
+        "term": course.term,
+        "url": course.url,
+        "last_scanned_at": _iso(course.last_scanned_at),
+        "assessments": assessments_data,
+        "completed_assessments": sum(item["status"] == "COMPLETED" for item in assessments_data),
+        "resources": [
+            {
+                "id": resource.id,
+                "title": resource.title,
+                "type": resource.resource_type,
+                "url": resource.url,
+                "description": resource.description,
+                "first_seen_at": _iso(resource.first_seen_at),
+            }
+            for resource in sorted(course.resources, key=lambda item: item.title.casefold())
+        ],
+        "announcements": [
+            {
+                "id": announcement.id,
+                "title": announcement.title,
+                "body": announcement.body,
+                "published_at": _iso(announcement.published_at),
+                "source_url": announcement.source_url,
+            }
+            for announcement in sorted(
+                course.announcements,
+                key=lambda item: item.published_at or datetime.min.replace(tzinfo=UTC),
+                reverse=True,
+            )
+        ],
+    }
+
+
+def _assessment_summary(assessment: Assessment, course: Course) -> dict[str, Any]:
+    return {
+        "id": assessment.id,
+        "course_id": course.id,
+        "course": course.code or course.name,
+        "title": assessment.title,
+        "type": assessment.assessment_type,
+        "due_at": _iso(assessment.due_at),
+        "weight_percent": assessment.weight_percent,
+        "description": assessment.description,
+        "status": _assessment_status(assessment.due_at, assessment.status),
+        "source_url": assessment.source_url,
+    }
+
+
+def _assessment_detail_payload(assessment: Assessment) -> dict[str, Any]:
+    course = assessment.course
+    return {
+        **_assessment_summary(assessment, course),
+        "coursework": relevant_coursework(assessment, course.resources),
+        "study_guidance": study_guidance(assessment),
+    }
+
+
+def _set_assessment_status(assessment_id: str, status: str) -> dict[str, Any]:
+    ensure_schema()
+    with SessionLocal() as session:
+        assessment = session.get(Assessment, assessment_id)
+        if assessment is None or not assessment.course.active:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+        assessment.status = status
+        session.commit()
+        return _assessment_detail_payload(assessment)
+
+
 @app.get("/api/dashboard")
 def dashboard_data() -> dict[str, Any]:
     ensure_schema()
@@ -137,19 +257,26 @@ def dashboard_data() -> dict[str, Any]:
             else None,
             "courses": [
                 {
+                    "id": course.id,
                     "code": course.code,
                     "name": course.name,
                     "assessment_count": len(course.assessments),
                     "resource_count": len(course.resources),
+                    "completed_assessment_count": sum(
+                        assessment.status == "COMPLETED" for assessment in course.assessments
+                    ),
                 }
                 for course in active_courses
             ],
             "assessments": [
                 {
+                    "id": assessment.id,
+                    "course_id": course.id,
                     "course": course.code or course.name,
                     "title": assessment.title,
                     "type": assessment.assessment_type,
                     "due_at": _iso(assessment.due_at),
+                    "description": assessment.description,
                     "status": _assessment_status(assessment.due_at, assessment.status),
                 }
                 for assessment, course in assessment_rows

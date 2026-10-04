@@ -160,7 +160,11 @@ def assessments() -> None:
         for assessment, course in session.execute(statement):
             due_at = _as_utc(assessment.due_at)
             due = due_at.astimezone().strftime("%Y-%m-%d %H:%M") if due_at else "unknown"
-            status = "OVERDUE" if due_at and due_at < now else assessment.status
+            status = (
+                "OVERDUE"
+                if due_at and due_at < now and assessment.status != "COMPLETED"
+                else assessment.status
+            )
             table.add_row(
                 course.code or course.name,
                 assessment.title,
