@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     openai_api_key: str | None = None
+    openai_model: str = "gpt-6-astra"
     browser_mode: str = Field(default="local", pattern="^(local|cloud|mock)$")
     database_url: str = "sqlite:///./data/study_agent.db"
     learn_url: str = "https://learn.uwaterloo.ca"

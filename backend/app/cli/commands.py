@@ -12,6 +12,7 @@ from app.config import get_settings
 from app.db.database import SessionLocal, ensure_schema
 from app.logging import configure_logging
 from app.models import Assessment, Course, Resource
+from app.services.rag import RagService
 from app.services.sync_service import SyncService
 
 app = typer.Typer(help="Local-first academic agent for Waterloo LEARN.")
@@ -215,6 +216,21 @@ def submissions() -> None:
                     resource.description,
                 )
     console.print(table)
+
+
+@app.command("rag-index")
+def rag_index() -> None:
+    """Upload saved course documents into the persistent OpenAI vector store."""
+    configure_logging()
+    try:
+        vector_store_id, indexed, skipped = RagService(get_settings()).index_database()
+    except Exception as exc:
+        console.print(f"[red][FAIL] RAG indexing failed:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    console.print(
+        f"[green][OK][/green] Vector store {vector_store_id}: "
+        f"{indexed} indexed, {skipped} skipped"
+    )
 
 
 def _as_utc(value: datetime | None) -> datetime | None:

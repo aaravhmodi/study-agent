@@ -9,7 +9,7 @@ from typing import Any, TypeVar
 from pydantic import BaseModel
 
 from app.config import Settings
-from app.schemas.browser import BrowserPageSnapshot
+from app.schemas.browser import BrowserDownloadedResource, BrowserPageSnapshot
 from app.schemas.sync import BrowserTestResult
 
 logger = logging.getLogger(__name__)
@@ -41,6 +41,10 @@ class BrowserClient(ABC):
     async def inspect_content(self, url: str, wait_seconds: int = 2) -> list[BrowserPageSnapshot]:
         """Open a LEARN content page and read its visible modules/topics."""
 
+    @abstractmethod
+    async def download_resource(self, url: str) -> BrowserDownloadedResource:
+        """Fetch one resource with the authenticated browser session using GET only."""
+
 
 class MockBrowserClient(BrowserClient):
     def __init__(self, payload: dict[str, Any] | None = None) -> None:
@@ -71,6 +75,13 @@ class MockBrowserClient(BrowserClient):
         del url, wait_seconds
         pages = self.payload.get("content_pages", [])
         return [BrowserPageSnapshot.model_validate(page) for page in pages]
+
+    async def download_resource(self, url: str) -> BrowserDownloadedResource:
+        del url
+        payload = self.payload.get("download")
+        if not isinstance(payload, dict):
+            raise BrowserClientError("Mock browser payload has no download resource")
+        return BrowserDownloadedResource.model_validate(payload)
 
 
 class BrowserUseClient(BrowserClient):
@@ -143,6 +154,25 @@ class BrowserUseClient(BrowserClient):
             raise BrowserClientError(
                 "Browser Use CLI was not found. Install it with uv venv and uv pip install."
             )
+        # Brightspace exposes the course tree through its authenticated Content
+        # API.  Use it first so file topics resolve to the actual file endpoint
+        # instead of the HTML viewer shell.  The older DOM traversal below is a
+        # compatibility fallback for installations where the API is disabled.
+        api_completed = await asyncio.to_thread(
+            _run_cli,
+            self.executable,
+            _api_content_script(url, wait_seconds),
+        )
+        if api_completed.returncode == 0:
+            try:
+                api_payload = _extract_result(api_completed.stdout)
+                api_pages = api_payload.get("pages")
+                if isinstance(api_pages, list) and api_pages:
+                    return [BrowserPageSnapshot.model_validate(page) for page in api_pages]
+            except Exception:
+                # Fall through to the legacy page scraper.  The fallback keeps
+                # sync usable on older/custom Brightspace deployments.
+                pass
         completed = await asyncio.to_thread(
             _run_cli,
             self.executable,
@@ -159,6 +189,20 @@ class BrowserUseClient(BrowserClient):
             return [BrowserPageSnapshot.model_validate(page) for page in pages]
         except Exception as exc:
             raise BrowserClientError(f"Browser Use returned invalid content data: {exc}") from exc
+
+    async def download_resource(self, url: str) -> BrowserDownloadedResource:
+        if not self.is_installed():
+            raise BrowserClientError(
+                "Browser Use CLI was not found. Install it with uv venv and uv pip install."
+            )
+        completed = await asyncio.to_thread(_run_cli, self.executable, _download_script(url))
+        if completed.returncode != 0:
+            detail = completed.stderr.strip() or "unknown Browser Use error"
+            raise BrowserClientError(f"Browser Use resource download failed: {detail[-2000:]}")
+        try:
+            return BrowserDownloadedResource.model_validate(_extract_result(completed.stdout))
+        except Exception as exc:
+            raise BrowserClientError(f"Browser Use returned invalid download data: {exc}") from exc
 
 
 def _run_cli(executable: str, script: str) -> subprocess.CompletedProcess[str]:
@@ -295,6 +339,112 @@ print('STUDY_AGENT_RESULT=' + json.dumps({{
     'text': payload.get('text', ''),
     'links': payload.get('links', [])
 }}))
+"""
+
+
+def _api_content_script(url: str, wait_seconds: int) -> str:
+    encoded_url = json.dumps(url)
+    expression = """(async () => {
+  const pathParts = window.location.pathname.split('/');
+  const offeringId = pathParts[4] || '';
+  const apiBase = `/d2l/api/le/1.82/${offeringId}`;
+  const getJson = async path => {
+    try {
+      const response = await fetch(path, {credentials: 'include'});
+      if (!response.ok) return null;
+      return await response.json();
+    } catch (_) {
+      return null;
+    }
+  };
+  const asItems = value => {
+    if (Array.isArray(value)) return value;
+    if (Array.isArray(value?.Items)) return value.Items;
+    if (Array.isArray(value?.Structure)) return value.Structure;
+    return [];
+  };
+  const pages = [];
+  const seenTopics = new Set();
+  const seenModules = new Set();
+  const cleanText = value => String(value || '').replace(/<[^>]*>/g, ' ').trim();
+  const addTopic = async item => {
+    const topicId = item?.Id ?? item?.id;
+    if (!topicId || seenTopics.has(String(topicId))) return;
+    seenTopics.add(String(topicId));
+    const topic = await getJson(`${apiBase}/content/topics/${topicId}`) || item;
+    const title = String(topic?.Title || item?.Title || `Content topic ${topicId}`).trim();
+    const topicType = Number(topic?.TopicType ?? item?.TopicType ?? 0);
+    let href = '';
+    if (topicType === 1) {
+      href = `${window.location.origin}${apiBase}/content/topics/${topicId}/file`;
+    } else if (topic?.Url) {
+      try {
+        href = new URL(topic.Url, window.location.origin).href;
+      } catch (_) {
+        href = '';
+      }
+    }
+    if (!href) return;
+    const description = topic?.Description?.Text
+      || topic?.Description?.Html
+      || topic?.Description
+      || '';
+    pages.push({
+      url: href,
+      title,
+      text: cleanText(description),
+      links: [{text: title, href}]
+    });
+  };
+  const walkModule = async module => {
+    const moduleId = module?.Id ?? module?.id;
+    if (!moduleId || seenModules.has(String(moduleId))) return;
+    seenModules.add(String(moduleId));
+    const structure = await getJson(`${apiBase}/content/modules/${moduleId}/structure/`);
+    const items = asItems(structure);
+    const batchSize = 8;
+    for (let index = 0; index < items.length; index += batchSize) {
+      const batch = items.slice(index, index + batchSize);
+      await Promise.all(batch.map(item => {
+        const type = Number(item?.Type ?? item?.type ?? 0);
+        return type === 0 || item?.ModuleId || item?.Module
+          ? walkModule(item)
+          : addTopic(item);
+      }));
+    }
+  };
+  if (!offeringId) return JSON.stringify({pages: []});
+  const roots = await getJson(`${apiBase}/content/root/`);
+  await Promise.all(asItems(roots).map(root => walkModule(root)));
+  return JSON.stringify({pages});
+})()"""
+    return f"""import json
+import time
+from urllib.parse import urlsplit
+
+target_url = {encoded_url}
+target = urlsplit(target_url)
+tabs = list_tabs()
+matching = [
+    tab for tab in tabs
+    if urlsplit(str(tab.get('url', ''))).netloc == target.netloc
+    and urlsplit(str(tab.get('url', ''))).path == target.path
+]
+if matching:
+    switch_tab(
+        matching[0].get('id')
+        or matching[0].get('targetId')
+        or matching[0].get('target_id')
+        or matching[0].get('index')
+        or matching[0]
+    )
+else:
+    new_tab(target_url)
+wait_for_load()
+time.sleep({max(0, min(wait_seconds, 15))})
+raw = js({json.dumps(expression)})
+payload = json.loads(raw) if isinstance(raw, str) else raw
+print('STUDY_AGENT_RESULT=' + json.dumps({{'pages': payload.get('pages', [])}}))
 """
 
 
@@ -462,4 +612,145 @@ for resource_url in resource_urls[:200]:
         'links': detail.get('links', []),
     }})
 print('STUDY_AGENT_RESULT=' + json.dumps({{'pages': pages}}))
+"""
+
+
+def _download_script(url: str) -> str:
+    encoded_url = json.dumps(url)
+    chunk_expression = """(() => {
+  const state = window.__studyAgentDownload;
+  if (!state) return JSON.stringify({error: 'download state is missing'});
+  const start = Number(state.offset || 0);
+  const chunk = state.content_base64.slice(start, start + 65536);
+  state.offset = start + chunk.length;
+  return JSON.stringify({chunk, done: state.offset >= state.content_base64.length});
+})()"""
+    expression = rf'''(async () => {{
+  try {{
+    let response = await fetch({encoded_url}, {{credentials: 'include'}});
+    if (!response.ok) return JSON.stringify({{error: 'HTTP ' + response.status}});
+    let contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('text/html')) {{
+      const html = await response.text();
+      const locationMatch = html.match(
+        /data-location=["']([^"']+\.(?:pdf|docx?|pptx?|xlsx?)(?:\\?[^"']*)?)["']/i
+      );
+      if (locationMatch) {{
+        const embeddedUrl = new URL(
+          locationMatch[1].replaceAll('&amp;', '&'),
+          response.url
+        ).href;
+        response = await fetch(embeddedUrl, {{credentials: 'include'}});
+        if (!response.ok) return JSON.stringify({{error: 'HTTP ' + response.status}});
+        contentType = response.headers.get('content-type') || '';
+      }} else {{
+        const encoder = new TextEncoder();
+        const bytes = encoder.encode(html);
+        let binary = '';
+        const chunkSize = 0x8000;
+        for (let index = 0; index < bytes.length; index += chunkSize) {{
+          binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+        }}
+        window.__studyAgentDownload = {{
+          content_base64: btoa(binary),
+          offset: 0
+        }};
+        return JSON.stringify({{
+          resolved_url: response.url,
+          filename: new URL({encoded_url}).pathname.split('/').pop() || 'resource.html',
+          content_type: contentType,
+          content_base64: '',
+          chunked: true
+        }});
+      }}
+    }}
+    const contentLength = Number(response.headers.get('content-length') || 0);
+    if (/^(audio|video)\//i.test(contentType) || contentLength > 15 * 1024 * 1024) {{
+      return JSON.stringify({{
+        resolved_url: response.url,
+        filename: new URL({encoded_url}).pathname.split('/').pop() || 'media.bin',
+        content_type: contentType || 'application/octet-stream',
+        content_base64: '',
+        skipped: true,
+        skip_reason: /^(audio|video)\//i.test(contentType)
+          ? 'media resource is not downloaded'
+          : 'resource exceeds browser transfer limit'
+      }});
+    }}
+    const buffer = await response.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let index = 0; index < bytes.length; index += chunkSize) {{
+      binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+    }}
+    const disposition = response.headers.get('content-disposition') || '';
+    const match = disposition.match(/filename[^;=]*=(?:UTF-8''|\"?)([^;\"]+)/i);
+    const fallback = new URL({encoded_url}).pathname.split('/').pop() || 'resource.bin';
+    window.__studyAgentDownload = {{
+      content_base64: btoa(binary),
+      offset: 0
+    }};
+    return JSON.stringify({{
+      resolved_url: response.url,
+      filename: (match && match[1]
+        ? decodeURIComponent(match[1]).replace(/^\"|\"$/g, '')
+        : fallback),
+      content_type: contentType || 'application/octet-stream',
+      content_base64: '',
+      chunked: true
+    }});
+  }} catch (error) {{
+    return JSON.stringify({{error: String(error)}});
+  }}
+}})()'''
+    return f"""import json
+import time
+from urllib.parse import urlsplit, urlunsplit
+
+target_url = {encoded_url}
+target = urlsplit(target_url)
+tabs = list_tabs()
+matching = [
+    tab for tab in tabs
+    if urlsplit(str(tab.get('url', ''))).netloc == target.netloc
+    and '/d2l/api/' not in urlsplit(str(tab.get('url', ''))).path
+    and '/d2l/common/viewFile' not in urlsplit(str(tab.get('url', ''))).path
+]
+matching.sort(
+    key=lambda tab: 0
+    if urlsplit(str(tab.get('url', ''))).path in {'/d2l/home', '/d2l/'}
+    else 1
+)
+if matching:
+    switch_tab(
+        matching[0].get('id')
+        or matching[0].get('targetId')
+        or matching[0].get('target_id')
+        or matching[0].get('index')
+        or matching[0]
+    )
+else:
+    new_tab('https://learn.uwaterloo.ca/d2l/home')
+    time.sleep(1)
+raw = js({json.dumps(expression)})
+payload = json.loads(raw) if isinstance(raw, str) else raw
+if payload.get('error'):
+    raise RuntimeError(payload['error'])
+if payload.get('chunked'):
+    chunks = []
+    while True:
+        chunk_raw = js({json.dumps(chunk_expression)})
+        chunk_payload = json.loads(chunk_raw) if isinstance(chunk_raw, str) else chunk_raw
+        if chunk_payload.get('error'):
+            raise RuntimeError(chunk_payload['error'])
+        chunks.append(chunk_payload.get('chunk', ''))
+        if chunk_payload.get('done'):
+            break
+    payload['content_base64'] = ''.join(chunks)
+    payload.pop('chunked', None)
+parsed = urlsplit(target_url)
+payload['url'] = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, parsed.query, ''))
+payload['resolved_url'] = payload.get('resolved_url') or payload['url']
+print('STUDY_AGENT_RESULT=' + json.dumps(payload))
 """

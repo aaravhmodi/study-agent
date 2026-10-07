@@ -16,6 +16,7 @@ from app.models import Announcement, Assessment, Course, Resource, SyncRun
 from app.schemas.course import CourseSummary
 from app.schemas.extraction import CourseScanResult
 from app.schemas.sync import SyncSummary
+from app.services.document_collector import DocumentCollector
 
 logger = logging.getLogger(__name__)
 
@@ -65,12 +66,20 @@ class SyncService:
                     try:
                         scan = await agent.scan_course(course_summary)
                         counts = _persist_scan(session, course, scan)
+                        downloaded, failed_downloads = await DocumentCollector(
+                            self.settings, self.browser
+                        ).collect(session, course)
                         summary.assessments_found += counts[0]
                         summary.resources_found += counts[1]
                         self.progress(
                             f"{course.name}: {counts[0]} assessments, {counts[1]} resources, "
-                            f"{len(scan.announcements)} announcements"
+                            f"{len(scan.announcements)} announcements, {downloaded} files saved"
                         )
+                        if failed_downloads:
+                            self.progress(
+                                f"WARNING {course.name}: {failed_downloads} resources "
+                                "could not be saved"
+                            )
                     except Exception as exc:
                         failures.append(f"{course.name}: {exc}")
                         logger.exception("Course scan failed for %s", course.name)
@@ -205,7 +214,33 @@ def _persist_scan(session: Session, course: Course, scan: CourseScanResult) -> t
         existing_resource.url = extracted_url
         existing_resource.uploaded_at = resource.uploaded_at
         existing_resource.description = resource.description
+        existing_resource.content_text = resource.content_text
 
+    _remove_obsolete_unprocessed_wrappers(session, course, scan)
     course.last_scanned_at = now
     session.flush()
     return len(scan.assessments), len(scan.resources)
+
+
+def _remove_obsolete_unprocessed_wrappers(
+    session: Session, course: Course, scan: CourseScanResult
+) -> None:
+    """Remove failed HTML shells replaced by the authenticated Content API."""
+
+    api_resources = {
+        str(resource.url)
+        for resource in scan.resources
+        if resource.url and "/d2l/api/le/" in str(resource.url)
+    }
+    if not api_resources:
+        return
+    resources = list(
+        session.scalars(select(Resource).where(Resource.course_id == course.id)).all()
+    )
+    processed_urls = {resource.url for resource in resources if resource.processed and resource.url}
+    for resource in resources:
+        url = resource.url or ""
+        duplicate_processed = url in processed_urls
+        obsolete_wrapper = "/d2l/le/content/" in url and "viewContent" in url
+        if not resource.processed and (duplicate_processed or obsolete_wrapper):
+            session.delete(resource)

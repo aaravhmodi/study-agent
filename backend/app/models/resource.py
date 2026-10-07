@@ -16,6 +16,7 @@ class Resource(Base):
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     resource_type: Mapped[str] = mapped_column(String(30), nullable=False, default="OTHER")
     url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     local_path: Mapped[str | None] = mapped_column(String(2048), nullable=True)

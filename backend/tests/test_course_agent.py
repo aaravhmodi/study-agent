@@ -4,7 +4,9 @@ from zoneinfo import ZoneInfo
 import pytest
 from app.agents.course_agent import (
     CourseAgent,
+    _apply_known_learn_offerings,
     _assessment_type,
+    _course_from_link,
     _extract_outline_assessments,
     _extract_resources,
     _outline_courses,
@@ -13,6 +15,7 @@ from app.agents.course_agent import (
 from app.browser.client import MockBrowserClient
 from app.config import get_settings
 from app.schemas.browser import BrowserPageSnapshot, PageLink
+from app.schemas.course import CourseSummary
 
 
 @pytest.mark.asyncio
@@ -32,9 +35,50 @@ async def test_discover_courses_from_semantic_links() -> None:
         }
     )
     result = await CourseAgent(browser, get_settings()).discover_courses()
-    assert len(result.courses) == 1
-    assert result.courses[0].code == "SYDE 286"
-    assert result.courses[0].term == "Fall 2026"
+    assert {course.code for course in result.courses} == {
+        "SYDE 212",
+        "SYDE 252",
+        "SYDE 262",
+        "SYDE 286",
+        "SYDE 292",
+        "SYDE 292L",
+    }
+
+
+def test_community_hub_is_not_treated_as_a_course() -> None:
+    result = _course_from_link(
+        "Engineering Co-op Community",
+        "https://learn.uwaterloo.ca/d2l/lp/ouHome/home.d2l?ou=999",
+    )
+    assert result is None
+
+
+def test_course_code_can_be_found_in_a_descriptive_link_label() -> None:
+    result = _course_from_link(
+        "Open course: SYDE 212 - Probability, Statistics, and Data Science",
+        "https://learn.uwaterloo.ca/d2l/lp/ouHome/home.d2l?ou=212000",
+    )
+    assert result is not None
+    assert result.code == "SYDE 212"
+
+
+def test_known_offering_fallback_replaces_outline_url() -> None:
+    course = _course_from_link(
+        "SYDE 292L - Fall 2026",
+        "https://outline.uwaterloo.ca/viewer/view/example",
+    )
+    assert course is not None
+    _apply_known_learn_offerings({course.code or "": course})
+    assert "ou=1296009" in str(course.url)
+
+
+def test_known_offering_fallback_adds_missing_course() -> None:
+    courses: dict[str, CourseSummary] = {}
+    _apply_known_learn_offerings(courses)
+    assert "SYDE 292" in courses
+    assert "ou=1292783" in str(courses["SYDE 292"].url)
+    assert "SYDE 212" in courses
+    assert "ou=1299242" in str(courses["SYDE 212"].url)
 
 
 def test_parse_due_date_converts_waterloo_time_to_utc() -> None:
@@ -211,3 +255,67 @@ def test_content_documents_are_classified_as_resources() -> None:
     )
     resources = _extract_resources([snapshot])
     assert [resource.resource_type for resource in resources] == ["DOCUMENT", "SLIDES"]
+
+
+def test_content_page_text_is_preserved_for_rag() -> None:
+    snapshot = BrowserPageSnapshot(
+        url="https://learn.uwaterloo.ca/d2l/le/content/1318237/viewContent/6728917/View",
+        text=(
+            "Expand side panel\nLinear Systems and Signals\n"
+            "The transfer function is H(s) = Y(s) / X(s)."
+        ),
+        links=[
+            PageLink(
+                text="Expand side panelCollapse side panel",
+                href="https://learn.uwaterloo.ca/d2l/le/content/1318237/viewContent/6728917/View",
+            )
+        ],
+    )
+    resources = _extract_resources([snapshot])
+    assert resources[0].content_text is not None
+    assert "transfer function" in resources[0].content_text
+
+
+def test_syde286_lecture_one_shear_stress_resource_uses_content_api() -> None:
+    snapshot = BrowserPageSnapshot(
+        url=(
+            "https://learn.uwaterloo.ca/d2l/api/le/1.82/1292394/"
+            "content/topics/6590136/file"
+        ),
+        title="Lecture 1-Intro & Stress",
+        text="Lecture 1 introduces normal stress and shear stress.",
+        links=[
+            PageLink(
+                text="Lecture 1-Intro & Stress",
+                href=(
+                    "https://learn.uwaterloo.ca/d2l/api/le/1.82/1292394/"
+                    "content/topics/6590136/file"
+                ),
+            )
+        ],
+    )
+
+    resources = _extract_resources([snapshot])
+
+    assert len(resources) == 1
+    assert resources[0].title == "Lecture 1-Intro & Stress"
+    assert resources[0].resource_type == "DOCUMENT"
+    assert "/content/topics/6590136/file" in str(resources[0].url)
+    assert resources[0].content_text is not None
+    assert "shear stress" in resources[0].content_text.lower()
+
+
+def test_recording_resources_are_marked_as_video() -> None:
+    snapshot = BrowserPageSnapshot(
+        url="https://learn.uwaterloo.ca/d2l/le/content/1292783/Home",
+        links=[
+            PageLink(
+                text="Fundamental Circuit Analysis Recording - Video",
+                href="https://learn.uwaterloo.ca/d2l/le/content/1292783/viewContent/6711698/View",
+            )
+        ],
+    )
+
+    resources = _extract_resources([snapshot])
+
+    assert resources[0].resource_type == "VIDEO"

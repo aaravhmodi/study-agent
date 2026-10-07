@@ -37,9 +37,15 @@ def ensure_schema() -> None:
     if engine.dialect.name != "sqlite":
         return
     columns = {column["name"] for column in inspect(engine).get_columns("resources")}
+    missing_columns = []
     if "description" not in columns:
+        missing_columns.append("description TEXT")
+    if "content_text" not in columns:
+        missing_columns.append("content_text TEXT")
+    if missing_columns:
         with engine.begin() as connection:
-            connection.execute(text("ALTER TABLE resources ADD COLUMN description TEXT"))
+            for column in missing_columns:
+                connection.execute(text(f"ALTER TABLE resources ADD COLUMN {column}"))
 
 
 def get_db() -> Generator[Session, None, None]:

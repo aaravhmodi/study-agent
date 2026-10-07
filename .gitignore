@@ -10,3 +10,4 @@ __pycache__/
 *.egg-info/
 data/*.db
 data/downloads/
+data/rag_manifest.json

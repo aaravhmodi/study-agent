@@ -27,7 +27,7 @@ Copy-Item .env.example .env
 uv run study-agent setup
 ```
 
-`OPENAI_API_KEY` is not required by the Milestone 1/2 smoke tests. It will be required when semantic extraction is added.
+`OPENAI_API_KEY` is required for RAG indexing and chat. Keep it only in `.env`; it is never printed or sent to the browser.
 
 ## Browser connection test
 
@@ -42,7 +42,17 @@ uv run study-agent resources
 uv run study-agent submissions
 ```
 
-`sync` uses the authenticated Chrome session to discover active LEARN course shells, inspect each course, traverse every visible Content module and its discovered Content items, collect PDF/document/slide/page resources, capture read-only Dropbox/submission notes from HTML pages, open recent LEARN announcement details, check its Outline page, and persist the extracted records in SQLite. Outline rows without dates (for example, a final listed as `TBD`) are retained as `UNKNOWN`; announced dates are merged with calendar and Outline records when they describe the same assessment. It never clicks Submit or changes LMS data. Authentication remains browser-managed; complete any sign-in or Duo prompt in Chrome.
+`sync` uses the authenticated Chrome session to discover active LEARN course shells, inspect each course, traverse every visible Content module and its discovered Content items, collect PDF/document/slide/page resources, save readable resources locally through authenticated GET requests, capture read-only Dropbox/submission notes from HTML pages, open recent LEARN announcement details, check its Outline page, and persist the extracted records in SQLite. Outline rows without dates (for example, a final listed as `TBD`) are retained as `UNKNOWN`; announced dates are merged with calendar and Outline records when they describe the same assessment. It never clicks Submit or changes LMS data. Authentication remains browser-managed; complete any sign-in or Duo prompt in Chrome.
+
+## Course-material chatbot
+
+After a sync, build/update the persistent OpenAI vector store:
+
+```powershell
+uv run study-agent rag-index
+```
+
+Start the dashboard and ask questions in the “Ask your course materials” box, or call `POST /chat` with `{"question":"Get me up to speed for SYDE 252 tomorrow.","course_code":"SYDE 252"}`. Answers are grounded with OpenAI File Search and include source filenames. Re-run `rag-index` after future syncs; unchanged files are skipped.
 
 ## Keep it running in the background
 
@@ -79,6 +89,7 @@ From the repository root, keep Chrome open with LEARN and Outline signed in:
 ```powershell
 uv run study-agent browser test
 uv run study-agent sync
+uv run study-agent rag-index
 uv run study-agent courses
 uv run study-agent assessments
 ```

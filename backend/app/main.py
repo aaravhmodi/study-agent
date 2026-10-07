@@ -10,9 +10,20 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.db.database import SessionLocal, ensure_schema
 from app.models import Assessment, ChangeEvent, Course, Resource, SyncRun
+from app.schemas.chat import ChatRequest, ChatResponse
+from app.services.rag import RagService
 from app.services.study_context import relevant_coursework, study_guidance
 
 app = FastAPI(title="StudyAgent", version="0.1.0")
+
+
+@app.post("/chat", response_model=ChatResponse)
+def chat(request: ChatRequest) -> ChatResponse:
+    """Answer a student question using the indexed course materials."""
+    try:
+        return RagService(get_settings()).ask(request.question, request.course_code)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.get("/health")
@@ -352,10 +363,11 @@ h1{margin:0 0 6px}.muted{color:#667085}.grid{display:grid;grid-template-columns:
 .metric{font-size:28px;font-weight:700}.course{display:flex;justify-content:space-between;gap:16px;border-top:1px solid #eaecf0;padding:12px 0}.course:first-child{border-top:0}
 button{font:inherit}.clickable{cursor:pointer;text-align:left;background:transparent;border:0;width:100%;color:inherit}.clickable:hover{background:#f8faff}.toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px}
 table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:10px 8px;border-top:1px solid #eaecf0}th{color:#667085;font-weight:600}.pill{border-radius:99px;padding:3px 8px;font-size:12px;background:#eef4ff;color:#175cd3;white-space:nowrap}.overdue{background:#fef3f2;color:#b42318}.completed{background:#ecfdf3;color:#027a48}.empty{color:#667085;padding:8px 0}.detail{margin:22px 0}.hidden{display:none}.link{color:#175cd3}.resource{border-top:1px solid #eaecf0;padding:10px 0}.resource:first-child{border-top:0}.action{border:0;border-radius:8px;padding:8px 12px;background:#175cd3;color:#fff;cursor:pointer}.secondary{background:#eef4ff;color:#175cd3}
-ul{padding-left:20px}li{margin:8px 0}.small{font-size:13px}
+textarea,input{font:inherit;border:1px solid #d0d5dd;border-radius:8px;padding:10px;box-sizing:border-box}textarea{width:100%;min-height:110px;resize:vertical}.chat-row{display:flex;gap:10px;align-items:center;margin-top:10px}.chat-row input{width:180px}.answer{white-space:pre-wrap;line-height:1.55;border-top:1px solid #eaecf0;margin-top:16px;padding-top:16px}ul{padding-left:20px}li{margin:8px 0}.small{font-size:13px}
 </style></head><body><main>
 <h1>StudyAgent</h1><div class="muted">Click a course or assessment to see your work, completion state, relevant coursework, and study method. <a href="/docs">API docs</a></div>
 <div id="summary" class="grid"></div>
+<section class="card"><h2>Ask your course materials</h2><div class="muted small">Answers are grounded in files collected from LEARN and include source filenames.</div><textarea id="chat-question" placeholder="Example: Get me up to speed for SYDE 252 tomorrow."></textarea><div class="chat-row"><input id="chat-course" placeholder="Course (optional)" value="SYDE 252"><button class="action" id="chat-ask">Ask StudyAgent</button></div><div id="chat-answer"></div></section>
 <section id="detail" class="card detail hidden"><div id="detail-content"></div></section>
 <div class="grid"><section class="card"><div class="toolbar"><h2>Courses</h2><span class="muted small">click to open</span></div><div id="courses"></div></section>
 <section class="card"><h2>Recent changes</h2><div id="changes"></div></section></div>
@@ -366,6 +378,9 @@ const date = value => value ? new Date(value).toLocaleString() : 'No date';
 const statusPill = status => `<span class="pill ${status==='OVERDUE'?'overdue':''} ${status==='COMPLETED'?'completed':''}">${esc(status)}</span>`;
 const resourceLink = resource => resource.url ? `<a class="link" target="_blank" rel="noreferrer" href="${esc(resource.url)}">${esc(resource.title)}</a>` : esc(resource.title);
 async function getJson(path, options){const response=await fetch(path,options);if(!response.ok)throw new Error(await response.text());return response.json()}
+async function askChat(){const button=document.querySelector('#chat-ask');const output=document.querySelector('#chat-answer');const question=document.querySelector('#chat-question').value.trim();if(!question)return;button.disabled=true;button.textContent='Thinking...';output.textContent='';try{const result=await getJson('/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question,course_code:document.querySelector('#chat-course').value.trim()||null})});output.innerHTML=`<div class="answer">${esc(result.answer)}</div>${result.citations?.length?`<div class="muted small">Sources: ${result.citations.map(c=>esc(c.filename)).join(', ')}</div>`:''}`}catch(error){output.innerHTML=`<div class="answer overdue">${esc(error.message||error)}</div>`}finally{button.disabled=false;button.textContent='Ask StudyAgent'}}
+document.querySelector('#chat-ask').addEventListener('click',askChat);
+document.querySelector('#chat-question').addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key==='Enter')askChat()});
 function showDetail(html){const detail=document.querySelector('#detail');document.querySelector('#detail-content').innerHTML=html;detail.classList.remove('hidden');detail.scrollIntoView({behavior:'smooth',block:'start'})}
 function closeDetail(){document.querySelector('#detail').classList.add('hidden')}
 async function openCourse(id){

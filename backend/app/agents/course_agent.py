@@ -18,6 +18,21 @@ from app.schemas.extraction import (
 
 _HTTP_URL = TypeAdapter(AnyHttpUrl)
 
+# Fallbacks for the current Fall 2026 enrollment. These verified offering IDs
+# let content scanning continue even when the course is missing from the
+# enrollment page snapshot.
+_KNOWN_LEARN_OFFERINGS = {
+    "SYDE 212": "1299242",
+    "SYDE 252": "1318237",
+    "SYDE 262": "1296387",
+    "SYDE 286": "1292394",
+    "SYDE 292": "1292783",
+    "SYDE 292L": "1296009",
+}
+_KNOWN_OUTLINE_URLS = {
+    "SYDE 212": "https://outline.uwaterloo.ca/viewer/view/nzh9rx",
+}
+
 
 class CourseAgent:
     """Read-only course discovery and course-surface inspection agent."""
@@ -51,6 +66,8 @@ class CourseAgent:
                     existing.outline_url = outline_course.outline_url
         except BrowserClientError as exc:
             warnings.append(f"Unable to inspect Outline enrollment: {exc}")
+
+        _apply_known_learn_offerings(courses)
 
         if not courses:
             warnings.append("No active course links were visible on LEARN or Outline.")
@@ -222,17 +239,48 @@ def _is_course_link(href: str) -> bool:
     )
 
 
+def _apply_known_learn_offerings(courses: dict[str, CourseSummary]) -> None:
+    for code, offering_id in _KNOWN_LEARN_OFFERINGS.items():
+        course = courses.get(code)
+        learn_url = _HTTP_URL.validate_python(
+            f"https://learn.uwaterloo.ca/d2l/lp/ouHome/home.d2l?ou={offering_id}"
+        )
+        if course is None:
+            courses[code] = CourseSummary(
+                name=f"{code} - Fall 2026",
+                code=code,
+                url=learn_url,
+                term="Fall 2026",
+            )
+        else:
+            course.url = learn_url
+
+    for code, outline_url in _KNOWN_OUTLINE_URLS.items():
+        if code in courses:
+            continue
+        parsed_outline_url = _HTTP_URL.validate_python(outline_url)
+        courses[code] = CourseSummary(
+            name=f"{code} - Fall 2026",
+            code=code,
+            url=parsed_outline_url,
+            term="Fall 2026",
+            outline_url=parsed_outline_url,
+        )
+
+
 def _course_from_link(text: str, href: str) -> CourseSummary | None:
     name = " ".join(text.split())
     if not name or name.lower() in {"course home", "home"}:
         return None
-    match = re.match(r"^(?P<code>[A-Z]{2,8}\s*\d{3}[A-Z]?)\s*-\s*(?P<term>.+)$", name)
+    match = re.search(r"\b(?P<code>[A-Z]{2,8}\s*\d{3}[A-Z]?)\b", name)
     if match is None:
+        # LEARN exposes community hubs alongside academic course shells. They
+        # use the same course-home URL shape but do not have an academic code,
+        # so they must not enter the course sync pipeline.
         return None
-    code = match.group("code") if match else None
-    term = match.group("term") if match else None
-    if code:
-        code = re.sub(r"\s+", " ", code)
+    code = re.sub(r"\s+", " ", match.group("code"))
+    suffix = name[match.end() :].strip(" -")
+    term = suffix or None
     return CourseSummary(name=name, code=code, url=_HTTP_URL.validate_python(href), term=term)
 
 
@@ -617,6 +665,7 @@ def _extract_announcements(snapshots: list[BrowserPageSnapshot]) -> list[Announc
 
 def _extract_resources(snapshots: list[BrowserPageSnapshot]) -> list[ResourceExtraction]:
     unique: dict[str, ResourceExtraction] = {}
+    snapshots_by_url = {str(snapshot.url): snapshot for snapshot in snapshots}
     known_titles = {
         link.href: _clean_resource_title(" ".join(link.text.split()))
         for snapshot in snapshots
@@ -631,6 +680,7 @@ def _extract_resources(snapshots: list[BrowserPageSnapshot]) -> list[ResourceExt
                 resource_type="LINK",
                 url=_HTTP_URL.validate_python(snapshot.url),
                 description=_resource_notes(snapshot.text),
+                content_text=_resource_content(snapshot.text),
             )
         elif "/d2l/le/content/" in snapshot_url and "viewContent" in snapshot_url:
             unique[snapshot_url] = ResourceExtraction(
@@ -640,6 +690,17 @@ def _extract_resources(snapshots: list[BrowserPageSnapshot]) -> list[ResourceExt
                 resource_type=_resource_type(snapshot.title or "", snapshot_url),
                 url=_HTTP_URL.validate_python(snapshot_url),
                 description=_resource_notes(snapshot.text),
+                content_text=_resource_content(snapshot.text),
+            )
+        elif "/d2l/api/le/" in snapshot_url and "/content/topics/" in snapshot_url:
+            unique[snapshot_url] = ResourceExtraction(
+                title=known_titles.get(
+                    snapshot_url, _clean_resource_title(snapshot.title or "Content item")
+                ),
+                resource_type=_resource_type(snapshot.title or "", snapshot_url),
+                url=_HTTP_URL.validate_python(snapshot_url),
+                description=_resource_notes(snapshot.text),
+                content_text=_resource_content(snapshot.text),
             )
         for link in snapshot.links:
             title = " ".join(link.text.split())
@@ -654,18 +715,40 @@ def _extract_resources(snapshots: list[BrowserPageSnapshot]) -> list[ResourceExt
                         for token in ("PDF", "DOCUMENT", "WORD", "SLIDE", "POWERPOINT")
                     )
                 )
+            ) or (
+                "/d2l/api/le/" in link.href
+                and "/content/topics/" in link.href
             ) or "/d2l/common/viewFile" in link.href
             if is_content_resource:
                 resource_type = _resource_type(title, link.href)
-                unique[link.href] = ResourceExtraction(
-                    title=_clean_resource_title(title),
-                    resource_type=resource_type,
-                    url=_HTTP_URL.validate_python(link.href),
-                    description=_resource_notes(snapshot.text),
+                detail = snapshots_by_url.get(link.href)
+                content_text = (
+                    _resource_content(detail.text)
+                    if detail is not None and resource_type in {"PAGE", "LINK"}
+                    else None
                 )
+                existing = unique.get(link.href)
+                if existing is None:
+                    unique[link.href] = ResourceExtraction(
+                        title=_clean_resource_title(title),
+                        resource_type=resource_type,
+                        url=_HTTP_URL.validate_python(link.href),
+                        description=_resource_notes(snapshot.text),
+                        content_text=content_text,
+                    )
+                elif content_text:
+                    existing.content_text = content_text
                 if not unique[link.href].description:
                     unique[link.href].description = _resource_notes(snapshot.text)
     return list(unique.values())
+
+
+def _resource_content(text: str) -> str | None:
+    """Keep the visible lesson text for RAG instead of only the page shell."""
+    normalized = "\n".join(
+        " ".join(line.split()) for line in text.splitlines() if line.strip()
+    ).strip()
+    return normalized[:100_000] or None
 
 
 def _resource_notes(text: str) -> str | None:
@@ -683,6 +766,8 @@ def _resource_notes(text: str) -> str | None:
 
 def _resource_type(title: str, href: str) -> str:
     lowered = f"{title} {href}".lower()
+    if re.search(r"\b(video|recording|youtube|panopto)\b", lowered):
+        return "VIDEO"
     if "pdf" in lowered or lowered.endswith(".pdf"):
         return "PDF"
     if any(token in lowered for token in ("doc", "word", "document")):
@@ -690,6 +775,8 @@ def _resource_type(title: str, href: str) -> str:
     if any(token in lowered for token in ("ppt", "powerpoint", "slide", "presentation")):
         return "SLIDES"
     if any(token in lowered for token in ("xls", "spreadsheet")):
+        return "DOCUMENT"
+    if "/d2l/api/le/" in lowered and "/content/topics/" in lowered:
         return "DOCUMENT"
     if "viewcontent" in lowered:
         return "PAGE"
