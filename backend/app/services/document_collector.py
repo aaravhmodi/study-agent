@@ -14,6 +14,7 @@ from app.browser.client import BrowserClient, BrowserClientError
 from app.config import Settings
 from app.models import Course, Resource
 from app.services.pdf_text import write_pdf_text_sidecar
+from app.services.vision_pdf import VisionPdfTranscriber
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,11 @@ class DocumentCollector:
         self.settings = settings
         self.browser = browser
         self.download_dir = settings.data_dir / "downloads"
+        self.vision_pdf = (
+            VisionPdfTranscriber(settings)
+            if settings.openai_api_key
+            else None
+        )
 
     async def collect(self, session: Session, course: Course) -> tuple[int, int]:
         """Download visible course resources; return (saved, failed)."""
@@ -82,6 +88,15 @@ class DocumentCollector:
                     # saved artifact; the sidecar lets indexing use text
                     # without requiring a hosted PDF parser.
                     write_pdf_text_sidecar(path)
+                    if course.code == "SYDE 252" and self.vision_pdf is not None:
+                        try:
+                            self.vision_pdf.transcribe_to_sidecar(path, resource.title)
+                        except Exception as exc:
+                            logger.warning(
+                                "Visual PDF transcription failed for %r (%s)",
+                                resource.title,
+                                type(exc).__name__,
+                            )
                 resource.local_path = str(path)
                 resource.content_hash = hashlib.sha256(content).hexdigest()
                 resource.processed = True
