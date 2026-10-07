@@ -230,11 +230,22 @@ def _extract_result(stdout: str) -> dict[str, Any]:
 def _probe_script(learn_url: str) -> str:
     encoded_url = json.dumps(learn_url)
     return f"""import json
+import time
 from urllib.parse import urlsplit, urlunsplit
 
 target_url = {encoded_url}
 tabs = list_tabs()
-matching = [tab for tab in tabs if target_url.split('/')[2] in str(tab.get('url', ''))]
+matching = [
+    tab for tab in tabs
+    if target_url.split('/')[2] in str(tab.get('url', ''))
+    and '/d2l/api/' not in urlsplit(str(tab.get('url', ''))).path
+    and '/d2l/common/viewFile' not in urlsplit(str(tab.get('url', ''))).path
+]
+matching.sort(
+    key=lambda tab: 0
+    if urlsplit(str(tab.get('url', ''))).path in {'/d2l/home', '/d2l/'}
+    else 1
+)
 if matching:
     switch_tab(
         matching[0].get('id')
@@ -245,7 +256,7 @@ if matching:
     )
 else:
     new_tab(target_url)
-wait_for_load()
+time.sleep(2)
 info = page_info()
 url = str(info.get('url', ''))
 parsed = urlsplit(url)
@@ -322,7 +333,10 @@ if target_url:
         )
     else:
         new_tab(target_url)
-    wait_for_load()
+    try:
+        wait_for_load()
+    except Exception:
+        pass
 time.sleep({max(0, min(wait_seconds, 15))})
 info = page_info()
 current_url = str(info.get('url', ''))
@@ -440,7 +454,10 @@ if matching:
     )
 else:
     new_tab(target_url)
-wait_for_load()
+try:
+    wait_for_load()
+except Exception:
+    pass
 time.sleep({max(0, min(wait_seconds, 15))})
 raw = js({json.dumps(expression)})
 payload = json.loads(raw) if isinstance(raw, str) else raw
@@ -497,7 +514,10 @@ if matching:
     )
 else:
     new_tab(target_url)
-wait_for_load()
+try:
+    wait_for_load()
+except Exception:
+    pass
 time.sleep({max(0, min(wait_seconds, 15))})
 parts = target.path.split('/')
 offering_id = parts[4] if len(parts) > 4 else ''
