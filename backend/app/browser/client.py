@@ -257,7 +257,12 @@ if matching:
 else:
     new_tab(target_url)
 time.sleep(2)
-info = page_info()
+try:
+    info = page_info()
+except Exception:
+    new_tab(target_url)
+    time.sleep(2)
+    info = page_info()
 url = str(info.get('url', ''))
 parsed = urlsplit(url)
 safe_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', ''))
@@ -309,10 +314,11 @@ if target_url:
         current = urlsplit(str(tab.get('url', '')))
         if current.netloc != target.netloc:
             continue
-        if target_ou and (
-            target_ou in parse_qs(current.query).get('ou', [])
-            or current.path.endswith('/' + target_ou)
-        ):
+        if target_ou and current.path == target.path and target_ou in parse_qs(
+            current.query
+        ).get('ou', []):
+            matching.append(tab)
+        elif target_ou and current.path.endswith('/' + target_ou):
             matching.append(tab)
         elif target.path in ('', '/') and current.path == '/d2l/home':
             matching.append(tab)
@@ -338,7 +344,17 @@ if target_url:
     except Exception:
         pass
 time.sleep({max(0, min(wait_seconds, 15))})
-info = page_info()
+try:
+    info = page_info()
+except Exception:
+    recovery_url = target_url or 'https://learn.uwaterloo.ca/d2l/home'
+    new_tab(recovery_url)
+    time.sleep(2)
+    try:
+        wait_for_load()
+    except Exception:
+        pass
+    info = page_info()
 current_url = str(info.get('url', ''))
 parsed = urlsplit(current_url)
 safe_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', ''))
