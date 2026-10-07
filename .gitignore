@@ -9,5 +9,6 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 data/*.db
+data/*.db-*
 data/downloads/
 data/rag_manifest.json
