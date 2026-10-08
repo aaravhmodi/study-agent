@@ -1,8 +1,14 @@
 import json
+import logging
+from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
+import httpx
 from app.config import Settings
+from app.models import Course, Resource
 from app.services.rag import RagService, _citations
+from openai import NotFoundError
 
 
 def test_citations_are_deduplicated() -> None:
@@ -84,3 +90,94 @@ def test_shear_stress_question_is_scoped_to_syde286(tmp_path) -> None:
         "value": "SYDE 286",
     }
     assert "Explain shear stress from Lecture 1." in fake_responses.call["input"]
+
+
+class FakeIndexClient:
+    """Minimal OpenAI stand-in: uploads whose name contains "bad" fail processing."""
+
+    def __init__(self) -> None:
+        self.uploaded: dict[str, str] = {}
+        self.deleted: list[str] = []
+        self.files = SimpleNamespace(create=self._create_file, delete=self._delete_file)
+        self.vector_stores = SimpleNamespace(
+            files=SimpleNamespace(
+                create=lambda vector_store_id, file_id, attributes: SimpleNamespace(id=file_id),
+                retrieve=self._retrieve,
+                delete=self._detach,
+            )
+        )
+
+    def _create_file(self, file, purpose):
+        file_id = f"file-{len(self.uploaded)}"
+        self.uploaded[file_id] = Path(file.name).name
+        return SimpleNamespace(id=file_id)
+
+    def _retrieve(self, file_id, vector_store_id):
+        if "bad" in self.uploaded[file_id]:
+            return SimpleNamespace(
+                status="failed", last_error=SimpleNamespace(message="unsupported file")
+            )
+        return SimpleNamespace(status="completed")
+
+    def _detach(self, file_id, vector_store_id):
+        if file_id == "file-gone":
+            raise _not_found()
+
+    def _delete_file(self, file_id):
+        if file_id == "file-gone":
+            raise _not_found()
+        self.deleted.append(file_id)
+
+
+def _not_found() -> NotFoundError:
+    request = httpx.Request("DELETE", "https://api.openai.com/v1/files/file-gone")
+    return NotFoundError("gone", response=httpx.Response(404, request=request), body=None)
+
+
+def _resource(tmp_path, resource_id: str, filename: str) -> tuple[Resource, Course]:
+    path = tmp_path / filename
+    path.write_text("lecture notes", encoding="utf-8")
+    course = Course(code="SYDE 212", name="SYDE 212", url="https://learn.example/course")
+    resource = Resource(
+        id=resource_id,
+        title=filename,
+        resource_type="DOCUMENT",
+        local_path=str(path),
+        content_hash=f"hash-{resource_id}",
+    )
+    return resource, course
+
+
+def test_failed_file_is_skipped_and_manifest_is_saved(tmp_path, caplog) -> None:
+    client = FakeIndexClient()
+    service = RagService(Settings(openai_api_key="test-key"), client=cast(Any, client))
+    service.manifest_path = tmp_path / "manifest.json"
+    service.manifest_path.write_text(
+        json.dumps(
+            {
+                "vector_store_id": "vs-test",
+                "files": {
+                    "removed": {"file_id": "file-gone"},
+                    "also-removed": {"file_id": "file-old"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    rows = [
+        _resource(tmp_path, "r-bad", "bad.txt"),
+        _resource(tmp_path, "r-good", "good.txt"),
+    ]
+
+    with caplog.at_level(logging.WARNING):
+        vector_store_id, indexed, skipped, failed = service.index_resources(rows)
+
+    assert (vector_store_id, indexed, skipped, failed) == ("vs-test", 1, 0, 1)
+    assert "unsupported file" in caplog.text
+    # An already-deleted stale file is not reported as a problem.
+    assert "stale indexed file" not in caplog.text
+    # The failed upload is cleaned up rather than orphaned.
+    assert "file-0" in client.deleted
+    assert "file-old" in client.deleted
+    manifest = json.loads(service.manifest_path.read_text(encoding="utf-8"))
+    assert set(manifest["files"]) == {"r-good"}
