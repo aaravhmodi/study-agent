@@ -195,21 +195,39 @@ class BrowserUseClient(BrowserClient):
             raise BrowserClientError(
                 "Browser Use CLI was not found. Install it with uv venv and uv pip install."
             )
+        async def download_once(fresh_tab: bool) -> BrowserDownloadedResource:
+            try:
+                # Downloads run in their own Browser Use process. Keep a single
+                # stalled resource from aborting the rest of a course sync.
+                completed = await asyncio.to_thread(
+                    _run_cli,
+                    self.executable,
+                    _download_script(url, fresh_tab=fresh_tab),
+                    30,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise BrowserClientError("Browser Use resource download timed out") from exc
+            if completed.returncode != 0:
+                detail = completed.stderr.strip() or "unknown Browser Use error"
+                raise BrowserClientError(
+                    f"Browser Use resource download failed: {detail[-2000:]}"
+                )
+            try:
+                return BrowserDownloadedResource.model_validate(_extract_result(completed.stdout))
+            except Exception as exc:
+                raise BrowserClientError(
+                    f"Browser Use returned invalid download data: {exc}"
+                ) from exc
+
         try:
-            # Downloads run in their own Browser Use process. Keep a single
-            # stalled resource from aborting the rest of a course sync.
-            completed = await asyncio.to_thread(
-                _run_cli, self.executable, _download_script(url), 30
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise BrowserClientError("Browser Use resource download timed out") from exc
-        if completed.returncode != 0:
-            detail = completed.stderr.strip() or "unknown Browser Use error"
-            raise BrowserClientError(f"Browser Use resource download failed: {detail[-2000:]}")
-        try:
-            return BrowserDownloadedResource.model_validate(_extract_result(completed.stdout))
-        except Exception as exc:
-            raise BrowserClientError(f"Browser Use returned invalid download data: {exc}") from exc
+            return await download_once(fresh_tab=False)
+        except BrowserClientError as exc:
+            # A previous fetch can leave the attached tab's renderer stuck.
+            # Retry only timeout-shaped failures in a clean tab; do not retry
+            # deterministic HTTP 4xx/5xx responses.
+            if "timed out" not in str(exc).lower():
+                raise
+            return await download_once(fresh_tab=True)
 
 
 def _run_cli(
@@ -660,7 +678,7 @@ print('STUDY_AGENT_RESULT=' + json.dumps({{'pages': pages}}))
 """
 
 
-def _download_script(url: str) -> str:
+def _download_script(url: str, fresh_tab: bool = False) -> str:
     encoded_url = json.dumps(url)
     chunk_expression = """(() => {
   const state = window.__studyAgentDownload;
@@ -672,7 +690,16 @@ def _download_script(url: str) -> str:
 })()"""
     expression = rf'''(async () => {{
   try {{
-    let response = await fetch({encoded_url}, {{credentials: 'include'}});
+    const fetchWithTimeout = async resourceUrl => {{
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 4000);
+      try {{
+        return await fetch(resourceUrl, {{credentials: 'include', signal: controller.signal}});
+      }} finally {{
+        clearTimeout(timer);
+      }}
+    }};
+    let response = await fetchWithTimeout({encoded_url});
     if (!response.ok) return JSON.stringify({{error: 'HTTP ' + response.status}});
     let contentType = response.headers.get('content-type') || '';
     if (contentType.includes('text/html')) {{
@@ -685,7 +712,7 @@ def _download_script(url: str) -> str:
           locationMatch[1].replaceAll('&amp;', '&'),
           response.url
         ).href;
-        response = await fetch(embeddedUrl, {{credentials: 'include'}});
+        response = await fetchWithTimeout(embeddedUrl);
         if (!response.ok) return JSON.stringify({{error: 'HTTP ' + response.status}});
         contentType = response.headers.get('content-type') || '';
       }} else {{
@@ -749,12 +776,15 @@ def _download_script(url: str) -> str:
     return JSON.stringify({{error: String(error)}});
   }}
 }})()'''
-    return f"""import json
-import time
-from urllib.parse import urlsplit, urlunsplit
-
-target_url = {encoded_url}
-target = urlsplit(target_url)
+    if fresh_tab:
+        tab_setup = """download_tab = new_tab('https://learn.uwaterloo.ca/d2l/home')
+time.sleep(1)"""
+        tab_cleanup = """    try:
+        close_tab(download_tab)
+    except Exception:
+        pass"""
+    else:
+        tab_setup = """target = urlsplit(target_url)
 tabs = list_tabs()
 matching = [
     tab for tab in tabs
@@ -777,25 +807,35 @@ if matching:
     )
 else:
     new_tab('https://learn.uwaterloo.ca/d2l/home')
-    time.sleep(1)
-raw = js({json.dumps(expression)})
-payload = json.loads(raw) if isinstance(raw, str) else raw
-if payload.get('error'):
-    raise RuntimeError(payload['error'])
-if payload.get('chunked'):
-    chunks = []
-    while True:
-        chunk_raw = js({json.dumps(chunk_expression)})
-        chunk_payload = json.loads(chunk_raw) if isinstance(chunk_raw, str) else chunk_raw
-        if chunk_payload.get('error'):
-            raise RuntimeError(chunk_payload['error'])
-        chunks.append(chunk_payload.get('chunk', ''))
-        if chunk_payload.get('done'):
-            break
-    payload['content_base64'] = ''.join(chunks)
-    payload.pop('chunked', None)
-parsed = urlsplit(target_url)
-payload['url'] = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, parsed.query, ''))
-payload['resolved_url'] = payload.get('resolved_url') or payload['url']
+    time.sleep(1)"""
+        tab_cleanup = """    pass"""
+    return f"""import json
+import time
+from urllib.parse import urlsplit, urlunsplit
+
+target_url = {encoded_url}
+{tab_setup}
+try:
+    raw = js({json.dumps(expression)})
+    payload = json.loads(raw) if isinstance(raw, str) else raw
+    if payload.get('error'):
+        raise RuntimeError(payload['error'])
+    if payload.get('chunked'):
+        chunks = []
+        while True:
+            chunk_raw = js({json.dumps(chunk_expression)})
+            chunk_payload = json.loads(chunk_raw) if isinstance(chunk_raw, str) else chunk_raw
+            if chunk_payload.get('error'):
+                raise RuntimeError(chunk_payload['error'])
+            chunks.append(chunk_payload.get('chunk', ''))
+            if chunk_payload.get('done'):
+                break
+        payload['content_base64'] = ''.join(chunks)
+        payload.pop('chunked', None)
+    parsed = urlsplit(target_url)
+    payload['url'] = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, parsed.query, ''))
+    payload['resolved_url'] = payload.get('resolved_url') or payload['url']
+finally:
+{tab_cleanup}
 print('STUDY_AGENT_RESULT=' + json.dumps(payload))
 """

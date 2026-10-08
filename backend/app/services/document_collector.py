@@ -8,6 +8,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.browser.client import BrowserClient, BrowserClientError
@@ -34,7 +35,12 @@ class DocumentCollector:
         """Download visible course resources; return (saved, failed)."""
         saved = 0
         failed = 0
-        resources: Iterable[Resource] = course.resources
+        # _persist_scan may have removed legacy wrapper rows from the
+        # relationship. Query after the flush so deleted ORM instances are
+        # not still attempted during this collection pass.
+        resources: Iterable[Resource] = session.scalars(
+            select(Resource).where(Resource.course_id == course.id)
+        ).all()
         for resource in resources:
             if not resource.url or urlsplit(resource.url).scheme not in {"http", "https"}:
                 continue

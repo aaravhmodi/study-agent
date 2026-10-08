@@ -34,6 +34,7 @@ def test_download_script_is_valid_python() -> None:
     assert "data-location" in script
     assert "chunked" in script
     assert "media resource is not downloaded" in script
+    assert "AbortController" in script
 
 
 @pytest.mark.asyncio
