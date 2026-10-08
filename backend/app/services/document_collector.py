@@ -50,10 +50,14 @@ class DocumentCollector:
                 resource.content_hash = None
                 continue
             try:
+                # Only text substituted from content_text is saved as .txt;
+                # downloaded documents keep the suffix of their actual bytes.
+                saved_as_text = False
                 if resource.content_text and resource.resource_type == "LINK":
                     content = resource.content_text.encode("utf-8")
                     filename = resource.title
                     content_type = "text/plain; charset=utf-8"
+                    saved_as_text = True
                 else:
                     downloaded = await self.browser.download_resource(resource.url)
                     if downloaded.skipped:
@@ -75,6 +79,7 @@ class DocumentCollector:
                         content = resource.content_text.encode("utf-8")
                         filename = resource.title
                         content_type = "text/plain; charset=utf-8"
+                        saved_as_text = True
                 if not content:
                     raise ValueError("resource was empty")
                 if resource.content_text is None and _is_auth_redirect(
@@ -83,11 +88,12 @@ class DocumentCollector:
                     resource.local_path = None
                     resource.content_hash = None
                     raise BrowserClientError("authenticated browser returned a login redirect")
-                suffix = ".txt" if resource.content_text else _suffix(
+                suffix = ".txt" if saved_as_text else _suffix(
                     filename, content_type, resource.resource_type
                 )
                 path = self.download_dir / f"{resource.id}_{_safe_name(resource.title)}{suffix}"
                 path.parent.mkdir(parents=True, exist_ok=True)
+                _remove_previous_file(resource.local_path, path)
                 path.write_bytes(content)
                 if path.suffix.lower() == ".pdf":
                     # Keep extraction local. The PDF remains the canonical
@@ -143,6 +149,20 @@ def _suffix(filename: str, content_type: str, resource_type: str) -> str:
         "SLIDES": ".pptx",
         "PAGE": ".html",
     }.get(resource_type, ".bin"))
+
+
+def _remove_previous_file(previous: str | None, current: Path) -> None:
+    """Delete a resource's earlier download when it is now saved elsewhere.
+
+    A stale file can otherwise sit where the new file's text sidecar belongs
+    (e.g. a PDF previously mislabelled as ``.txt``) and be indexed as text.
+    """
+
+    if not previous:
+        return
+    previous_path = Path(previous)
+    if previous_path.resolve() != current.resolve():
+        previous_path.unlink(missing_ok=True)
 
 
 def _safe_name(title: str) -> str:
