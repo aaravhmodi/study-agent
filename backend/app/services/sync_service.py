@@ -242,5 +242,9 @@ def _remove_obsolete_unprocessed_wrappers(
         url = resource.url or ""
         duplicate_processed = url in processed_urls
         obsolete_wrapper = "/d2l/le/content/" in url and "viewContent" in url
-        if not resource.processed and (duplicate_processed or obsolete_wrapper):
+        # Content API resources are authoritative when present. Legacy
+        # viewContent shells otherwise remain in the relationship and get
+        # downloaded again on every sync, often after their direct file has
+        # already been discovered.
+        if obsolete_wrapper or (not resource.processed and duplicate_processed):
             session.delete(resource)

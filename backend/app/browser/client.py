@@ -195,7 +195,14 @@ class BrowserUseClient(BrowserClient):
             raise BrowserClientError(
                 "Browser Use CLI was not found. Install it with uv venv and uv pip install."
             )
-        completed = await asyncio.to_thread(_run_cli, self.executable, _download_script(url))
+        try:
+            # Downloads run in their own Browser Use process. Keep a single
+            # stalled resource from aborting the rest of a course sync.
+            completed = await asyncio.to_thread(
+                _run_cli, self.executable, _download_script(url), 30
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise BrowserClientError("Browser Use resource download timed out") from exc
         if completed.returncode != 0:
             detail = completed.stderr.strip() or "unknown Browser Use error"
             raise BrowserClientError(f"Browser Use resource download failed: {detail[-2000:]}")
@@ -205,13 +212,15 @@ class BrowserUseClient(BrowserClient):
             raise BrowserClientError(f"Browser Use returned invalid download data: {exc}") from exc
 
 
-def _run_cli(executable: str, script: str) -> subprocess.CompletedProcess[str]:
+def _run_cli(
+    executable: str, script: str, timeout_seconds: int = 90
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [executable],
         input=script,
         capture_output=True,
         text=True,
-        timeout=90,
+        timeout=timeout_seconds,
         check=False,
     )
 
