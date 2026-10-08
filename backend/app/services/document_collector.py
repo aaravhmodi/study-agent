@@ -38,7 +38,7 @@ class DocumentCollector:
         for resource in resources:
             if not resource.url or urlsplit(resource.url).scheme not in {"http", "https"}:
                 continue
-            if resource.resource_type == "VIDEO":
+            if _is_video_resource(resource):
                 resource.processed = True
                 resource.local_path = None
                 resource.content_hash = None
@@ -142,6 +142,16 @@ def _suffix(filename: str, content_type: str, resource_type: str) -> str:
 def _safe_name(title: str) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "-", title).strip("-.")
     return (cleaned or "course-resource")[:100]
+
+
+def _is_video_resource(resource: Resource) -> bool:
+    if resource.resource_type == "VIDEO":
+        return True
+    searchable = f"{resource.title} {resource.url or ''}"
+    return bool(
+        re.search(r"\b(video|recording|youtube|panopto)\b", searchable, flags=re.IGNORECASE)
+        or re.search(r"\.(?:mp4|webm|m3u8)(?:$|[?#])", searchable, flags=re.IGNORECASE)
+    )
 
 
 def _is_auth_redirect(url: str, content: bytes) -> bool:

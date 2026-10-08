@@ -8,7 +8,9 @@ from app.browser.client import (
     _download_script,
 )
 from app.config import Settings
+from app.models import Resource
 from app.schemas.course import CourseDiscoveryResult
+from app.services.document_collector import _is_video_resource
 
 
 @pytest.mark.asyncio
@@ -47,3 +49,20 @@ async def test_download_timeout_becomes_resource_error(monkeypatch: pytest.Monke
 
     with pytest.raises(BrowserClientError, match="resource download timed out"):
         await client.download_resource("https://learn.uwaterloo.ca/resource")
+
+
+def test_stale_video_rows_are_skipped_by_title_or_url() -> None:
+    assert _is_video_resource(
+        Resource(
+            title="Explained - LDO' - Video",
+            url="https://learn.uwaterloo.ca/d2l/le/content/1296009/viewContent/1/View",
+            resource_type="PAGE",
+        )
+    )
+    assert _is_video_resource(
+        Resource(
+            title="Course media",
+            url="https://learn.uwaterloo.ca/content/lecture.mp4",
+            resource_type="DOCUMENT",
+        )
+    )
