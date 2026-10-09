@@ -53,6 +53,21 @@ If the question looks like a graded assignment or lab problem, do not solve it: 
 the concepts and give the first step as a hint. For other questions, answer directly with \
 only the sections that help.
 
+Figures: when a shape teaches better than words (a function, a distribution, a shear or \
+moment diagram, a rate of change), add one or two graphs right after the text they \
+illustrate, as a fenced plot block of JSON (no comments):
+```plot
+{"title": "Shear force", "x": {"label": "x (m)", "min": 0, "max": 6}, "y": {"label": "V (kN)"}, \
+"series": [{"label": "V(x)", "pieces": [{"expr": "4", "from": 0, "to": 2}, \
+{"expr": "-2", "from": 2, "to": 6}], "fill": true}], \
+"markers": [{"x": 2, "label": "P = 6 kN"}]}
+```
+A series has one of "expr" (a formula in x), "pieces" (piecewise formulas) or "points" \
+([[x, y], ...]); "shade": {"from": a, "to": b} shades the area under it. Formulas use \
++ - * / ^, pi, e, sin, cos, tan, exp, ln, log10, sqrt, abs, min, max, step(x) and ramp(x) \
+= max(x, 0). Labels are plain text, not LaTeX. To show how ideas connect, use a short \
+mermaid flowchart instead. Plot only values the materials or your example support.
+
 Style: short paragraphs, **bold** key terms, LaTeX math with \\( ... \\) inline and \\[ ... \\] \
 for display (units like \\text{kN}\\cdot\\text{m}, no Unicode symbols inside \\text{}), and \
 cite course files inline like [filename]. Be concise.\

@@ -5,8 +5,9 @@ from typing import Any
 
 import pytest
 from app.config import Settings
-from app.schemas.chat import ChatResponse
+from app.schemas.chat import ChatResponse, PlotFigure
 from app.services.answer_quality import assess_answer
+from app.services.figures import extract_figures
 from app.services.rag import TUTOR_INSTRUCTIONS, RagService
 from app.services.rag_eval import (
     COURSE_QUESTIONS,
@@ -117,8 +118,21 @@ def test_instructions_ask_for_concept_by_concept_chapter_explanations() -> None:
         assert section in TUTOR_INSTRUCTIONS
     assert "chapter or lecture" in TUTOR_INSTRUCTIONS
     assert "### heading per concept" in TUTOR_INSTRUCTIONS
-    # The prompt itself stays short so every question pays few input tokens.
-    assert len(TUTOR_INSTRUCTIONS.split()) < 300
+    # The prompt stays short; it is a static, cacheable prefix, so the figure
+    # guide costs little after the first question.
+    assert len(TUTOR_INSTRUCTIONS.split()) < 450
+
+
+def test_instructions_example_plot_is_valid_and_physically_consistent() -> None:
+    _, figures = extract_figures(TUTOR_INSTRUCTIONS)
+
+    (figure,) = figures
+    assert isinstance(figure, PlotFigure)
+    shear = dict(figure.series[0].points)
+    # Simply supported 6 m beam, 6 kN at x = 2: R_A = 4 kN, so V drops from 4 to -2 at the load.
+    assert shear[0.0] == 4.0 and shear[6.0] == -2.0
+    assert [marker.x for marker in figure.markers] == [2.0]
+    assert "mermaid" in TUTOR_INSTRUCTIONS and "step(x)" in TUTOR_INSTRUCTIONS
 
 
 def test_question_is_filtered_to_the_shear_force_course(tmp_path: Path) -> None:
