@@ -65,7 +65,17 @@ class DiagramFigure(BaseModel):
     source: str
 
 
-ChatFigure = Annotated[PlotFigure | DiagramFigure, Field(discriminator="kind")]
+class SketchFigure(BaseModel):
+    """A sanitized SVG drawing: a free-body diagram, circuit or any course sketch."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["sketch"] = "sketch"
+    title: str = ""
+    svg: str
+
+
+ChatFigure = Annotated[PlotFigure | DiagramFigure | SketchFigure, Field(discriminator="kind")]
 
 
 class ChatResponse(BaseModel):

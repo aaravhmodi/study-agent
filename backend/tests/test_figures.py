@@ -2,6 +2,7 @@ import json
 from typing import Any
 
 import pytest
+from app.schemas.chat import SketchFigure
 from app.services.figures import (
     MAX_FIGURES,
     SAMPLES,
@@ -197,3 +198,25 @@ def test_only_the_first_figures_are_kept() -> None:
 
     assert len(figures) == MAX_FIGURES
     assert text.count("```figure") == MAX_FIGURES
+
+
+def test_svg_sketches_are_sanitized_and_titled() -> None:
+    sketch = (
+        '<svg viewBox="0 0 100 60"><title>Block on a table</title>'
+        '<rect x="30" y="20" width="40" height="20" onclick="alert(1)"/>'
+        "<script>alert(1)</script></svg>"
+    )
+
+    text, figures = extract_figures("Free body:\n\n" + _block("svg", sketch))
+
+    (figure,) = figures
+    assert isinstance(figure, SketchFigure)
+    assert figure.title == "Block on a table"
+    assert "<rect" in figure.svg and "onclick" not in figure.svg and "script" not in figure.svg
+    assert text == "Free body:\n\n```figure\n0\n```"
+
+
+def test_unreadable_svg_is_dropped() -> None:
+    text, figures = extract_figures(_block("svg", "<svg><rect></svg>"))
+
+    assert figures == [] and text == ""

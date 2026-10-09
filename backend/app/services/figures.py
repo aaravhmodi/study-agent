@@ -1,15 +1,24 @@
-"""Validate the graphs a tutor answer asks for and compute the points to draw."""
+"""Validate the figures a tutor answer asks for: graphs, concept diagrams and sketches."""
 
 import json
 import logging
 import math
 import re
+from collections.abc import Callable
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from app.schemas.chat import ChatFigure, DiagramFigure, PlotFigure, PlotMarker, PlotSeries
+from app.schemas.chat import (
+    ChatFigure,
+    DiagramFigure,
+    PlotFigure,
+    PlotMarker,
+    PlotSeries,
+    SketchFigure,
+)
 from app.services.plot_math import Formula, FormulaError, compile_formula
+from app.services.svg_safe import SvgError, sanitize_svg
 
 logger = logging.getLogger(__name__)
 
@@ -224,15 +233,32 @@ def _first_error(exc: Exception) -> str:
     return str(exc)
 
 
+def parse_sketch(text: str) -> SketchFigure:
+    """Keep a model-drawn ```svg sketch after stripping anything but drawing markup."""
+
+    try:
+        svg = sanitize_svg(text)
+    except SvgError as exc:
+        raise FigureError(str(exc)) from exc
+    title = re.search(r"<title>([^<]{1,120})</title>", svg)
+    return SketchFigure(title=title.group(1).strip() if title else "", svg=svg)
+
+
+_PARSERS: dict[str, Callable[[str], ChatFigure]] = {
+    "plot": parse_plot,
+    "mermaid": parse_diagram,
+    "svg": parse_sketch,
+}
+
 MAX_FIGURES = 4
 _FIGURE_BLOCK = re.compile(
-    r"^[ \t]*```[ \t]*(plot|mermaid)[ \t]*\r?\n(.*?)\r?\n[ \t]*```[ \t]*$",
+    rf"^[ \t]*```[ \t]*({'|'.join(_PARSERS)})[ \t]*\r?\n(.*?)\r?\n[ \t]*```[ \t]*$",
     flags=re.MULTILINE | re.DOTALL,
 )
 
 
 def extract_figures(answer: str) -> tuple[str, list[ChatFigure]]:
-    """Swap each valid ```plot or ```mermaid block for a ```figure placeholder.
+    """Swap each valid figure block (```plot, ```mermaid, ```svg) for a ```figure placeholder.
 
     The placeholder holds the figure's index in the returned list. Blocks that
     cannot be drawn are removed so the student never sees raw JSON.
@@ -245,7 +271,7 @@ def extract_figures(answer: str) -> tuple[str, list[ChatFigure]]:
             return ""
         kind, body = match.group(1), match.group(2)
         try:
-            figure = parse_plot(body) if kind == "plot" else parse_diagram(body)
+            figure = _PARSERS[kind](body)
         except FigureError as exc:
             logger.warning("Left a %s out of the answer: %s", kind, exc)
             return ""
