@@ -31,6 +31,10 @@ FILES: dict[str, dict[str, str]] = {
         ("week 3 and Ch. 5", {("week", 3), ("chapter", 5)}),
         ("Tutorial #4 problem 2", {("tutorial", 4)}),
         ("Explain shear force.", set()),
+        ("chapters 1 to 4", {("chapter", n) for n in range(1, 5)}),
+        ("Chapters 1-4 inclusive", {("chapter", n) for n in range(1, 5)}),
+        ("ch. 2–3 and week 5", {("chapter", 2), ("chapter", 3), ("week", 5)}),
+        ("weeks 1-40", {("week", 1)}),
     ],
 )
 def test_lecture_references_are_parsed(question: str, expected: set[tuple[str, int]]) -> None:

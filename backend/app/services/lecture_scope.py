@@ -16,23 +16,32 @@ _FAMILIES: dict[str, tuple[str, ...]] = {
 }
 _QUESTION_REF = re.compile(
     r"\b(lectures?|lec|weeks?|chapters?|ch|tutorials?|tut|modules?|units?|labs?)"
-    r"\.?\s*#?\s*(\d{1,2})\b",
+    r"\.?\s*#?\s*(\d{1,2})(?:\s*(?:-|–|to|through)\s*(\d{1,2}))?\b",
     flags=re.IGNORECASE,
 )
+# Ranges larger than this are probably not a list of units ("weeks 1-52").
+_MAX_RANGE = 12
 
 
 def lecture_refs(question: str) -> set[tuple[str, int]]:
-    """Return (family, number) pairs such as ("lecture", 7) named in a question."""
+    """Return (family, number) pairs such as ("lecture", 7) named in a question.
+
+    Ranges count every unit in them: "chapters 1 to 4" is chapters 1, 2, 3 and 4.
+    """
 
     refs: set[tuple[str, int]] = set()
-    for word, number in _QUESTION_REF.findall(question):
+    for word, first, last in _QUESTION_REF.findall(question):
         word = word.lower()
         family = next(
             name
             for name, spellings in _FAMILIES.items()
             if word in spellings or word.removesuffix("s") in spellings
         )
-        refs.add((family, int(number)))
+        start = int(first)
+        end = int(last) if last else start
+        if not start <= end <= start + _MAX_RANGE:
+            end = start
+        refs.update((family, number) for number in range(start, end + 1))
     return refs
 
 
