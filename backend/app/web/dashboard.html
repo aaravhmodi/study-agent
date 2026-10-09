@@ -111,6 +111,9 @@ textarea:focus,select:focus{border-color:var(--ink);outline:none;box-shadow:inse
 .figure{margin:20px 0;padding:12px 14px 10px;background:var(--sheet);border:1px solid var(--rule);max-width:70ch}
 .figure figcaption{font:500 15px/1.3 var(--serif);color:var(--ink);margin:0 0 8px}
 .figure .plot{position:relative;height:280px}
+.figure .diagram{overflow-x:auto;text-align:center}
+.figure .diagram svg{max-width:100%;height:auto}
+.figure .diagram .label{font:inherit;letter-spacing:normal;text-transform:none;color:inherit;margin:0}
 .figure .figure-error{font:12.5px var(--mono);color:var(--ink-3);margin:0}
 .notice{margin-top:18px;padding:10px 14px;border-left:3px solid var(--pencil);background:var(--pencil-wash);font-size:14px}
 
@@ -300,6 +303,7 @@ function renderAnswer(text) {
 // page only draws. Libraries load on first use to keep the dashboard light.
 const LIBRARIES = {
   chart: 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js',
+  mermaid: 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js',
 };
 const loadedLibraries = {};
 function loadLibrary(name) {
@@ -397,6 +401,28 @@ async function drawPlot(holder, figure) {
   });
 }
 
+// Concept diagrams: strict Mermaid with plain SVG labels, sanitized again before insertion.
+let diagramCount = 0;
+async function drawDiagram(holder, figure) {
+  await loadLibrary('mermaid');
+  if (!drawDiagram.ready) {
+    mermaid.initialize({
+      // SVG text labels instead of HTML in foreignObject, so sanitizing keeps them.
+      startOnLoad: false, securityLevel: 'strict', theme: 'base', htmlLabels: false,
+      flowchart: {htmlLabels: false, curve: 'basis'},
+      themeVariables: {
+        fontFamily: token('--sans'), fontSize: '14px',
+        primaryColor: token('--sheet'), primaryBorderColor: token('--ink'), primaryTextColor: token('--ink'),
+        lineColor: token('--ink-2'), secondaryColor: token('--pencil-wash'), tertiaryColor: token('--paper'),
+        edgeLabelBackground: token('--paper'),
+      },
+    });
+    drawDiagram.ready = true;
+  }
+  const {svg} = await mermaid.render(`diagram-${++diagramCount}`, figure.source);
+  holder.innerHTML = `<div class="diagram">${DOMPurify.sanitize(svg, {USE_PROFILES: {svg: true, svgFilters: true}})}</div>`;
+}
+
 // The answer marks each figure's place with a ```figure block holding its index.
 async function drawFigures(answer, figures) {
   if (!answer || !figures.length) return;
@@ -412,7 +438,7 @@ async function drawFigures(answer, figures) {
     if (!holder) { holder = document.createElement('figure'); holder.className = 'figure'; answer.append(holder) }
     try {
       if (figure.kind === 'plot') await drawPlot(holder, figure);
-      else holder.innerHTML = `<pre>${esc(figure.source)}</pre>`;
+      else await drawDiagram(holder, figure);
     } catch (error) {
       holder.innerHTML = `<p class="figure-error">This figure could not be drawn (${esc(error.message || error)}).</p>`;
     }
