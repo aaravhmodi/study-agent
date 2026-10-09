@@ -11,5 +11,6 @@ __pycache__/
 data/*.db
 data/*.db-*
 data/downloads/
+data/demo-downloads/
 data/rag_manifest.json
 data/rag_eval.json

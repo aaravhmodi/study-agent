@@ -1,8 +1,10 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_REAL_DATABASE_URL = "sqlite:///./data/study_agent.db"
 
 
 class Settings(BaseSettings):
@@ -21,11 +23,19 @@ class Settings(BaseSettings):
     # Adds online context next to course materials; costs one search per question.
     rag_web_search: bool = True
     browser_mode: str = Field(default="local", pattern="^(local|cloud|mock)$")
-    database_url: str = "sqlite:///./data/study_agent.db"
+    database_url: str = _REAL_DATABASE_URL
     learn_url: str = "https://learn.uwaterloo.ca"
     browser_use_api_key: str | None = None
     browser_use_executable: str = "browser-use"
     timezone: str = "America/Toronto"
+
+    @model_validator(mode="after")
+    def _keep_demo_data_separate(self) -> "Settings":
+        # Mock mode syncs made-up courses under real course codes, so it must
+        # never write to the real database, even when .env names it.
+        if self.browser_mode == "mock" and self.database_url == _REAL_DATABASE_URL:
+            self.database_url = "sqlite:///./data/demo.db"
+        return self
 
     @property
     def project_root(self) -> Path:
@@ -34,6 +44,11 @@ class Settings(BaseSettings):
     @property
     def data_dir(self) -> Path:
         return self.project_root / "data"
+
+    @property
+    def downloads_dir(self) -> Path:
+        name = "demo-downloads" if self.browser_mode == "mock" else "downloads"
+        return self.data_dir / name
 
 
 @lru_cache(maxsize=1)

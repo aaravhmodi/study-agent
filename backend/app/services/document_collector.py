@@ -24,7 +24,7 @@ class DocumentCollector:
     def __init__(self, settings: Settings, browser: BrowserClient) -> None:
         self.settings = settings
         self.browser = browser
-        self.download_dir = settings.data_dir / "downloads"
+        self.download_dir = settings.downloads_dir
         self.vision_pdf = (
             VisionPdfTranscriber(settings)
             if settings.openai_api_key
