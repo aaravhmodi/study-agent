@@ -156,6 +156,8 @@ button.row:hover b{text-decoration:underline;text-decoration-color:var(--pencil)
 .detail .resource:first-child{border-top:0}
 .detail .resource .sub{color:var(--ink-2);font-size:13.5px;margin-top:2px}
 .detail ul{padding-left:20px}
+.detail .note-help{color:var(--ink-2);font-size:13.5px;margin:0 0 8px}
+.detail .note-actions{margin-top:8px}
 .detail li{margin:5px 0}
 .detail .type{font:12px var(--mono);color:var(--ink-3);margin-left:4px}
 .detail .stat{margin:6px 0 0;color:var(--ink-2)}
@@ -580,6 +582,10 @@ async function openCourse(id, name, row) {
     showDetail(`<div>
       <div class="section-head"><div><p class="label">${esc(c.term || 'Course')}</p><h2>${esc(c.code || c.name)}: ${esc(c.name)}</h2></div><button class="secondary-button" data-close>Close</button></div>
       <p class="stat"><b>${c.completed_assessments}</b> of <b>${c.assessments.length}</b> assessments completed · <b>${c.resources.length}</b> collected resources</p>
+      <h3>Your notes for this course</h3>
+      <p class="sub note-help">What your instructor said that isn't on LEARN, like what a midterm covers. The tutor reads these with every question about ${esc(c.code || c.name)}.</p>
+      <textarea id="course-note" maxlength="4000" placeholder="e.g. Midterm Oct 20: chapters 1-4, Major Topic 1, two R coding questions, 40 multiple choice.">${esc(c.note || '')}</textarea>
+      <div class="note-actions"><button class="secondary-button" data-save-note="${esc(c.id)}">Save notes</button></div>
       <h3>Assessments</h3><div>${c.assessments.length ? c.assessments.map(a => `<button class="row" data-assessment="${esc(a.id)}" data-name="${esc(a.title)}"><span><b>${esc(a.title)}</b><span class="sub">${esc(a.type)} · ${esc(date(a.due_at))}</span></span><span class="side">${statusPill(a.status, a.due_at)}</span></button>`).join('') : '<div class="empty">No assessments found.</div>'}</div>
       <h3>Coursework you have</h3><div>${c.resources.length ? c.resources.map(r => `<div class="resource"><b>${resourceLink(r)}</b> <span class="type">${esc(String(r.type || '').toLowerCase())}</span>${r.description ? `<div class="sub">${esc(r.description)}</div>` : ''}</div>`).join('') : '<div class="empty">No resources found.</div>'}</div>
       <h3>Announcements</h3><div>${c.announcements.length ? c.announcements.slice(0, 10).map(a => `<div class="resource"><b>${esc(a.title)}</b><div class="sub">${esc(a.body || '')}</div></div>`).join('') : '<div class="empty">No announcements stored.</div>'}</div>
@@ -664,8 +670,21 @@ $('#detail').addEventListener('click', event => {
   if (target.dataset.ask) { fillQuestion(target.dataset.ask, target.dataset.course); return }
   if (target.dataset.assessment) { openAssessment(target.dataset.assessment, target.dataset.name, target).catch(fail); return }
   if (target.dataset.complete) { changeStatus(target.dataset.complete, 'complete', target); return }
-  if (target.dataset.reopen) { changeStatus(target.dataset.reopen, 'reopen', target) }
+  if (target.dataset.reopen) { changeStatus(target.dataset.reopen, 'reopen', target); return }
+  if (target.dataset.saveNote) saveCourseNote(target.dataset.saveNote, target);
 });
+async function saveCourseNote(id, button) {
+  const done = setBusy(button, 'Saving');
+  try {
+    const result = await getJson(`/courses/${encodeURIComponent(id)}/note`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text: $('#course-note').value})});
+    toast(result.text ? `Notes saved for ${result.course}` : `Notes cleared for ${result.course}`);
+  } catch (error) {
+    toast(error.message || String(error), 'error');
+  } finally {
+    done();
+  }
+}
+
 load().catch(error => {
   $('#status-line').textContent = 'Could not load your courses.';
   fail(error);

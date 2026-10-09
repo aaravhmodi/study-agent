@@ -14,6 +14,13 @@ from app.config import get_settings
 from app.db.database import SessionLocal, ensure_schema
 from app.logging import configure_logging
 from app.models import Assessment, Course, Resource
+from app.services.course_notes import (
+    NOTES_FILE,
+    CourseNoteError,
+    clear_note,
+    get_note,
+    save_note,
+)
 from app.services.manual_import import ImportFileError, import_file
 from app.services.rag import RagService
 from app.services.rag_eval import EVAL_QUESTIONS, EvalQuestion, run_eval
@@ -284,6 +291,37 @@ def import_file_command(
         console.print(f"[green][OK][/green] Saved {resource.title!r} ({size_mb:.1f} MB)")
     if index:
         rag_index()
+
+
+_NOTE_FILE = typer.Option(None, "--file", help="Read the note from a text file.")
+_NOTE_TEXT = typer.Option(None, "--text", help="The note itself.")
+_NOTE_CLEAR = typer.Option(False, "--clear", help="Remove the note.")
+
+
+@app.command("course-note")
+def course_note(
+    course: str,
+    file: Path | None = _NOTE_FILE,
+    text: str | None = _NOTE_TEXT,
+    clear: bool = _NOTE_CLEAR,
+) -> None:
+    """Show or set notes for a course, e.g. what the instructor said the midterm covers."""
+    path = get_settings().data_dir / NOTES_FILE
+    if clear:
+        removed = clear_note(path, course)
+        console.print("[green][OK][/green] Note removed" if removed else "No note to remove")
+        return
+    if file is not None:
+        text = file.read_text(encoding="utf-8")
+    if text is None:
+        console.print(get_note(path, course) or f"No note for {course}.")
+        return
+    try:
+        save_note(path, course, text)
+    except CourseNoteError as exc:
+        console.print(f"[red][FAIL][/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    console.print(f"[green][OK][/green] Saved the note for {course.strip().upper()}")
 
 
 _EVAL_QUESTION_OPTION = typer.Option(

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 MAX_NOTE_CHARS = 4000
+NOTES_FILE = "course_notes.json"
 
 
 class CourseNoteError(ValueError):

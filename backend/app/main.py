@@ -12,6 +12,14 @@ from app.config import get_settings
 from app.db.database import SessionLocal, ensure_schema
 from app.models import Assessment, ChangeEvent, Course, Resource, SyncRun
 from app.schemas.chat import ChatRequest, ChatResponse
+from app.schemas.course_note import CourseNoteRequest
+from app.services.course_notes import (
+    NOTES_FILE,
+    CourseNoteError,
+    clear_note,
+    get_note,
+    save_note,
+)
 from app.services.learn_links import viewer_url
 from app.services.rag import RagService
 from app.services.study_context import relevant_coursework, study_guidance
@@ -29,6 +37,29 @@ def chat(request: ChatRequest) -> ChatResponse:
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.put("/courses/{course_id}/note")
+def save_course_note(course_id: str, request: CourseNoteRequest) -> dict[str, Any]:
+    """Save what the instructor said about this course; the tutor reads it with questions."""
+    ensure_schema()
+    with SessionLocal() as session:
+        course = session.get(Course, course_id)
+        if course is None or not course.active:
+            raise HTTPException(status_code=404, detail="Course not found")
+        code = course.code or course.name
+    path = _notes_path()
+    if not request.text.strip():
+        clear_note(path, code)
+        return {"course": code, "text": ""}
+    try:
+        return {"course": code, "text": save_note(path, code, request.text)}
+    except CourseNoteError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _notes_path() -> Path:
+    return get_settings().data_dir / NOTES_FILE
 
 
 @app.get("/health")
@@ -177,6 +208,7 @@ def _course_detail_payload(course: Course) -> dict[str, Any]:
         "term": course.term,
         "url": course.url,
         "last_scanned_at": _iso(course.last_scanned_at),
+        "note": get_note(_notes_path(), course.code or course.name) or "",
         "assessments": assessments_data,
         "completed_assessments": sum(item["status"] == "COMPLETED" for item in assessments_data),
         "resources": [

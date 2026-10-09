@@ -16,7 +16,7 @@ from app.models import Course, Resource
 from app.schemas.chat import ChatCitation, ChatResponse, ChatUsage
 from app.services.answer_cache import AnswerCache, cache_key, index_fingerprint
 from app.services.answer_format import clean_answer, clean_citations, display_filename
-from app.services.course_notes import course_in_question, get_note
+from app.services.course_notes import NOTES_FILE, course_in_question, get_note
 from app.services.figure_guide import FIGURE_GUIDE
 from app.services.figures import extract_figures
 from app.services.learn_links import viewer_url
@@ -307,7 +307,7 @@ class RagService:
 
     @property
     def notes_path(self) -> Path:
-        return self.manifest_path.with_name("course_notes.json")
+        return self.manifest_path.with_name(NOTES_FILE)
 
     def _answer_shape(self, files: dict[str, Any], note: str | None = None) -> dict[str, Any]:
         """Everything besides the question that changes what an answer looks like."""
