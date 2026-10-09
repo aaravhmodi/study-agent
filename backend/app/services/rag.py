@@ -119,7 +119,22 @@ class RagService:
             # Persist deletions and uploads even when a run aborts, so the
             # next run does not repeat them or orphan hosted files.
             self._save_manifest(manifest)
+        self._remove_untracked(vector_store_id, manifest.get("files", {}))
         return vector_store_id, indexed, skipped, failed
+
+    def _remove_untracked(self, vector_store_id: str, files: dict[str, Any]) -> None:
+        """Delete store files no manifest entry points at (left by earlier failed runs).
+
+        They have no LEARN title or link, and stale copies crowd out current passages.
+        """
+
+        tracked = {entry.get("file_id") for entry in files.values()}
+        stored = self.client.vector_stores.files.list(vector_store_id, limit=100)
+        untracked = [item.id for item in stored if item.id not in tracked]
+        for file_id in untracked:
+            self._delete_old_file(vector_store_id, file_id)
+        if untracked:
+            logger.info("Removed %d untracked files from the vector store", len(untracked))
 
     def _index_into(
         self,

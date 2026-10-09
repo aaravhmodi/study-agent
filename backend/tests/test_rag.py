@@ -99,11 +99,16 @@ class FakeIndexClient:
         self.uploaded: dict[str, str] = {}
         self.deleted: list[str] = []
         self.chunking: list[Any] = []
+        # Files already in the vector store, tracked or not.
+        self.stored: list[str] = []
         self.files = SimpleNamespace(create=self._create_file, delete=self._delete_file)
         self.vector_stores = SimpleNamespace(
             files=SimpleNamespace(
                 create=self._attach,
                 retrieve=self._retrieve,
+                list=lambda vector_store_id, limit: [
+                    SimpleNamespace(id=file_id) for file_id in self.stored
+                ],
                 delete=self._detach,
             )
         )
@@ -224,3 +229,30 @@ def test_files_are_indexed_in_small_chunks_and_reindexed_when_chunking_changes(t
     # Unchanged files are not re-uploaded but get their LEARN title and link refreshed.
     assert manifest["files"]["r-current"]["title"] == "current.txt"
     assert manifest["files"]["r-current"]["file_id"] == "f-1"
+
+
+def test_untracked_vector_store_files_are_removed(tmp_path) -> None:
+    client = FakeIndexClient()
+    client.stored = ["f-1", "file-stale-outline"]
+    service = RagService(Settings(openai_api_key="test-key"), client=cast(Any, client))
+    service.manifest_path = tmp_path / "manifest.json"
+    current = _resource(tmp_path, "r-current", "current.txt")
+    service.manifest_path.write_text(
+        json.dumps(
+            {
+                "vector_store_id": "vs-test",
+                "files": {
+                    "r-current": {
+                        "file_id": "f-1",
+                        "content_hash": "hash-r-current",
+                        "chunking": CHUNKING,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    service.index_resources([current])
+
+    assert client.deleted == ["file-stale-outline"]
