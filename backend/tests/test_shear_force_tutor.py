@@ -424,3 +424,56 @@ def test_changing_course_notes_refreshes_saved_answers(tmp_path: Path) -> None:
     service.ask("What is on the midterm?", SHEAR_COURSE)
 
     assert len(responses.calls) == 2
+
+
+def _turn(question: str, answer: str) -> Any:
+    from datetime import UTC, datetime
+
+    from app.schemas.chat_session import ChatTurn
+
+    return ChatTurn(
+        question=question,
+        course_code=SHEAR_COURSE,
+        response=ChatResponse(answer=answer),
+        asked_at=datetime.now(UTC),
+    )
+
+
+def test_follow_up_sends_the_conversation_and_searches_with_the_last_question(
+    tmp_path: Path,
+) -> None:
+    responses = FakeResponses()
+    service = _service(tmp_path, responses)
+    history = [
+        _turn("Explain bending.", "Old answer."),
+        _turn(
+            "Explain shear force.",
+            "V is the internal force.\n\n```figure\n0\n```\n\n"
+            "<details><summary>Answer</summary>secret</details> More.",
+        ),
+        _turn("And the sign convention?", "Positive shear rotates clockwise."),
+        _turn("What about moment?", "M is the internal couple."),
+    ]
+
+    service.ask("Why is it negative there?", SHEAR_COURSE, history=history)
+
+    sent = responses.calls[0]["input"]
+    assert "Earlier in this conversation" in sent
+    assert "Student: Explain bending." not in sent  # only the last three exchanges
+    assert "Student: Explain shear force.\nTutor: V is the internal force. More." in sent
+    assert "secret" not in sent and "figure" not in sent
+    assert "New question: Why is it negative there?" in sent
+    search = service.client.vector_stores.calls[0]  # type: ignore[attr-defined]
+    assert search["query"] == "What about moment?\nWhy is it negative there?"
+
+
+def test_follow_ups_are_never_cached(tmp_path: Path) -> None:
+    responses = FakeResponses()
+    service = _service(tmp_path, responses)
+    history = [_turn("Explain shear force.", "V is the internal force.")]
+
+    service.ask("Why?", SHEAR_COURSE, history=history)
+    service.ask("Why?", SHEAR_COURSE, history=history)
+    service.ask("Why?", SHEAR_COURSE)  # a fresh question with the same text
+
+    assert len(responses.calls) == 3

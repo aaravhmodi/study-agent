@@ -3,6 +3,7 @@
 import hashlib
 import json
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Any, cast
@@ -14,6 +15,7 @@ from app.config import Settings
 from app.db.database import SessionLocal, ensure_schema
 from app.models import Course, Resource
 from app.schemas.chat import ChatCitation, ChatResponse, ChatUsage
+from app.schemas.chat_session import ChatTurn
 from app.services.answer_cache import AnswerCache, cache_key, index_fingerprint
 from app.services.answer_format import clean_answer, clean_citations, display_filename
 from app.services.course_notes import NOTES_FILE, course_in_question, get_note
@@ -33,6 +35,8 @@ logger = logging.getLogger(__name__)
 
 # Requests sharing the tutor prefix are routed together so the prefix stays cached.
 _CACHE_KEY = "study-agent-tutor"
+# Earlier exchanges sent with a follow-up question.
+FOLLOW_UP_TURNS = 3
 
 # Smaller, less overlapping chunks than OpenAI's default (800 tokens, 400 overlap):
 # the same context budget then holds more distinct, more focused passages.
@@ -231,7 +235,12 @@ class RagService:
         return indexed, skipped, failed
 
     def ask(
-        self, question: str, course_code: str | None = None, *, fresh: bool = False
+        self,
+        question: str,
+        course_code: str | None = None,
+        *,
+        fresh: bool = False,
+        history: list[ChatTurn] | None = None,
     ) -> ChatResponse:
         manifest = self._load_manifest()
         vector_store_id = manifest.get("vector_store_id")
@@ -253,7 +262,9 @@ class RagService:
         )
         note = get_note(self.notes_path, note_course)
         key = cache_key(question, normalized_course_code, settings=self._answer_shape(files, note))
-        if not fresh and (saved := cache.get(key)):
+        earlier = (history or [])[-FOLLOW_UP_TURNS:]
+        # A follow-up depends on the conversation, so it is never served from the cache.
+        if not fresh and not earlier and (saved := cache.get(key)):
             return saved.model_copy(update={"cached": True, "usage": None})
         lecture_ids = matching_resource_ids(question, files, normalized_course_code)
         context = []
@@ -267,9 +278,20 @@ class RagService:
                 for resource_id in lecture_ids
             )
             context.append(f"Lecture files: {names}")
-        context.append(f"Question: {question}")
+        if earlier:
+            context.append(
+                "Earlier in this conversation (answer the new question as a follow-up; "
+                "do not repeat what was already explained):"
+            )
+            for turn in earlier:
+                context.append(f"Student: {turn.question}\nTutor: {_brief(turn.response.answer)}")
+            context.append(f"New question: {question}")
+        else:
+            context.append(f"Question: {question}")
+        # A short follow-up ("why?") is searched together with the question it follows.
+        search_text = f"{earlier[-1].question}\n{question}" if earlier else question
         passages = self._passages(
-            question, str(vector_store_id), normalized_course_code, lecture_ids
+            search_text, str(vector_store_id), normalized_course_code, lecture_ids
         )
         context.append("")
         context.append(format_passages(passages))
@@ -302,7 +324,8 @@ class RagService:
             figures=figures,
             usage=_usage(response),
         )
-        cache.put(key, result)
+        if not earlier:
+            cache.put(key, result)
         return result
 
     @property
@@ -420,6 +443,15 @@ def _file_filters(course_code: str | None, resource_ids: list[str]) -> dict[str,
     if len(resource_ids) == 1:
         lectures = lectures["filters"][0]
     return {"type": "and", "filters": [course, lectures]} if course else lectures
+
+
+def _brief(answer: str, limit: int = 800) -> str:
+    """An earlier answer, without figures or hidden quiz answers, shortened for context."""
+
+    text = re.sub(r"```figure\s*\d+\s*```", " ", answer)
+    text = re.sub(r"<details>[\s\S]*?</details>", " ", text)
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
 def _usage(response: Any) -> ChatUsage | None:
