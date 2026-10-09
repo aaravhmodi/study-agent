@@ -174,7 +174,7 @@ def test_page_numbered_citations_count() -> None:
 
     text = (
         "See [course text.pdf, p. 87] and [Lecture_07.pdf, pp. 3-5] and [notes.txt] "
-        "and [book.txt, §§3.2–3.5]."
+        "and [book.txt, §§3.2–3.5] and [book.txt, Chapter 4]."
     )
 
-    assert len(_INLINE_CITATION.findall(text)) == 4
+    assert len(_INLINE_CITATION.findall(text)) == 5

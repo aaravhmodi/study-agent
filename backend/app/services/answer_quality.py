@@ -16,7 +16,7 @@ EXPLAIN_SECTIONS = (
 
 _HEADING = re.compile(r"^(#{2,3})\s+(.+?)\s*#*\s*$", flags=re.MULTILINE)
 _INLINE_CITATION = re.compile(
-    r"\[[^\]\n]+\.(?:pdf|txt|docx?|pptx|md|html|tex)(?:,\s*(?:pp?\.|\u00a7\u00a7?)\s*[\d.\u2013-]+)?\]",
+    r"\[[^\]\n]+\.(?:pdf|txt|docx?|pptx|md|html|tex)(?:,\s*(?:pp?\.|\u00a7\u00a7?|ch(?:apter|\.)?)\s*[\d.\u2013-]+)?\]",
     re.IGNORECASE,
 )
 _LEFTOVER_MARKER = re.compile(r"filecite|turn\d+file\d+|[\ue000-\uf8ff]")
