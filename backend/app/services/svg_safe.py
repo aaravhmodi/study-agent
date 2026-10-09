@@ -24,7 +24,7 @@ _ATTRIBUTES = {
     "fill", "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-opacity",
     "stroke-dasharray", "stroke-linecap", "stroke-linejoin", "opacity",
     "font-family", "font-size", "font-weight", "font-style", "text-anchor",
-    "dominant-baseline", "marker-start", "marker-mid", "marker-end", "style",
+    "dominant-baseline", "paint-order", "marker-start", "marker-mid", "marker-end", "style",
 }  # fmt: skip
 _STYLE_PROPERTIES = {
     "fill", "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-opacity",

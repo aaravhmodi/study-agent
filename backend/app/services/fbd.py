@@ -203,6 +203,11 @@ class _Canvas:
                 "font-size": str(size),
                 "font-family": FONT,
                 "text-anchor": anchor,
+                # A paper-coloured outline keeps labels readable over lines.
+                "stroke": "#fffdf8",
+                "stroke-width": "4",
+                "stroke-linejoin": "round",
+                "paint-order": "stroke",
             },
         )
         element.text = label
