@@ -10,6 +10,7 @@ EXPLAIN_SECTIONS = (
     "Key concepts",
     "Worked example",
     "Common mistakes",
+    "Check yourself",
     "Study checklist",
 )
 
@@ -18,6 +19,8 @@ _INLINE_CITATION = re.compile(r"\[[^\]\n]+\.(?:pdf|txt|docx?|pptx|md|html|tex)\]
 _LEFTOVER_MARKER = re.compile(r"filecite|turn\d+file\d+|[\ue000-\uf8ff]")
 _DISPLAY_MATH = re.compile(r"\\\[[\s\S]+?\\\]|\$\$[\s\S]+?\$\$")
 _INLINE_MATH = re.compile(r"\\\([\s\S]+?\\\)")
+# KaTeX rejects math-only symbols such as "·" or "×" inside \text{...}.
+_UNICODE_IN_TEXT = re.compile(r"\\text\{[^}]*[·×÷°±≤≥]")
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 
 
@@ -27,6 +30,7 @@ class AnswerQuality(BaseModel):
     word_count: int
     sections: list[str] = Field(default_factory=list)
     concepts: list[str] = Field(default_factory=list)
+    practice_questions: int = 0
     inline_citations: int = 0
     longest_paragraph_words: int = 0
     issues: list[str] = Field(default_factory=list)
@@ -67,8 +71,13 @@ def assess_answer(
         issues.append("unbalanced math delimiters")
     if answer.count("```") % 2:
         issues.append("unclosed code fence")
+    hidden_answers = answer.count("<details>")
+    if hidden_answers != answer.count("</details>"):
+        issues.append("unclosed hidden answer")
     if _has_bare_latex(answer):
         issues.append("LaTeX outside math delimiters")
+    if _UNICODE_IN_TEXT.search(answer):
+        issues.append("Unicode symbol inside \\text{} (KaTeX shows it in red)")
     if _long_sentences(prose):
         issues.append("run-on sentences")
     citations = len(_INLINE_CITATION.findall(answer))
@@ -83,10 +92,13 @@ def assess_answer(
             issues.append(f"only {len(concepts)} concepts explained")
         if len({concept.lower() for concept in concepts}) != len(concepts):
             issues.append("repeated concept headings")
+        if hidden_answers < 2:
+            issues.append(f"only {hidden_answers} self-test questions with hidden answers")
     return AnswerQuality(
         word_count=words,
         sections=sections,
         concepts=concepts,
+        practice_questions=hidden_answers,
         inline_citations=citations,
         longest_paragraph_words=longest,
         issues=issues,

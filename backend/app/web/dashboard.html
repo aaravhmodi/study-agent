@@ -137,6 +137,9 @@ button.busy{pointer-events:none;opacity:.8}
 .answer .katex{font-size:1.06em}
 .answer .katex-display{overflow-x:auto;overflow-y:hidden;padding:10px 0;margin:14px 0}
 .sources{display:flex;flex-wrap:wrap;gap:7px;margin-top:22px;padding-top:16px;border-top:1px solid var(--line)}
+.sources .chip.web{text-decoration:none;color:inherit}
+.answer details{margin:6px 0 12px;padding:8px 12px;border:1px solid var(--line);border-radius:8px}
+.answer summary{cursor:pointer;font-weight:600}
 .chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line-2);background:#fff;border-radius:99px;padding:5px 11px;font-size:11.5px;color:var(--ink-2);animation:reveal-in .6s cubic-bezier(.16,1,.3,1) var(--d,0s) both}
 .chip::before{content:"";width:5px;height:5px;border-radius:50%;background:#c7bedb}
 .notice{margin-top:18px;padding:13px 16px;border-radius:12px;background:#fbefec;color:#8f3a28;font-size:13px;line-height:1.6}
@@ -273,14 +276,21 @@ function setBusy(button, label) {
 // DOMPurify sanitizes the Markdown HTML.
 function renderAnswer(text) {
   if (!window.marked || !window.DOMPurify || !window.katex) return `<div class="answer plain">${esc(text)}</div>`;
-  const math = [];
+  const math = [], hidden = [];
   const keep = (tex, display) => { math.push(katex.renderToString(tex.trim(), {displayMode: display, throwOnError: false})); return `%%MATH${math.length - 1}%%` };
   const source = String(text)
     .replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) => keep(tex, true))
     .replace(/\\\[([\s\S]+?)\\\]/g, (_, tex) => keep(tex, true))
     .replace(/\\\(([\s\S]+?)\\\)/g, (_, tex) => keep(tex, false))
-    .replace(/(^|[^\\$\w])\$(?!\s)([^$\n]+?)(?<!\s)\$(?![\w$])/g, (_, before, tex) => before + keep(tex, false));
-  const html = DOMPurify.sanitize(marked.parse(source, {gfm: true}));
+    .replace(/(^|[^\\$\w])\$(?!\s)([^$\n]+?)(?<!\s)\$(?![\w$])/g, (_, before, tex) => before + keep(tex, false))
+    // Markdown would split a hidden answer out of its <details> box, so each
+    // one is rendered on its own and dropped back in as a block.
+    .replace(/<details>\s*<summary>([\s\S]*?)<\/summary>([\s\S]*?)<\/details>/g, (_, summary, inner) => {
+      hidden.push(`<details><summary>${esc(summary.trim())}</summary>${marked.parse(inner.trim(), {gfm: true})}</details>`);
+      return `\n\n%%HIDDEN${hidden.length - 1}%%\n\n`;
+    });
+  const html = DOMPurify.sanitize(marked.parse(source, {gfm: true})
+    .replace(/(?:<p>)?%%HIDDEN(\d+)%%(?:<\/p>)?/g, (_, index) => hidden[Number(index)]));
   return `<div class="answer">${html.replace(/%%MATH(\d+)%%/g, (_, index) => math[Number(index)])}</div>`;
 }
 
@@ -292,7 +302,8 @@ function askStages(course) {
     {at: 0, title: 'Reading your question', how: `Working out what you are asking and scoping the search to ${scope}.`},
     {at: 2500, title: 'Searching your course files', how: 'Running a semantic search over the lecture notes, homework solutions and outlines indexed from LEARN.'},
     {at: 7000, title: 'Pulling the relevant passages', how: 'Collecting the definitions, formulas and worked examples that match your question.'},
-    {at: 13000, title: 'Writing your explanation', how: 'Connecting the ideas into a teachable answer and citing the file each claim comes from.'},
+    {at: 10000, title: 'Checking online sources', how: 'Looking up extra context the course files leave out; online facts are marked (online) and linked.'},
+    {at: 15000, title: 'Writing your explanation', how: 'Teaching it concept by concept, citing each file, and adding self-test questions.'},
     {at: Infinity, title: 'Formatting equations', how: 'Typesetting the math and laying out the answer.'},
   ];
 }
@@ -354,7 +365,7 @@ async function askChat() {
     output.innerHTML = `<div class="answer-wrap">
       <div class="answer-meta"><p class="micro-label"><span class="status-dot"></span>Answer${course ? ` · ${esc(course)}` : ''}</p><p class="micro-label muted">${seconds}s · ${sources.length} source${sources.length === 1 ? '' : 's'}</p></div>
       ${renderAnswer(result.answer)}
-      ${sources.length ? `<div class="sources">${sources.map((c, i) => `<span class="chip" style="--d:${0.3 + i * 0.05}s">${esc(c.filename)}</span>`).join('')}</div>` : ''}
+      ${sources.length ? `<div class="sources">${sources.map((c, i) => /^https?:\/\//.test(c.url || '') ? `<a class="chip web" href="${esc(c.url)}" target="_blank" rel="noopener noreferrer" style="--d:${0.3 + i * 0.05}s">↗ ${esc(c.filename)}</a>` : `<span class="chip" style="--d:${0.3 + i * 0.05}s">${esc(c.filename)}</span>`).join('')}</div>` : ''}
     </div>`;
     output.querySelectorAll('.answer > *').forEach((el, i) => el.style.setProperty('--d', `${Math.min(i, 24) * 60}ms`));
   } catch (error) {

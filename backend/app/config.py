@@ -17,7 +17,9 @@ class Settings(BaseSettings):
         default="low", pattern="^(none|low|medium|high|xhigh|max)$"
     )
     rag_max_results: int = Field(default=6, ge=1, le=50)
-    rag_max_output_tokens: int = Field(default=2500, ge=256, le=32000)
+    rag_max_output_tokens: int = Field(default=3000, ge=256, le=32000)
+    # Adds online context next to course materials; costs one search per question.
+    rag_web_search: bool = True
     browser_mode: str = Field(default="local", pattern="^(local|cloud|mock)$")
     database_url: str = "sqlite:///./data/study_agent.db"
     learn_url: str = "https://learn.uwaterloo.ca"

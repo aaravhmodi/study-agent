@@ -38,8 +38,13 @@ def clean_citations(citations: list[dict[str, str | None]]) -> list[dict[str, st
     cleaned: list[dict[str, str | None]] = []
     for citation in citations:
         filename = display_filename(str(citation.get("filename") or ""))
-        if not filename or filename in seen:
+        url = citation.get("url")
+        key = url or filename
+        if not filename or key in seen:
             continue
-        seen.add(filename)
-        cleaned.append({"filename": filename, "file_id": citation.get("file_id")})
+        seen.add(key)
+        if url:
+            cleaned.append({"filename": filename, "url": url})
+        else:
+            cleaned.append({"filename": filename, "file_id": citation.get("file_id")})
     return cleaned

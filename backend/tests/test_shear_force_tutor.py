@@ -8,7 +8,13 @@ from app.config import Settings
 from app.schemas.chat import ChatResponse
 from app.services.answer_quality import assess_answer
 from app.services.rag import TUTOR_INSTRUCTIONS, RagService
-from app.services.rag_eval import EVAL_QUESTIONS, EvalQuestion, run_eval
+from app.services.rag_eval import (
+    COURSE_QUESTIONS,
+    EVAL_QUESTIONS,
+    SHEAR_FORCE_QUESTIONS,
+    EvalQuestion,
+    run_eval,
+)
 
 GOOD = (Path(__file__).parent / "fixtures" / "shear_force_answer.md").read_text(encoding="utf-8")
 SHEAR_COURSE = "SYDE 286"
@@ -83,7 +89,7 @@ def test_token_budget_defaults_are_small(tmp_path: Path) -> None:
     call = responses.calls[0]
     assert call["reasoning"] == {"effort": "low"}
     assert call["tools"][0]["max_num_results"] == 6
-    assert call["max_output_tokens"] == 2500
+    assert call["max_output_tokens"] == 3000
 
 
 def test_instructions_are_static_and_input_holds_only_the_question(tmp_path: Path) -> None:
@@ -101,12 +107,18 @@ def test_instructions_are_static_and_input_holds_only_the_question(tmp_path: Pat
 
 
 def test_instructions_ask_for_concept_by_concept_chapter_explanations() -> None:
-    for section in ("## Overview", "## Key concepts", "## Worked example", "## Study checklist"):
+    for section in (
+        "## Overview",
+        "## Key concepts",
+        "## Worked example",
+        "## Check yourself",
+        "## Study checklist",
+    ):
         assert section in TUTOR_INSTRUCTIONS
     assert "chapter or lecture" in TUTOR_INSTRUCTIONS
     assert "### heading per concept" in TUTOR_INSTRUCTIONS
     # The prompt itself stays short so every question pays few input tokens.
-    assert len(TUTOR_INSTRUCTIONS.split()) < 220
+    assert len(TUTOR_INSTRUCTIONS.split()) < 300
 
 
 def test_question_is_filtered_to_the_shear_force_course(tmp_path: Path) -> None:
@@ -163,12 +175,12 @@ def test_invalid_reasoning_effort_is_rejected() -> None:
 
 
 def test_eval_set_covers_shear_force_concepts() -> None:
-    assert len(EVAL_QUESTIONS) >= 6
-    assert all(item.course_code == SHEAR_COURSE for item in EVAL_QUESTIONS)
+    assert len(SHEAR_FORCE_QUESTIONS) >= 6
+    assert all(item.course_code == SHEAR_COURSE for item in SHEAR_FORCE_QUESTIONS)
     assert all(
-        any("shear" in term for term in item.expected_terms) for item in EVAL_QUESTIONS
+        any("shear" in term for term in item.expected_terms) for item in SHEAR_FORCE_QUESTIONS
     )
-    asked = " ".join(item.question.lower() for item in EVAL_QUESTIONS)
+    asked = " ".join(item.question.lower() for item in SHEAR_FORCE_QUESTIONS)
     for concept in ("sign convention", "distributed load", "diagram", "shear stress"):
         assert concept in asked
 
@@ -253,3 +265,13 @@ def test_rag_eval_command_writes_a_report(tmp_path: Path, monkeypatch) -> None:
     [row] = json.loads((tmp_path / "rag_eval.json").read_text(encoding="utf-8"))
     assert row["course_code"] == SHEAR_COURSE
     assert row["quality"]["issues"] == []
+
+
+def test_eval_covers_every_course_and_a_lecture_in_each() -> None:
+    courses = {"SYDE 212", "SYDE 252", "SYDE 262", "SYDE 286", "SYDE 292", "SYDE 292L"}
+
+    assert {item.course_code for item in EVAL_QUESTIONS} == courses
+    lecture_courses = {
+        item.course_code for item in COURSE_QUESTIONS if "Lecture 1" in item.question
+    }
+    assert lecture_courses == courses - {"SYDE 292L"}

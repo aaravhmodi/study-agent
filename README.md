@@ -54,9 +54,16 @@ uv run study-agent rag-index
 
 Start the dashboard and ask questions in the “Ask your course materials” box, or call `POST /chat` with `{"question":"Get me up to speed for SYDE 252 tomorrow.","course_code":"SYDE 252"}`. Answers are grounded with OpenAI File Search and include source filenames. Re-run `rag-index` after future syncs; unchanged files are skipped.
 
-Chat answers use the lighter `OPENAI_CHAT_MODEL` (default `gpt-6-luna`) with low reasoning effort, at most 6 retrieved chunks, and a 2,500-token output cap; handwritten-PDF transcription keeps `OPENAI_MODEL`. "Explain ..." questions are answered concept by concept: Overview, Key concepts (one subsection per concept in the chapter), Worked example, Common mistakes, Study checklist.
+Chat answers use the lighter `OPENAI_CHAT_MODEL` (default `gpt-6-luna`) with low reasoning effort, at most 6 retrieved chunks, and a 3,000-token output cap; handwritten-PDF transcription keeps `OPENAI_MODEL`. The tutor is built around study techniques with strong evidence:
 
-To check that live answers are readable, run the built-in SYDE 286 shear-force question set (or your own with `-q`):
+- **Concept by concept:** "Explain ..." questions get an Overview, one subsection per key concept in the chapter, a Worked example, and Common mistakes.
+- **Practice testing:** every explanation ends with "Check yourself" questions whose answers stay hidden until clicked.
+- **Spacing:** the Study checklist says when to revisit the topic.
+- **No answer-copying:** questions that look like graded assignment or lab problems get concepts and a first-step hint, not a full solution.
+- **Any lecture:** naming "Lecture 7", "week 3", "chapter 5" or "tutorial 4" narrows the search to the matching course files.
+- **Online context:** web search adds intuition and real-world examples the course files lack. Those sentences are marked "(online)", the sources are linked, and course notation always wins. Set `RAG_WEB_SEARCH=false` to use course files only.
+
+To check that live answers are readable, run the built-in question set: seven SYDE 286 shear-force questions, plus a core topic and a "what did Lecture 1 cover" question for each course. You can also pass your own with `-q`:
 
 ```powershell
 uv run study-agent rag-eval --rounds 3

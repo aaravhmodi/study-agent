@@ -16,6 +16,7 @@ def test_well_structured_shear_force_answer_is_readable() -> None:
         "Key concepts",
         "Worked example",
         "Common mistakes",
+        "Check yourself",
         "Study checklist",
     ]
 
@@ -30,7 +31,7 @@ def test_concepts_are_the_subheadings_of_key_concepts() -> None:
 
 
 def test_inline_citations_are_counted() -> None:
-    assert assess_answer(GOOD).inline_citations == 6
+    assert assess_answer(GOOD).inline_citations == 7
 
 
 def test_display_math_does_not_count_as_a_long_paragraph() -> None:
@@ -143,3 +144,28 @@ def test_direct_questions_do_not_need_the_explain_layout() -> None:
 
     assert quality.issues == []
     assert quality.concepts == []
+
+
+def test_self_test_questions_are_counted() -> None:
+    assert assess_answer(GOOD).practice_questions == 3
+
+
+def test_explanation_without_self_test_is_reported() -> None:
+    start = GOOD.index("## Check yourself")
+    end = GOOD.index("## Study checklist")
+    issues = assess_answer(GOOD[:start] + GOOD[end:]).issues
+
+    assert "only 0 self-test questions with hidden answers" in issues
+    assert "missing sections: Check yourself" in issues
+
+
+def test_unclosed_hidden_answer_is_reported() -> None:
+    answer = GOOD.replace("</details>", "", 1)
+
+    assert "unclosed hidden answer" in assess_answer(answer).issues
+
+
+def test_unicode_symbol_inside_text_is_reported() -> None:
+    answer = GOOD.replace(r"\text{kN}\cdot\text{m}", r"\text{kN·m}")
+
+    assert "Unicode symbol inside \\text{} (KaTeX shows it in red)" in assess_answer(answer).issues

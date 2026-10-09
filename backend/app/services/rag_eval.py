@@ -41,7 +41,7 @@ class EvalResult(BaseModel):
 
 _SHEAR = "SYDE 286"
 
-EVAL_QUESTIONS: list[EvalQuestion] = [
+SHEAR_FORCE_QUESTIONS: list[EvalQuestion] = [
     EvalQuestion(
         question="Explain shear force.",
         course_code=_SHEAR,
@@ -80,6 +80,47 @@ EVAL_QUESTIONS: list[EvalQuestion] = [
         expected_terms=["shear force", "cantilever"],
     ),
 ]
+
+
+# One core-topic question and one lecture lookup per Fall 2026 course.
+COURSE_QUESTIONS: list[EvalQuestion] = [
+    EvalQuestion(
+        question="Explain conditional probability and Bayes' theorem.",
+        course_code="SYDE 212",
+        expected_terms=["conditional probability", "bayes"],
+    ),
+    EvalQuestion(
+        question="Explain signal energy and power.",
+        course_code="SYDE 252",
+        expected_terms=["energy", "power"],
+    ),
+    EvalQuestion(
+        question="Explain present worth and the time value of money.",
+        course_code="SYDE 262",
+        expected_terms=["present worth", "interest"],
+    ),
+    EvalQuestion(
+        question="Explain normal stress and strain.",
+        course_code=_SHEAR,
+        expected_terms=["stress", "strain"],
+    ),
+    EvalQuestion(
+        question="Explain Kirchhoff's voltage and current laws.",
+        course_code="SYDE 292",
+        expected_terms=["kirchhoff", "voltage", "current"],
+    ),
+    EvalQuestion(
+        question="Explain how to measure voltage and current safely with a multimeter.",
+        course_code="SYDE 292L",
+        expected_terms=["multimeter", "voltage", "current"],
+    ),
+    *[
+        EvalQuestion(question="Explain what Lecture 1 covered.", course_code=code)
+        for code in ("SYDE 212", "SYDE 252", "SYDE 262", _SHEAR, "SYDE 292")
+    ],
+]
+
+EVAL_QUESTIONS: list[EvalQuestion] = SHEAR_FORCE_QUESTIONS + COURSE_QUESTIONS
 
 
 def run_eval(

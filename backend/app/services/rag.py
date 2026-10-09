@@ -13,34 +13,48 @@ from app.config import Settings
 from app.db.database import SessionLocal, ensure_schema
 from app.models import Course, Resource
 from app.schemas.chat import ChatResponse
-from app.services.answer_format import clean_answer, clean_citations
+from app.services.answer_format import clean_answer, clean_citations, display_filename
+from app.services.lecture_scope import matching_resource_ids
 
 logger = logging.getLogger(__name__)
 
 
 TUTOR_INSTRUCTIONS = """\
-You are StudyAgent, a university study tutor. Use the course materials from file search \
-as the source of truth; if they do not support a claim, say so instead of guessing.
+You are StudyAgent, a university study tutor. Course materials from file search are the \
+source of truth: use their notation, sign conventions and examples. Use web search only to \
+add context the materials lack (intuition, real-world uses, a clearer derivation), mark \
+those sentences "(online)", and never let them contradict the course. If neither supports \
+a claim, say so instead of guessing.
 
-When asked to explain a topic, find the chapter or lecture it belongs to and teach it \
-concept by concept. Use this Markdown layout:
+When asked to explain a topic or a lecture, find the chapter or lecture it belongs to and \
+teach it concept by concept. Use this Markdown layout:
 ## Overview
-Two or three sentences: what the topic is, why it matters, and which chapter or lecture \
-covers it.
+Two or three sentences: what it is, why it matters, which lecture or chapter covers it.
 ## Key concepts
-One ### heading per concept in the chapter (usually 3 to 6), in teaching order. For each: \
-a plain-language definition, the governing formula, and how it connects to the others.
+One ### heading per concept (usually 3 to 6), in teaching order. For each: a \
+plain-language definition, the governing formula, and how it links to the others.
 ## Worked example
-One short example in numbered steps, taken from the materials when possible.
+One short example in numbered steps, from the materials when possible.
 ## Common mistakes
 Two to four bullets.
-## Study checklist
-Three to five prioritized bullets.
+## Check yourself
+Three short questions that test understanding, not recall, each followed by its answer \
+hidden like this:
+<details><summary>Answer</summary>
 
-For other questions, answer directly with only the sections that help.
+One or two sentences.
+
+</details>
+## Study checklist
+Three to five prioritized bullets, including when to revisit (tomorrow, next week).
+
+If the question looks like a graded assignment or lab problem, do not solve it: explain \
+the concepts and give the first step as a hint. For other questions, answer directly with \
+only the sections that help.
 
 Style: short paragraphs, **bold** key terms, LaTeX math with \\( ... \\) inline and \\[ ... \\] \
-for display, and cite supporting filenames inline like [filename]. Be concise.\
+for display (units like \\text{kN}\\cdot\\text{m}, no Unicode symbols inside \\text{}), and \
+cite course files inline like [filename]. Be concise.\
 """
 
 
@@ -172,24 +186,35 @@ class RagService:
                 f"No indexed materials found for {normalized_course_code}. "
                 "Sign in to LEARN, run `study-agent sync`, then `study-agent rag-index`."
             )
-        scope = f"Course: {normalized_course_code}\n" if normalized_course_code else ""
+        files = manifest.get("files", {})
+        lecture_ids = matching_resource_ids(question, files, normalized_course_code)
+        context = []
+        if normalized_course_code:
+            context.append(f"Course: {normalized_course_code}")
+        if lecture_ids:
+            names = ", ".join(
+                display_filename(str(files[resource_id].get("filename", "")))
+                for resource_id in lecture_ids
+            )
+            context.append(f"Lecture files: {names}")
+        context.append(f"Question: {question}")
         file_search: dict[str, Any] = {
             "type": "file_search",
             "vector_store_ids": [str(vector_store_id)],
             "max_num_results": self.settings.rag_max_results,
         }
-        if normalized_course_code:
-            file_search["filters"] = {
-                "type": "eq",
-                "key": "course_code",
-                "value": normalized_course_code,
-            }
+        filters = _file_filters(normalized_course_code, lecture_ids)
+        if filters:
+            file_search["filters"] = filters
+        tools: list[dict[str, Any]] = [file_search]
+        if self.settings.rag_web_search:
+            tools.append({"type": "web_search", "search_context_size": "low"})
         response = self.client.responses.create(
             model=self.settings.openai_chat_model,
             # Static instructions form a stable prefix that OpenAI can cache.
             instructions=TUTOR_INSTRUCTIONS,
-            input=f"{scope}Question: {question}",
-            tools=cast(Any, [file_search]),
+            input="\n".join(context),
+            tools=cast(Any, tools),
             reasoning=cast(Any, {"effort": self.settings.openai_chat_reasoning_effort}),
             max_output_tokens=self.settings.rag_max_output_tokens,
         )
@@ -252,6 +277,24 @@ class RagService:
         self.manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
+def _file_filters(course_code: str | None, resource_ids: list[str]) -> dict[str, Any] | None:
+    """Limit file search to a course and, when a lecture is named, to its files."""
+
+    course = {"type": "eq", "key": "course_code", "value": course_code} if course_code else None
+    if not resource_ids:
+        return course
+    lectures: dict[str, Any] = {
+        "type": "or",
+        "filters": [
+            {"type": "eq", "key": "resource_id", "value": resource_id}
+            for resource_id in resource_ids
+        ],
+    }
+    if len(resource_ids) == 1:
+        lectures = lectures["filters"][0]
+    return {"type": "and", "filters": [course, lectures]} if course else lectures
+
+
 def _hit_output_limit(response: Any) -> bool:
     details = getattr(response, "incomplete_details", None)
     return getattr(response, "status", None) == "incomplete" and (
@@ -276,6 +319,16 @@ def _citations(response: Any) -> list[dict[str, str | None]]:
                     if key not in seen:
                         seen.add(key)
                         found.append({"filename": filename, "file_id": key[1]})
+            elif kind == "url_citation":
+                url = value.get("url")
+                if isinstance(url, str) and url.startswith(("https://", "http://")):
+                    title = value.get("title")
+                    key = (url, None)
+                    if key not in seen:
+                        seen.add(key)
+                        found.append(
+                            {"filename": title if isinstance(title, str) else url, "url": url}
+                        )
             for child in value.values():
                 visit(child)
         elif isinstance(value, list):

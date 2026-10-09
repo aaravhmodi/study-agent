@@ -13,6 +13,8 @@ class ChatCitation(BaseModel):
 
     filename: str
     file_id: str | None = None
+    # Set for online sources; course files have only a filename.
+    url: str | None = None
 
 
 class ChatResponse(BaseModel):
