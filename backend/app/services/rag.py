@@ -16,6 +16,7 @@ from app.models import Course, Resource
 from app.schemas.chat import ChatCitation, ChatResponse, ChatUsage
 from app.services.answer_cache import AnswerCache, cache_key, index_fingerprint
 from app.services.answer_format import clean_answer, clean_citations, display_filename
+from app.services.course_notes import course_in_question, get_note
 from app.services.figure_guide import FIGURE_GUIDE
 from app.services.figures import extract_figures
 from app.services.learn_links import viewer_url
@@ -72,7 +73,9 @@ Three to five prioritized bullets, including when to revisit (tomorrow, next wee
 
 If the question looks like a graded assignment or lab problem, do not solve it: explain \
 the concepts and give the first step as a hint. For other questions, answer directly with \
-only the sections that help.
+only the sections that help. Instructor notes, when given, set exam scope and format: \
+say whether the topic is in scope, and write Check yourself questions in that format \
+(for multiple choice: four options, one correct).
 
 Style: short paragraphs, **bold** key terms, LaTeX math with \\( ... \\) inline and \\[ ... \\] \
 for display (units like \\text{kN}\\cdot\\text{m}, no Unicode symbols inside \\text{}), and \
@@ -245,13 +248,19 @@ class RagService:
             )
         files = manifest.get("files", {})
         cache = AnswerCache(self.manifest_path.with_name("answer_cache.json"))
-        key = cache_key(question, normalized_course_code, settings=self._answer_shape(files))
+        note_course = normalized_course_code or course_in_question(
+            question, {str(entry.get("course_code", "")).upper() for entry in files.values()}
+        )
+        note = get_note(self.notes_path, note_course)
+        key = cache_key(question, normalized_course_code, settings=self._answer_shape(files, note))
         if not fresh and (saved := cache.get(key)):
             return saved.model_copy(update={"cached": True, "usage": None})
         lecture_ids = matching_resource_ids(question, files, normalized_course_code)
         context = []
         if normalized_course_code:
             context.append(f"Course: {normalized_course_code}")
+        if note:
+            context.append(f"Instructor notes for {note_course} (added by the student):\n{note}")
         if lecture_ids:
             names = ", ".join(
                 display_filename(str(files[resource_id].get("filename", "")))
@@ -296,7 +305,11 @@ class RagService:
         cache.put(key, result)
         return result
 
-    def _answer_shape(self, files: dict[str, Any]) -> dict[str, Any]:
+    @property
+    def notes_path(self) -> Path:
+        return self.manifest_path.with_name("course_notes.json")
+
+    def _answer_shape(self, files: dict[str, Any], note: str | None = None) -> dict[str, Any]:
         """Everything besides the question that changes what an answer looks like."""
 
         settings = self.settings
@@ -309,6 +322,7 @@ class RagService:
             "web": settings.rag_web_search,
             "prompt": hashlib.sha256(TUTOR_INSTRUCTIONS.encode("utf-8")).hexdigest()[:16],
             "index": index_fingerprint(files),
+            "note": hashlib.sha256((note or "").encode("utf-8")).hexdigest()[:16],
             # Bump when the saved response format changes (2: LEARN links on sources).
             "format": 2,
         }

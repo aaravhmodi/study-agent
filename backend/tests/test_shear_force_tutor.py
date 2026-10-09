@@ -132,7 +132,7 @@ def test_instructions_ask_for_concept_by_concept_chapter_explanations() -> None:
     assert "### heading per concept" in TUTOR_INSTRUCTIONS
     # The teaching guide stays short; the figure guide is separate and both are a
     # static, cacheable prefix, so they cost little after the first question.
-    assert len(TUTOR_GUIDE.split()) < 300
+    assert len(TUTOR_GUIDE.split()) < 340
     assert len(FIGURE_GUIDE.split()) < 500
     assert TUTOR_INSTRUCTIONS.startswith(TUTOR_GUIDE) and TUTOR_INSTRUCTIONS.endswith(FIGURE_GUIDE)
 
@@ -394,3 +394,33 @@ def test_fresh_question_and_reindexing_skip_the_cache(tmp_path: Path) -> None:
     service.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     service.ask("Explain shear force.", SHEAR_COURSE)
     assert len(responses.calls) == 3
+
+
+def test_course_notes_go_with_questions_about_that_course(tmp_path: Path) -> None:
+    from app.services.course_notes import save_note
+
+    responses = FakeResponses()
+    service = _service(tmp_path, responses)
+    save_note(service.notes_path, SHEAR_COURSE, "Midterm covers chapters 1-4; 40 multiple choice.")
+
+    service.ask("What is on the midterm?", SHEAR_COURSE)
+    service.ask("What is on the syde286 midterm?")  # course named in the question
+    service.ask("What is on the midterm?")  # no course chosen or named: no notes
+
+    first, named, other = (call["input"] for call in responses.calls)
+    note = "Instructor notes for SYDE 286 (added by the student):\nMidterm covers chapters 1-4"
+    assert note in first and note in named
+    assert "Instructor notes" not in other
+
+
+def test_changing_course_notes_refreshes_saved_answers(tmp_path: Path) -> None:
+    from app.services.course_notes import save_note
+
+    responses = FakeResponses()
+    service = _service(tmp_path, responses)
+    service.ask("What is on the midterm?", SHEAR_COURSE)
+    save_note(service.notes_path, SHEAR_COURSE, "Midterm covers chapters 1-4.")
+
+    service.ask("What is on the midterm?", SHEAR_COURSE)
+
+    assert len(responses.calls) == 2
