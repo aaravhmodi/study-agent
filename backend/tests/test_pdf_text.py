@@ -49,3 +49,26 @@ def test_shear_stress_question_has_lecture_text_to_search(monkeypatch, tmp_path:
     assert "shear stress" in extracted
     assert "tangential force" in extracted
     assert "tau" in extracted
+
+
+def test_books_are_labelled_with_their_printed_page_numbers() -> None:
+    front = ["Title page", "Contents\n1 Introduction 1"]
+    body = [f"Balka ISE 1.10 SECTION {n}\ntext of page {n}" for n in range(1, 13)]
+
+    assert pdf_text.printed_page_offset(front + body) == 2
+    labels = [page.splitlines()[0] for page in pdf_text._label_pages(front + body)]
+    assert labels[:3] == ["[Front matter, PDF page 1]", "[Front matter, PDF page 2]", "[Page 1]"]
+    assert labels[-1] == "[Page 12]"
+
+
+def test_slides_without_printed_numbers_keep_pdf_pages() -> None:
+    slides = [f"Part {n} of the lecture\nbullet" for n in range(1, 15)]
+
+    assert pdf_text.printed_page_offset(slides) is None
+    assert pdf_text._label_pages(slides)[0].startswith("[Page 1]\n")
+
+
+def test_a_few_numbered_headers_are_not_enough() -> None:
+    pages = [f"Header {n}\nx" for n in range(1, 6)] + [f"Slide {n} title\nx" for n in range(20)]
+
+    assert pdf_text.printed_page_offset(pages) is None

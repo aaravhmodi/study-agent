@@ -1,6 +1,8 @@
 """Extract text from downloaded PDFs without sending the document anywhere."""
 
 import logging
+import re
+from collections import Counter
 from pathlib import Path
 
 from pypdf import PdfReader
@@ -29,9 +31,49 @@ def extract_pdf_text(path: Path) -> str:
     finally:
         for logger, previous_level in zip(_PYPDF_LOGGERS, previous_levels, strict=True):
             logger.setLevel(previous_level)
-    # Page headers let answers cite a page ("[course text.pdf, p. 87]").
-    numbered = [f"[Page {number}]\n{page}" for number, page in enumerate(pages, 1) if page]
-    return "\n\n".join(numbered).strip()
+    return "\n\n".join(_label_pages(pages)).strip()
+
+
+# A printed page number at the end of a page's first line ("... TYPES OF SAMPLING 12").
+_HEADER_NUMBER = re.compile(r"(?:^|\s)(\d{1,4})\s*$")
+
+
+def printed_page_offset(pages: list[str]) -> int | None:
+    """How far PDF page numbers run ahead of the printed ones, if the document prints them.
+
+    Books number their pages after the front matter, so PDF page 20 can be page 12.
+    Returns None unless most pages agree, as slides and handouts rarely print numbers.
+    """
+
+    offsets: Counter[int] = Counter()
+    for index, text in enumerate(pages, 1):
+        first = next((line for line in text.splitlines() if line.strip()), "")
+        match = _HEADER_NUMBER.search(first)
+        if match:
+            offsets[index - int(match.group(1))] += 1
+    if not offsets:
+        return None
+    offset, agreeing = offsets.most_common(1)[0]
+    with_text = sum(1 for text in pages if text)
+    return offset if agreeing >= 10 and agreeing >= 0.6 * with_text else None
+
+
+def _label_pages(pages: list[str]) -> list[str]:
+    """Head each page so answers can cite it ("[course text.pdf, p. 87]").
+
+    Pages are labelled with the number printed on them when the document has one,
+    so a citation matches the page a student turns to in the book.
+    """
+
+    offset = printed_page_offset(pages) or 0
+    labelled: list[str] = []
+    for index, text in enumerate(pages, 1):
+        if not text:
+            continue
+        printed = index - offset
+        label = f"[Page {printed}]" if printed >= 1 else f"[Front matter, PDF page {index}]"
+        labelled.append(f"{label}\n{text}")
+    return labelled
 
 
 def write_pdf_text_sidecar(path: Path) -> Path | None:
