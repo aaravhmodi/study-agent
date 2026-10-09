@@ -50,7 +50,7 @@ h2{margin:2px 0 0;font:500 24px/1.2 var(--serif);letter-spacing:-.2px}
 .ask-box{display:grid;gap:10px}
 textarea,select{border:1px solid var(--rule-2);border-radius:3px;background:var(--sheet);padding:12px 14px;outline:none}
 textarea{width:100%;min-height:96px;resize:vertical;line-height:1.55;font-size:15.5px}
-textarea:focus,select:focus{border-color:var(--ink)}
+textarea:focus,select:focus{border-color:var(--ink);outline:none;box-shadow:inset 0 0 0 1px var(--ink)}
 .ask-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .ask-row select{padding:9px 12px}
 .hint{margin-left:auto;font:12px var(--mono);color:var(--ink-3)}
@@ -65,6 +65,9 @@ textarea:focus,select:focus{border-color:var(--ink)}
 .spinner{width:12px;height:12px;border-radius:50%;border:1.5px solid currentColor;border-right-color:transparent;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 
+.try{margin:12px 0 0;font-size:13.5px;color:var(--ink-3)}
+.try button{border:0;background:none;padding:0;margin:0 0 0 2px;color:var(--ink-2);text-decoration:underline;text-decoration-color:var(--rule-2);text-underline-offset:3px}
+.try button:hover{color:var(--ink);text-decoration-color:var(--pencil)}
 .loading{font:13px var(--mono);color:var(--ink-3);padding:8px 0}
 .waiting{margin-top:22px;padding:14px 0;border-top:1px solid var(--rule);font:13.5px/1.6 var(--mono);color:var(--ink-2)}
 .waiting .slow{display:block;color:var(--ink-3)}
@@ -176,6 +179,7 @@ aside .section-head h2{font-size:19px}
             <span class="hint">Ctrl+Enter</span>
           </div>
         </div>
+        <p class="try" id="try"></p>
         <div id="chat-answer"></div>
       </section>
 
@@ -316,6 +320,18 @@ function renderSources(citations) {
   return `<div class="sources"><p class="label">Sources</p><ol>${items.join('')}</ol></div>`;
 }
 
+// Suggestions come from the student's own work, e.g. the next test on the calendar.
+function renderSuggestions(data) {
+  const nextTest = data.assessments.find(a => a.status !== 'COMPLETED' && a.status !== 'OVERDUE' && /test|midterm|exam|quiz/i.test(`${a.type} ${a.title}`));
+  const firstCourse = [...data.courses].map(c => c.code).filter(Boolean).sort()[0];
+  const ideas = [
+    nextTest && [`What should I review for the ${nextTest.course} ${nextTest.title}?`, nextTest.course],
+    firstCourse && [`What did Lecture 1 of ${firstCourse} cover?`, firstCourse],
+    ['Explain shear force.', data.courses.some(c => c.code === 'SYDE 286') ? 'SYDE 286' : ''],
+  ].filter(Boolean);
+  $('#try').innerHTML = 'Try: ' + ideas.map(([text, course]) => `<button type="button" data-ask="${esc(text)}" data-course="${esc(course || '')}">${esc(text)}</button>`).join('<span aria-hidden="true"> · </span>');
+}
+
 async function askChat() {
   const button = $('#chat-ask');
   const output = $('#chat-answer');
@@ -408,6 +424,8 @@ async function load() {
   $('#status-line').innerHTML = `<b>${data.courses.length}</b> courses · <b>${open}</b> assessments open · <b>${sync?.resources_found ?? 0}</b> files · `
     + (sync?.finished_at ? `synced ${esc(ago(sync.finished_at))} <span class="muted">(${esc(date(sync.finished_at))})</span>` : 'not synced yet: run <code>study-agent sync</code>');
 
+  renderSuggestions(data);
+
   const select = $('#chat-course');
   const chosen = select.value;
   select.innerHTML = '<option value="">All courses</option>' + data.courses.filter(c => c.code).map(c => `<option value="${esc(c.code)}">${esc(c.code)}</option>`).join('');
@@ -421,6 +439,13 @@ async function load() {
 
 const fail = error => toast(error.message || String(error), 'error');
 $('#chat-ask').addEventListener('click', askChat);
+$('#try').addEventListener('click', event => {
+  const idea = event.target.closest('[data-ask]');
+  if (!idea) return;
+  $('#chat-question').value = idea.dataset.ask;
+  $('#chat-course').value = idea.dataset.course;
+  $('#chat-question').focus();
+});
 $('#chat-question').addEventListener('keydown', event => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') askChat() });
 $('#courses').addEventListener('click', event => {
   const row = event.target.closest('[data-course]');
