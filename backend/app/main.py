@@ -393,7 +393,8 @@ def _iso(value: datetime | None) -> str | None:
 
 
 def _assessment_status(due_at: datetime | None, stored_status: str) -> str:
-    if due_at is None:
+    # Work the student marked completed is never shown as overdue.
+    if due_at is None or stored_status == "COMPLETED":
         return stored_status
     compare_at = due_at if due_at.tzinfo else due_at.replace(tzinfo=UTC)
     return "OVERDUE" if compare_at < datetime.now(UTC) else stored_status
