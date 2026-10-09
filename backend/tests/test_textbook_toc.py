@@ -65,10 +65,9 @@ def test_documents_without_a_contents_page_have_no_chapters() -> None:
 
 
 def test_pdf_ligatures_in_titles_become_plain_letters() -> None:
-    text = "Contents
-7 Sampling 175
-8 Confﬁdence Intervals 191
-9 Hypothesis Tests 223
-"
+    ligature = "ﬁ"  # the single "fi" character PDF text often contains
+    text = f"Contents\n7 Sampling 175\n8 Con{ligature}dence Intervals 191\n9 Hypothesis Tests 223\n"
 
-    assert [chapter.title for chapter in chapters(parse_contents(text))][1] == "Confidence Intervals"
+    titles = [chapter.title for chapter in chapters(parse_contents(text))]
+
+    assert titles[1] == "Confidence Intervals"
