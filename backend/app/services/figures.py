@@ -17,6 +17,7 @@ from app.schemas.chat import (
     PlotSeries,
     SketchFigure,
 )
+from app.services.circuit import CircuitError, render_circuit
 from app.services.fbd import FbdError, render_fbd
 from app.services.plot_math import Formula, FormulaError, compile_formula
 from app.services.svg_safe import SvgError, sanitize_svg
@@ -255,11 +256,22 @@ def parse_fbd(text: str) -> SketchFigure:
         raise FigureError(str(exc)) from exc
 
 
+def parse_circuit(text: str) -> SketchFigure:
+    """Draw a ```circuit parts list as a schematic sketch."""
+
+    try:
+        title, svg = render_circuit(text)
+        return SketchFigure(title=title, svg=sanitize_svg(svg))
+    except (CircuitError, SvgError) as exc:
+        raise FigureError(str(exc)) from exc
+
+
 _PARSERS: dict[str, Callable[[str], ChatFigure]] = {
     "plot": parse_plot,
     "mermaid": parse_diagram,
     "svg": parse_sketch,
     "fbd": parse_fbd,
+    "circuit": parse_circuit,
 }
 
 MAX_FIGURES = 4

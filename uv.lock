@@ -516,6 +516,15 @@ wheels = [
 ]
 
 [[package]]
+name = "schemdraw"
+version = "0.23"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a4/e0/5f1a5c6a7651ae0325708ead4020446ab8146bf11316f0d35bf7e26f6ee0/schemdraw-0.23.tar.gz", hash = "sha256:e71afd5ec84edfd9b707331c5bcb49ed7133af85bd17dae461de3fc260b0132f", size = 4773368, upload-time = "2026-05-29T18:10:40.713Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/97/f6/7efb3798e44868e09e8ce8a4329ac21acd134a3d5fd59792f97a7feccc2a/schemdraw-0.23-py3-none-any.whl", hash = "sha256:b6af33cf175fb7692ed3f71b5d2702c400e009ae26efe76c6fa4f85d34e0fac5", size = 152475, upload-time = "2026-05-29T18:10:12.268Z" },
+]
+
+[[package]]
 name = "shellingham"
 version = "1.5.4"
 source = { registry = "https://pypi.org/simple" }
@@ -582,6 +591,7 @@ dependencies = [
     { name = "pypdf" },
     { name = "python-dotenv" },
     { name = "rich" },
+    { name = "schemdraw" },
     { name = "sqlalchemy" },
     { name = "typer" },
     { name = "tzdata" },
@@ -608,6 +618,7 @@ requires-dist = [
     { name = "pypdf", specifier = ">=5,<7" },
     { name = "python-dotenv", specifier = ">=1.1,<2" },
     { name = "rich", specifier = ">=14,<15" },
+    { name = "schemdraw", specifier = ">=0.23,<1" },
     { name = "sqlalchemy", specifier = ">=2.0,<3" },
     { name = "typer", specifier = ">=0.16,<1" },
     { name = "tzdata", specifier = ">=2025.2" },
