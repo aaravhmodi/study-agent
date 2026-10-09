@@ -72,7 +72,11 @@ textarea:focus,select:focus{border-color:var(--ink);outline:none;box-shadow:inse
 .waiting{margin-top:22px;padding:14px 0;border-top:1px solid var(--rule);font:13.5px/1.6 var(--mono);color:var(--ink-2)}
 .waiting .slow{display:block;color:var(--ink-3)}
 
-.answer-wrap{margin-top:24px;padding-top:20px;border-top:1px solid var(--rule)}
+.answer-wrap{margin-top:12px}
+.turn{margin-top:28px;padding-top:20px;border-top:1px solid var(--rule)}
+.turn-question{margin:0;font:500 17px/1.45 var(--serif);color:var(--ink)}
+.turn-question .label{display:block;margin-bottom:2px}
+.row.current b{color:var(--pencil)}
 .answer-meta{font:12.5px var(--mono);color:var(--ink-3);margin-bottom:8px}
 .answer{font-size:16px;line-height:1.7;max-width:70ch;overflow-wrap:anywhere}
 .answer.plain{white-space:pre-wrap}
@@ -184,7 +188,7 @@ aside .section-head h2{font-size:19px}
   <div class="layout">
     <main>
       <section class="section" aria-labelledby="ask-title">
-        <div class="section-head"><h2 id="ask-title">Ask about a lecture or topic</h2></div>
+        <div class="section-head"><h2 id="ask-title">Ask about a lecture or topic</h2><button type="button" class="quiet-button hidden" id="chat-new">New chat</button></div>
         <div class="ask-box">
           <textarea id="chat-question" placeholder="e.g. Explain shear force, or what did Lecture 3 of SYDE 252 cover?"></textarea>
           <div class="ask-row">
@@ -194,7 +198,7 @@ aside .section-head h2{font-size:19px}
           </div>
         </div>
         <p class="try" id="try"></p>
-        <div id="chat-answer"></div>
+        <div id="chat-thread" aria-live="polite"></div>
       </section>
 
       <section id="detail" class="detail hidden" aria-live="polite"><div id="detail-content"></div></section>
@@ -206,6 +210,10 @@ aside .section-head h2{font-size:19px}
     </main>
 
     <aside>
+      <section class="section" aria-labelledby="chats-title">
+        <div class="section-head"><h2 id="chats-title">Recent chats</h2></div>
+        <div id="chats" class="index"><p class="loading">Loading…</p></div>
+      </section>
       <section class="section" aria-labelledby="courses-title">
         <div class="section-head"><h2 id="courses-title">Courses</h2></div>
         <div id="courses" class="index"><p class="loading">Loading…</p></div>
@@ -531,32 +539,99 @@ function renderSuggestions(data) {
   $('#try').innerHTML = 'Try: ' + ideas.map(([text, course]) => `<button type="button" data-ask="${esc(text)}" data-course="${esc(course || '')}">${esc(text)}</button>`).join('<span aria-hidden="true"> · </span>');
 }
 
-async function askChat(fresh = false) {
-  const button = $('#chat-ask');
-  const output = $('#chat-answer');
-  const question = $('#chat-question').value.trim();
-  if (!question) { $('#chat-question').focus(); toast('Type a question first.'); return }
-  const course = $('#chat-course').value || null;
-  const done = setBusy(button, 'Asking');
-  const progress = startWaiting(output, course);
-  output.scrollIntoView({behavior: 'smooth', block: 'nearest'});
-  try {
-    const result = await getJson('/chat', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question, course_code: course, fresh})});
-    progress.stop();
-    const seconds = Math.round(progress.elapsed() / 1000);
-    output.innerHTML = `<div class="answer-wrap">
-      <p class="answer-meta">${course ? `${esc(course)} · ` : ''}${result.cached ? `saved answer, no tokens used · <button type="button" class="quiet-button" data-fresh>ask fresh</button>` : `answered in ${seconds} s${tokenNote(result.usage)}`}</p>
+// The open conversation; follow-ups are sent with its id so the tutor sees earlier turns.
+let currentSession = null;
+
+function turnMeta(result, course, seconds) {
+  const where = course ? esc(course) : '';
+  if (result.cached) return [where, 'saved answer, no tokens used · <button type="button" class="quiet-button" data-fresh>ask fresh</button>'].filter(Boolean).join(' · ');
+  const tokens = tokenNote(result.usage).replace(/^ · /, '');
+  return [where, seconds == null ? '' : `answered in ${seconds} s`, tokens].filter(Boolean).join(' · ');
+}
+
+// One question and its answer, appended to the thread.
+function appendTurn(question, result, meta) {
+  const turn = document.createElement('article');
+  turn.className = 'turn';
+  turn.innerHTML = `<p class="turn-question"><span class="label">You asked</span>${esc(question)}</p>
+    <div class="answer-wrap">
+      <p class="answer-meta">${meta}</p>
       ${renderAnswer(result.answer, result.citations || [])}
       ${renderSources(result.citations || [])}
     </div>`;
-    drawFigures(output.querySelector('.answer'), result.figures || []);
-    output.querySelector('[data-fresh]')?.addEventListener('click', () => askChat(true));
+  $('#chat-thread').append(turn);
+  drawFigures(turn.querySelector('.answer'), result.figures || []);
+  turn.querySelector('[data-fresh]')?.addEventListener('click', () => askFresh(question));
+  return turn;
+}
+
+function setConversation(id) {
+  currentSession = id;
+  $('#chat-new').classList.toggle('hidden', !id);
+  $('#chat-question').placeholder = id
+    ? 'Ask a follow-up, e.g. why is that? or show me an example'
+    : 'e.g. Explain shear force, or what did Lecture 3 of SYDE 252 cover?';
+}
+
+function newChat() {
+  setConversation(null);
+  $('#chat-thread').innerHTML = '';
+  $('#chat-question').value = '';
+  $('#chat-question').focus();
+}
+
+async function askChat(fresh = false, questionText = null) {
+  const button = $('#chat-ask');
+  const question = (questionText ?? $('#chat-question').value).trim();
+  if (!question) { $('#chat-question').focus(); toast('Type a question first.'); return }
+  const course = $('#chat-course').value || null;
+  const done = setBusy(button, currentSession ? 'Asking follow-up' : 'Asking');
+  const pending = document.createElement('div');
+  $('#chat-thread').append(pending);
+  const progress = startWaiting(pending, course);
+  pending.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+  try {
+    const result = await getJson('/chat', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question, course_code: course, fresh, session_id: currentSession})});
+    progress.stop();
+    pending.remove();
+    setConversation(result.session_id || null);
+    appendTurn(question, result, turnMeta(result, course, Math.round(progress.elapsed() / 1000))).scrollIntoView({behavior: 'smooth', block: 'start'});
+    $('#chat-question').value = '';
+    loadChats();
   } catch (error) {
     progress.stop();
-    output.innerHTML = `<div class="notice">${esc(error.message || error)}</div>`;
+    pending.innerHTML = `<div class="notice">${esc(error.message || error)}</div>`;
   } finally {
     done();
   }
+}
+
+// A saved answer was reused; drop that one-turn chat and ask again from scratch.
+async function askFresh(question) {
+  const stale = currentSession;
+  newChat();
+  if (stale) await getJson(`/chat/sessions/${stale}`, {method: 'DELETE'}).catch(() => {});
+  await askChat(true, question);
+}
+
+async function openChat(id, row) {
+  await withRowBusy(row, async () => {
+    const session = await getJson(`/chat/sessions/${encodeURIComponent(id)}`);
+    newChat();
+    setConversation(session.id);
+    if (session.course_code) $('#chat-course').value = session.course_code;
+    for (const turn of session.turns) {
+      appendTurn(turn.question, turn.response, turnMeta(turn.response, turn.course_code, null) || esc(date(turn.asked_at)));
+    }
+    $('#chat-thread').scrollIntoView({behavior: 'smooth', block: 'start'});
+  });
+}
+
+async function loadChats() {
+  const chats = await getJson('/chat/sessions').catch(() => []);
+  $('#chats').innerHTML = chats.length
+    ? chats.slice(0, 12).map(c => `<button class="row${c.id === currentSession ? ' current' : ''}" data-session="${esc(c.id)}"><span><b>${esc(c.title)}</b><span class="sub">${c.course_code ? `${esc(c.course_code)} · ` : ''}${c.turns} ${c.turns === 1 ? 'question' : 'questions'}</span></span><span class="side">${esc(ago(c.updated_at))}</span></button>`).join('')
+    : '<div class="empty">Your conversations with the tutor will appear here.</div>';
 }
 
 function showDetail(html) {
@@ -644,7 +719,14 @@ async function load() {
 
 const fail = error => toast(error.message || String(error), 'error');
 $('#chat-ask').addEventListener('click', () => askChat());
+$('#chat-new').addEventListener('click', newChat);
+$('#chats').addEventListener('click', event => {
+  const row = event.target.closest('[data-session]');
+  if (row) openChat(row.dataset.session, row).catch(fail);
+});
 function fillQuestion(question, course) {
+  // A suggested question starts its own conversation.
+  if (currentSession) newChat();
   $('#chat-question').value = question;
   $('#chat-course').value = course || '';
   $('#chat-question').scrollIntoView({behavior: 'smooth', block: 'center'});
@@ -685,6 +767,7 @@ async function saveCourseNote(id, button) {
   }
 }
 
+loadChats();
 load().catch(error => {
   $('#status-line').textContent = 'Could not load your courses.';
   fail(error);
