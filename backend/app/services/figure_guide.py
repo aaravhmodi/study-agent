@@ -13,8 +13,10 @@ Graphs (functions, distributions, shear or moment diagrams, signals, economic cu
 "markers": [{"x": 2, "label": "P = 6 kN"}]}
 ```
 A series has one of "expr" (a formula in x), "pieces" (piecewise formulas) or "points" \
-([[x, y], ...]); "shade": {"from": a, "to": b} shades under it. Formulas use + - * / ^, pi, \
-e, sin, cos, tan, exp, ln, log10, sqrt, abs, min, max, step(x) and ramp(x) = max(x, 0).
+([[x, y], ...]); "shade": {"from": a, "to": b} shades under it; "stems": true draws discrete \
+values from zero (x[n], a PMF, a cash-flow diagram with payments negative). Formulas use \
++ - * / ^, pi, e, sin, cos, tan, exp, ln, log10, sqrt, abs, min, max, step(x) and ramp(x) = \
+max(x, 0).
 
 Free-body diagrams (any forces on a body):
 ```fbd
@@ -46,5 +48,6 @@ How ideas connect (a process, cause and effect, a proof outline): a short mermai
 flowchart. Anything else worth drawing (a molecule, a geometric construction, a cell, a \
 timeline): a small svg block with a viewBox, a <title>, and plain shapes and text.
 
-Labels are plain text, not LaTeX. Draw only values the materials or your example support.\
+Never draw with ASCII art or text blocks. Labels are plain text, not LaTeX. Draw only values \
+the materials or your example support.\
 """
