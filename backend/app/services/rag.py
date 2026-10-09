@@ -13,6 +13,7 @@ from app.config import Settings
 from app.db.database import SessionLocal, ensure_schema
 from app.models import Course, Resource
 from app.schemas.chat import ChatResponse
+from app.services.answer_format import clean_answer, clean_citations
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +153,12 @@ class RagService:
             "define terms, connect ideas, show formulas or worked examples when supported, "
             "and end with a short prioritized study checklist. If the materials do not support "
             "a claim, say that clearly instead of guessing. Cite supporting filenames inline "
-            "like [filename]." + scope + "\n\nStudent question:\n" + question
+            "like [filename]. Format the answer as Markdown: use **bold** for key terms, "
+            "headings, lists and tables where they help, and LaTeX for all math with "
+            "\\( ... \\) for inline and \\[ ... \\] for display equations."
+            + scope
+            + "\n\nStudent question:\n"
+            + question
         )
         file_search: dict[str, Any] = {
             "type": "file_search",
@@ -169,10 +175,10 @@ class RagService:
             input=prompt,
             tools=cast(Any, [file_search]),
         )
-        answer = str(getattr(response, "output_text", "")).strip()
+        answer = clean_answer(str(getattr(response, "output_text", "")))
         if not answer:
             raise RuntimeError("OpenAI returned an empty answer")
-        citations = _citations(response)
+        citations = clean_citations(_citations(response))
         return ChatResponse.model_validate({"answer": answer, "citations": citations})
 
     def _create_vector_store(self) -> str:
