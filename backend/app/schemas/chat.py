@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -54,6 +54,18 @@ class PlotFigure(BaseModel):
     y_max: float | None = None
     series: list[PlotSeries]
     markers: list[PlotMarker] = Field(default_factory=list)
+
+
+class DiagramFigure(BaseModel):
+    """A Mermaid flowchart or mind map showing how concepts connect."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["diagram"] = "diagram"
+    source: str
+
+
+ChatFigure = Annotated[PlotFigure | DiagramFigure, Field(discriminator="kind")]
 
 
 class ChatResponse(BaseModel):

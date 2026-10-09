@@ -2,11 +2,12 @@
 
 import json
 import math
+import re
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from app.schemas.chat import PlotFigure, PlotMarker, PlotSeries
+from app.schemas.chat import DiagramFigure, PlotFigure, PlotMarker, PlotSeries
 from app.services.plot_math import Formula, FormulaError, compile_formula
 
 SAMPLES = 200
@@ -128,6 +129,30 @@ def build_plot(spec: PlotSpec) -> PlotFigure:
             if x_min <= marker.x <= x_max
         ],
     )
+
+
+_DIAGRAM_TYPES = ("flowchart", "graph", "mindmap", "stateDiagram", "stateDiagram-v2", "timeline")
+# Init directives can change Mermaid's config, and click lines attach links or callbacks.
+_UNSAFE_DIAGRAM = re.compile(r"%%\{|^\s*click\b|javascript:|<script", re.IGNORECASE | re.MULTILINE)
+MAX_DIAGRAM_LENGTH = 2000
+MAX_DIAGRAM_LINES = 60
+
+
+def parse_diagram(text: str) -> DiagramFigure:
+    """Check a ```mermaid block is a small concept diagram, or raise FigureError."""
+
+    source = text.strip()
+    lines = [line for line in source.splitlines() if line.strip()]
+    if not lines:
+        raise FigureError("empty diagram")
+    if len(source) > MAX_DIAGRAM_LENGTH or len(lines) > MAX_DIAGRAM_LINES:
+        raise FigureError("diagram too large")
+    kind = lines[0].split()[0]
+    if kind not in _DIAGRAM_TYPES:
+        raise FigureError(f"unsupported diagram type {kind!r}")
+    if _UNSAFE_DIAGRAM.search(source):
+        raise FigureError("diagram uses directives, links or scripts")
+    return DiagramFigure(source=source)
 
 
 def _x_range(spec: PlotSpec) -> tuple[float, float]:

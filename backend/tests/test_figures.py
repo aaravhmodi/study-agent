@@ -2,7 +2,7 @@ import json
 from typing import Any
 
 import pytest
-from app.services.figures import SAMPLES, FigureError, parse_plot
+from app.services.figures import SAMPLES, FigureError, parse_diagram, parse_plot
 
 SHEAR = {
     "title": "Shear force, simply supported beam",
@@ -117,3 +117,34 @@ def test_bad_specs_are_rejected(spec: Any, reason: str) -> None:
     text = spec if isinstance(spec, str) else json.dumps(spec)
     with pytest.raises(FigureError, match=reason):
         parse_plot(text)
+
+
+CONCEPT_MAP = """
+flowchart LR
+  w[Distributed load w] -->|dV/dx = -w| V[Shear force V]
+  V -->|dM/dx = V| M[Bending moment M]
+"""
+
+
+def test_concept_diagram_is_kept_trimmed() -> None:
+    figure = parse_diagram(CONCEPT_MAP)
+
+    assert figure.kind == "diagram"
+    assert figure.source.startswith("flowchart LR")
+
+
+@pytest.mark.parametrize(
+    ("source", "reason"),
+    [
+        ("", "empty"),
+        ('pie title Pets\n  "Dogs" : 3', "unsupported diagram type"),
+        ("%%{init: {'securityLevel': 'loose'}}%%\nflowchart LR\n  a --> b", "unsupported"),
+        ("flowchart LR\n  %%{init: {'securityLevel': 'loose'}}%%\n  a --> b", "directives"),
+        ("flowchart LR\n  a --> b\n  click a callback", "directives"),
+        ("flowchart LR\n  a[javascript:alert(1)] --> b", "directives"),
+        ("flowchart LR\n" + "  a --> b\n" * 70, "too large"),
+    ],
+)
+def test_unsafe_or_unsupported_diagrams_are_rejected(source: str, reason: str) -> None:
+    with pytest.raises(FigureError, match=reason):
+        parse_diagram(source)
