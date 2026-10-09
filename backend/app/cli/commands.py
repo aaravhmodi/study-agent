@@ -2,6 +2,7 @@ import asyncio
 import json
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 
 import typer
 from rich.console import Console
@@ -13,6 +14,7 @@ from app.config import get_settings
 from app.db.database import SessionLocal, ensure_schema
 from app.logging import configure_logging
 from app.models import Assessment, Course, Resource
+from app.services.manual_import import ImportFileError, import_file
 from app.services.rag import RagService
 from app.services.rag_eval import EVAL_QUESTIONS, EvalQuestion, run_eval
 from app.services.sync_service import SyncService
@@ -256,6 +258,32 @@ def rag_index() -> None:
     )
     if failed:
         console.print(f"[yellow]WARNING[/yellow] {failed} documents could not be indexed")
+
+
+_IMPORT_PATH = typer.Argument(..., help="The file you downloaded from LEARN.")
+_IMPORT_LINK = typer.Option(
+    ..., "--link", help="The item's LEARN page (.../viewContent/<id>/View)."
+)
+_IMPORT_INDEX = typer.Option(True, "--index/--no-index", help="Add it to the tutor right away.")
+
+
+@app.command("import-file")
+def import_file_command(
+    path: Path = _IMPORT_PATH, link: str = _IMPORT_LINK, index: bool = _IMPORT_INDEX
+) -> None:
+    """Attach a file you downloaded from LEARN (e.g. a textbook too large to sync) to its item."""
+    configure_logging()
+    ensure_schema()
+    with SessionLocal() as session:
+        try:
+            resource = import_file(session, get_settings(), path, link)
+        except ImportFileError as exc:
+            console.print(f"[red][FAIL][/red] {exc}")
+            raise typer.Exit(code=1) from exc
+        size_mb = path.stat().st_size / 1_000_000
+        console.print(f"[green][OK][/green] Saved {resource.title!r} ({size_mb:.1f} MB)")
+    if index:
+        rag_index()
 
 
 _EVAL_QUESTION_OPTION = typer.Option(

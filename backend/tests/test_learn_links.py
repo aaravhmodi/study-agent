@@ -1,5 +1,5 @@
 import pytest
-from app.services.learn_links import viewer_url
+from app.services.learn_links import topic_key, viewer_url
 
 
 def test_download_links_open_the_learn_viewer() -> None:
@@ -27,3 +27,12 @@ def test_other_pages_are_kept(url: str) -> None:
 )
 def test_missing_or_unsafe_links_are_dropped(url: str | None) -> None:
     assert viewer_url(url) is None
+
+
+def test_viewer_and_download_links_name_the_same_topic() -> None:
+    view = "https://learn.uwaterloo.ca/d2l/le/content/1299242/viewContent/6617316/View"
+    download = "https://learn.uwaterloo.ca/d2l/api/le/1.82/1299242/content/topics/6617316/file"
+
+    assert topic_key(view) == topic_key(download) == ("1299242", "6617316")
+    assert topic_key("https://outline.uwaterloo.ca/viewer/view/x") is None
+    assert topic_key(None) is None

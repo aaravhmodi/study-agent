@@ -7,6 +7,19 @@ from urllib.parse import urlsplit
 _TOPIC_FILE = re.compile(r"^/d2l/api/le/[\d.]+/(\d+)/content/topics/(\d+)/file/?$")
 
 
+_TOPIC_VIEW = re.compile(r"^/d2l/le/content/(\d+)/viewContent/(\d+)/View/?$", re.IGNORECASE)
+
+
+def topic_key(url: str | None) -> tuple[str, str] | None:
+    """(course id, topic id) from a LEARN viewer or download link, else None."""
+
+    if not url:
+        return None
+    path = urlsplit(url.strip()).path
+    match = _TOPIC_FILE.match(path) or _TOPIC_VIEW.match(path)
+    return (match.group(1), match.group(2)) if match else None
+
+
 def viewer_url(url: str | None) -> str | None:
     """The page to open for a source, or None if the link is missing or not http(s)."""
 
