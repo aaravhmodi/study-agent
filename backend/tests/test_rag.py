@@ -256,3 +256,22 @@ def test_untracked_vector_store_files_are_removed(tmp_path) -> None:
     service.index_resources([current])
 
     assert client.deleted == ["file-stale-outline"]
+
+
+def test_changed_extracted_text_is_reindexed(tmp_path) -> None:
+    client = FakeIndexClient()
+    client.stored = ["f-1"]
+    service = RagService(Settings(openai_api_key="test-key"), client=cast(Any, client))
+    service.manifest_path = tmp_path / "manifest.json"
+    resource = _resource(tmp_path, "r-book", "book.txt")
+    entry = {"file_id": "f-1", "content_hash": "hash-r-book", "chunking": CHUNKING}
+    service.manifest_path.write_text(
+        json.dumps({"vector_store_id": "vs-test", "files": {"r-book": entry}}), encoding="utf-8"
+    )
+
+    # First run: an entry from before upload hashes were kept is backfilled, not re-uploaded.
+    assert service.index_resources([resource])[1:3] == (0, 1)
+    # The same file with new extracted text (e.g. relabelled pages) is uploaded again.
+    Path(resource[0].local_path or "").write_text("[Page 12]\nlecture notes", encoding="utf-8")
+    assert service.index_resources([resource])[1:3] == (1, 0)
+    assert "f-1" in client.deleted

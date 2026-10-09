@@ -171,10 +171,14 @@ class RagService:
                 skipped += 1
                 continue
             existing = files.get(resource.id)
+            upload_hash = _upload_hash(resource.local_path)
             if (
                 existing
                 and existing.get("content_hash") == resource.content_hash
                 and existing.get("chunking") == CHUNKING
+                # Re-extracted text (e.g. new page labels) is re-indexed too; entries
+                # saved before this was recorded take the current hash.
+                and existing.setdefault("upload_hash", upload_hash) == upload_hash
             ):
                 # Unchanged file: keep its LEARN title and link current without re-uploading.
                 existing["title"] = resource.title
@@ -230,6 +234,7 @@ class RagService:
                 "source_url": resource.url,
                 "title": resource.title,
                 "chunking": CHUNKING,
+                "upload_hash": upload_hash,
             }
             indexed += 1
         return indexed, skipped, failed
@@ -443,6 +448,14 @@ def _file_filters(course_code: str | None, resource_ids: list[str]) -> dict[str,
     if len(resource_ids) == 1:
         lectures = lectures["filters"][0]
     return {"type": "and", "filters": [course, lectures]} if course else lectures
+
+
+def _upload_hash(local_path: str | None) -> str | None:
+    """Hash of the bytes rag-index uploads for a file (its text sidecar when it has one)."""
+
+    if not local_path or not Path(local_path).is_file():
+        return None
+    return hashlib.sha256(_local_text_path(Path(local_path)).read_bytes()).hexdigest()
 
 
 def _brief(answer: str, limit: int = 800) -> str:
