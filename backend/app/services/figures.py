@@ -17,6 +17,7 @@ from app.schemas.chat import (
     PlotSeries,
     SketchFigure,
 )
+from app.services.fbd import FbdError, render_fbd
 from app.services.plot_math import Formula, FormulaError, compile_formula
 from app.services.svg_safe import SvgError, sanitize_svg
 
@@ -244,10 +245,21 @@ def parse_sketch(text: str) -> SketchFigure:
     return SketchFigure(title=title.group(1).strip() if title else "", svg=svg)
 
 
+def parse_fbd(text: str) -> SketchFigure:
+    """Draw a ```fbd free-body description as a sketch."""
+
+    try:
+        title, svg = render_fbd(text)
+        return SketchFigure(title=title, svg=sanitize_svg(svg))
+    except (FbdError, SvgError) as exc:
+        raise FigureError(str(exc)) from exc
+
+
 _PARSERS: dict[str, Callable[[str], ChatFigure]] = {
     "plot": parse_plot,
     "mermaid": parse_diagram,
     "svg": parse_sketch,
+    "fbd": parse_fbd,
 }
 
 MAX_FIGURES = 4
