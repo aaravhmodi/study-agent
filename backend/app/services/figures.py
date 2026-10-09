@@ -60,6 +60,8 @@ class SeriesSpec(_Spec):
     points: list[tuple[float, float]] | None = Field(default=None, min_length=1, max_length=200)
     # Points are drawn as dots unless "line" is true; formulas are always lines.
     line: bool | None = None
+    # Discrete values (x[n], a probability mass function, cash flows) as stems from zero.
+    stems: bool = False
     fill: bool = False
     shade: RangeSpec | None = None
 
@@ -102,9 +104,15 @@ def build_plot(spec: PlotSpec) -> PlotFigure:
     x_min, x_max = _x_range(spec)
     series: list[PlotSeries] = []
     for item in spec.series:
-        points = _series_points(item, x_min, x_max)
+        if item.stems and item.points is None:
+            points = _integer_points(item, x_min, x_max)
+        else:
+            points = _series_points(item, x_min, x_max)
         if all(y is None for _, y in points):
             raise FigureError(f"nothing to draw for series {item.label or '(unnamed)'}")
+        if item.stems:
+            series += _stems(item.label, points)
+            continue
         is_dots = item.points is not None and not item.line
         series.append(
             PlotSeries(
@@ -128,12 +136,14 @@ def build_plot(spec: PlotSpec) -> PlotFigure:
                 )
     if spec.y.min is not None and spec.y.max is not None and spec.y.min >= spec.y.max:
         raise FigureError("y.min must be below y.max")
+    pad = (x_max - x_min) * 0.04 if any(item.stems for item in spec.series) else 0.0
     return PlotFigure(
         title=spec.title,
         x_label=spec.x.label,
         y_label=spec.y.label,
-        x_min=x_min,
-        x_max=x_max,
+        # Stems at the very edge would be cut in half by the frame.
+        x_min=x_min - pad,
+        x_max=x_max + pad,
         y_min=spec.y.min,
         y_max=spec.y.max,
         series=series,
@@ -167,6 +177,40 @@ def parse_diagram(text: str) -> DiagramFigure:
     if _UNSAFE_DIAGRAM.search(source):
         raise FigureError("diagram uses directives, links or scripts")
     return DiagramFigure(source=source)
+
+
+def _integer_points(item: SeriesSpec, start: float, end: float) -> list[tuple[float, float | None]]:
+    """Evaluate a formula at whole numbers only: a discrete signal x[n] or a PMF."""
+
+    first, last = math.ceil(start), math.floor(end)
+    if last - first > SAMPLES:
+        raise FigureError("too many stems; use a smaller x range")
+    pieces = (
+        [(item.expr, start, end)]
+        if item.expr is not None
+        else [(piece.expr, piece.start, piece.end) for piece in item.pieces or []]
+    )
+    formulas = [(compile_formula(expr), lo, hi) for expr, lo, hi in pieces]
+    points: list[tuple[float, float | None]] = []
+    for n in range(first, last + 1):
+        formula = next((f for f, lo, hi in formulas if lo <= n <= hi), None)
+        if formula is not None:
+            points.append((float(n), _y(formula(float(n)))))
+    return points
+
+
+def _stems(label: str, points: list[tuple[float, float | None]]) -> list[PlotSeries]:
+    """A vertical line from zero to each value, broken between stems, with a dot on top."""
+
+    lines: list[tuple[float, float | None]] = []
+    for x, y in points:
+        if y is not None:
+            lines += [(x, 0.0), (x, y), (x, None)]
+    tops: list[tuple[float, float | None]] = [(x, y) for x, y in points if y is not None]
+    return [
+        PlotSeries(label=label, points=lines),
+        PlotSeries(label=f"{label} (values)".strip(), points=tops, style="points", legend=False),
+    ]
 
 
 def _x_range(spec: PlotSpec) -> tuple[float, float]:

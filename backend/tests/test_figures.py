@@ -220,3 +220,41 @@ def test_unreadable_svg_is_dropped() -> None:
     text, figures = extract_figures(_block("svg", "<svg><rect></svg>"))
 
     assert figures == [] and text == ""
+
+
+def test_stems_draw_each_value_from_zero_with_a_dot() -> None:
+    spec = {
+        "title": "Cash flows",
+        "x": {"label": "year", "min": 0, "max": 3},
+        "series": [
+            {
+                "label": "cash flow",
+                "points": [[0, -1000], [1, 400], [2, 400], [3, 400]],
+                "stems": True,
+            }
+        ],
+    }
+
+    figure = _plot(spec)
+    lines, tops = figure.series
+
+    assert figure.x_min < 0 and figure.x_max > 3  # padded so edge stems show in full
+
+    assert lines.style == "line" and lines.legend
+    assert lines.points[:3] == [(0.0, 0.0), (0.0, -1000.0), (0.0, None)]
+    assert tops.style == "points" and not tops.legend
+    assert tops.points == [(0.0, -1000.0), (1.0, 400.0), (2.0, 400.0), (3.0, 400.0)]
+
+
+def test_stem_formulas_are_evaluated_at_whole_numbers() -> None:
+    spec = {
+        "x": {"min": 0, "max": 4},
+        "series": [
+            {"label": "x[n]", "pieces": [{"expr": "0.5^x", "from": 0, "to": 4}], "stems": True}
+        ],
+    }
+
+    _, tops = _plot(spec).series
+
+    # A discrete signal x[n] = 0.5^n is evaluated at whole numbers only.
+    assert tops.points == [(0.0, 1.0), (1.0, 0.5), (2.0, 0.25), (3.0, 0.125), (4.0, 0.0625)]
