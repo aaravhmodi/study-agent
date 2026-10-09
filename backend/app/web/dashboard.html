@@ -74,7 +74,7 @@ textarea:focus,select:focus{border-color:var(--ink);outline:none;box-shadow:inse
 
 .answer-wrap{margin-top:12px}
 .turn{margin-top:28px;padding-top:20px;border-top:1px solid var(--rule)}
-.turn-head{display:grid;grid-template-columns:1fr auto;gap:2px 12px;width:100%;padding:0;border:0;background:none;text-align:left;cursor:pointer}
+.turn-head{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;width:100%;padding:0;border:0;background:none;text-align:left;cursor:pointer}
 .turn-head .label{grid-column:1}
 .turn-question{grid-column:1;font:500 17px/1.45 var(--serif);color:var(--ink)}
 .turn-head:hover .turn-question{text-decoration:underline;text-decoration-color:var(--pencil);text-underline-offset:3px}
@@ -88,7 +88,10 @@ textarea:focus,select:focus{border-color:var(--ink);outline:none;box-shadow:inse
 .thread-tools{margin:18px 0 0;font-size:13px;color:var(--ink-3)}
 .row.current b{color:var(--pencil)}
 .answer-meta{font:12.5px var(--mono);color:var(--ink-3);margin-bottom:8px}
-.answer{font-size:16px;line-height:1.7;max-width:70ch;overflow-wrap:anywhere}
+.answer{font-size:16px;line-height:1.7;max-width:70ch;overflow-wrap:anywhere;min-width:0}
+/* Nothing in a tutor answer may widen the page: wide content scrolls inside its own box. */
+.turn,.turn-body,.answer-wrap{min-width:0;max-width:100%}
+.answer img{max-width:100%;height:auto}
 .answer.plain{white-space:pre-wrap}
 .answer h1,.answer h2,.answer h3{font-family:var(--serif);color:var(--ink);line-height:1.25}
 .answer h1{font-size:26px;font-weight:500;margin:28px 0 8px}
@@ -100,7 +103,7 @@ textarea:focus,select:focus{border-color:var(--ink);outline:none;box-shadow:inse
 .answer li{margin:5px 0}
 .answer li::marker{color:var(--ink-3)}
 .answer blockquote{margin:16px 0;padding:2px 16px;border-left:3px solid var(--pencil);color:var(--ink-2)}
-.answer table{border-collapse:collapse;margin:16px 0;font-size:14.5px}
+.answer table{border-collapse:collapse;margin:16px 0;font-size:14.5px;display:block;max-width:100%;overflow-x:auto}
 .answer th,.answer td{padding:7px 12px;border:1px solid var(--rule);text-align:left;vertical-align:top}
 .answer th{background:var(--sheet);font-weight:600}
 .answer code{font:.9em var(--mono);background:var(--sheet);border:1px solid var(--rule);border-radius:2px;padding:0 4px}
@@ -115,7 +118,7 @@ textarea:focus,select:focus{border-color:var(--ink);outline:none;box-shadow:inse
 .answer summary:hover{text-decoration-color:var(--pencil)}
 .answer summary::-webkit-details-marker{display:none}
 .answer details[open] .show,.answer details:not([open]) .hide{display:none}
-.answer .cite{font:12px var(--mono);color:var(--ink-3);white-space:nowrap}
+.answer .cite{font:12px var(--mono);color:var(--ink-3);overflow-wrap:anywhere}
 .answer a.cite{text-decoration:underline;text-decoration-color:var(--rule-2);text-underline-offset:3px}
 .answer a.cite:hover{color:var(--ink);text-decoration-color:var(--pencil)}
 .answer .cite::before{content:"↳ "}
@@ -325,7 +328,14 @@ function renderAnswer(text, citations = []) {
   const tagged = html
     .replace(/\s?\(online\)/g, ' <span class="online" title="From the web, not your course files">online</span>')
     // Inline [file.pdf] citations become quiet references instead of bracketed noise.
-    .replace(/\[([^\]<>\n]+?\.(?:pdf|txt|docx?|pptx|md|html|tex))(?:,\s*((?:pp?\.|\u00a7\u00a7?|ch(?:apter|\.)?)\s*[\d.\u2013-]+))?\]/gi, (_, name, page) => citeLink(name, citations, page));
+    // A bracket may cite several files ("[a.txt; b.pdf, p. 3]"): each becomes its own reference.
+    .replace(/\[([^\]<>\n]*?\.(?:pdf|txt|docx?|pptx|md|html|tex)\b[^\]<>\n]*)\]/gi, (whole, inner) => {
+      const parts = inner.split(/\s*;\s*/).map(part => {
+        const cite = part.match(/^(.+?\.(?:pdf|txt|docx?|pptx|md|html|tex))(?:,\s*((?:pp?\.|\u00a7\u00a7?|ch(?:apter|\.)?)\s*[\d.\u2013-]+))?$/i);
+        return cite ? citeLink(cite[1], citations, cite[2]) : citeLink(part, citations);
+      });
+      return parts.join(' ');
+    });
   return `<div class="answer">${tagged.replace(/%%MATH(\d+)%%/g, (_, index) => math[Number(index)])}</div>`;
 }
 
@@ -520,7 +530,8 @@ const openLink = (url, text, extra = '') => `<a href="${esc(url)}" target="_blan
 
 // An inline [file.pdf] citation, linked to the file's LEARN page when the answer cites it.
 function citeLink(name, citations, page = '') {
-  const key = value => String(value || '').toLowerCase().replace(/\.\w+$/, '');
+  // "Passive Filters Complete" and "Passive-Filters-Complete.txt" are the same file.
+  const key = value => String(value || '').toLowerCase().replace(/\.(?:pdf|txt|docx?|pptx|md|html|tex)$/, '').replace(/[\s_-]+/g, ' ').trim();
   const source = citations.find(c => c.kind !== 'web' && key(c.filename) === key(name));
   const label = name.replace(/[_-]+/g, ' ').replace(/\.\w+$/, '') + (page ? `, ${page}` : '');
   const url = safeUrl(source?.url);
