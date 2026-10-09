@@ -169,8 +169,14 @@ def test_online_sources_are_returned_with_their_urls(tmp_path: Path) -> None:
 
     # Course passage files first, then web pages, each once.
     assert [citation.model_dump() for citation in result.citations] == [
-        {"filename": "Lecture_07.pdf", "file_id": "f1", "url": None},
-        {"filename": "Shear and moment diagrams", "file_id": None, "url": "https://x.org/a"},
+        {"filename": "Lecture_07.pdf", "file_id": "f1", "kind": "file", "title": None, "url": None},
+        {
+            "filename": "Shear and moment diagrams",
+            "file_id": None,
+            "kind": "web",
+            "title": "Shear and moment diagrams",
+            "url": "https://x.org/a",
+        },
     ]
 
 
@@ -191,3 +197,29 @@ def test_web_and_file_citations_with_same_title_are_both_kept() -> None:
     )
 
     assert len(citations) == 2
+
+
+def test_course_sources_link_to_their_learn_page(tmp_path: Path) -> None:
+    files = {
+        "r-l7": {
+            **FILES["r-l7"],
+            "file_id": "f-l7",
+            "title": "Lecture 7: Shear and Moment Diagrams",
+            "source_url": "https://learn.uwaterloo.ca/d2l/api/le/1.82/1292394/content/topics/6611171/file",
+        }
+    }
+    passages = [
+        search_result(f"{PREFIX}Lecture_07_Shear_and_Moment.pdf", "V = dM/dx", file_id="f-l7")
+    ]
+    service = _service(tmp_path, FakeResponses(), passages)
+    service.manifest_path.write_text(
+        json.dumps({"vector_store_id": "vs-test", "files": files}), encoding="utf-8"
+    )
+
+    (citation,) = service.ask("Explain shear force.", "SYDE 286").citations
+
+    assert citation.kind == "file"
+    assert citation.title == "Lecture 7: Shear and Moment Diagrams"
+    assert (
+        citation.url == "https://learn.uwaterloo.ca/d2l/le/content/1292394/viewContent/6611171/View"
+    )

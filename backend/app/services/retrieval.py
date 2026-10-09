@@ -114,7 +114,10 @@ def cited_files(answer: str, passages: list[Passage]) -> list[dict[str, str | No
         for name, file_id in files.items()
         if name.lower() in lowered or name.rsplit(".", 1)[0].lower() in lowered
     }
-    return [{"filename": name, "file_id": file_id} for name, file_id in (named or files).items()]
+    return [
+        {"filename": name, "file_id": file_id, "kind": "file"}
+        for name, file_id in (named or files).items()
+    ]
 
 
 def _shingles(text: str) -> set[str]:

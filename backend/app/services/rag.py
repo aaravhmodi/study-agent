@@ -18,6 +18,7 @@ from app.services.answer_cache import AnswerCache, cache_key, index_fingerprint
 from app.services.answer_format import clean_answer, clean_citations, display_filename
 from app.services.figure_guide import FIGURE_GUIDE
 from app.services.figures import extract_figures
+from app.services.learn_links import viewer_url
 from app.services.lecture_scope import matching_resource_ids
 from app.services.retrieval import (
     Passage,
@@ -152,6 +153,9 @@ class RagService:
                 and existing.get("content_hash") == resource.content_hash
                 and existing.get("chunking") == CHUNKING
             ):
+                # Unchanged file: keep its LEARN title and link current without re-uploading.
+                existing["title"] = resource.title
+                existing["source_url"] = resource.url
                 skipped += 1
                 continue
             path = Path(resource.local_path)
@@ -201,6 +205,7 @@ class RagService:
                 "filename": path.name,
                 "course_code": course.code or course.name,
                 "source_url": resource.url,
+                "title": resource.title,
                 "chunking": CHUNKING,
             }
             indexed += 1
@@ -264,7 +269,8 @@ class RagService:
         if _hit_output_limit(response):
             answer += "\n\n_Answer cut short by the length limit; ask about one concept at a time._"
         answer, figures = extract_figures(answer)
-        citations = clean_citations(cited_files(answer, passages) + _citations(response))
+        course_files = [_with_learn_link(item, files) for item in cited_files(answer, passages)]
+        citations = clean_citations(course_files + _citations(response))
         result = ChatResponse(
             answer=answer,
             citations=[ChatCitation.model_validate(citation) for citation in citations],
@@ -287,6 +293,8 @@ class RagService:
             "web": settings.rag_web_search,
             "prompt": hashlib.sha256(TUTOR_INSTRUCTIONS.encode("utf-8")).hexdigest()[:16],
             "index": index_fingerprint(files),
+            # Bump when the saved response format changes (2: LEARN links on sources).
+            "format": 2,
         }
 
     def _passages(
@@ -403,6 +411,18 @@ def _hit_output_limit(response: Any) -> bool:
     )
 
 
+def _with_learn_link(
+    citation: dict[str, str | None], files: dict[str, Any]
+) -> dict[str, str | None]:
+    """Add the LEARN title and page of the indexed file a citation came from."""
+
+    entry = next((e for e in files.values() if e.get("file_id") == citation.get("file_id")), None)
+    if entry is None:
+        return citation
+    title = str(entry.get("title") or "").strip() or None
+    return {**citation, "title": title, "url": viewer_url(entry.get("source_url"))}
+
+
 def _citations(response: Any) -> list[dict[str, str | None]]:
     """Extract file citations from an SDK response without logging its contents."""
     payload = response.model_dump() if hasattr(response, "model_dump") else {}
@@ -427,9 +447,8 @@ def _citations(response: Any) -> list[dict[str, str | None]]:
                     key = (url, None)
                     if key not in seen:
                         seen.add(key)
-                        found.append(
-                            {"filename": title if isinstance(title, str) else url, "url": url}
-                        )
+                        name = title if isinstance(title, str) else url
+                        found.append({"filename": name, "title": name, "url": url, "kind": "web"})
             for child in value.values():
                 visit(child)
         elif isinstance(value, list):

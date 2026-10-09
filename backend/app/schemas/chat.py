@@ -17,7 +17,10 @@ class ChatCitation(BaseModel):
 
     filename: str
     file_id: str | None = None
-    # Set for online sources; course files have only a filename.
+    kind: Literal["file", "web"] = "file"
+    # The item's name on LEARN (course files) or the page title (web).
+    title: str | None = None
+    # Where to open it: the LEARN page for a course file, the page for a web source.
     url: str | None = None
 
 

@@ -32,17 +32,23 @@ def display_filename(filename: str) -> str:
 def clean_citations(citations: list[dict[str, str | None]]) -> list[dict[str, str | None]]:
     """Show each source once, by its readable filename."""
 
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()
     cleaned: list[dict[str, str | None]] = []
     for citation in citations:
         filename = display_filename(str(citation.get("filename") or ""))
-        url = citation.get("url")
-        key = url or filename
+        # Older citations had no kind: a URL then meant a web page.
+        kind = citation.get("kind") or ("web" if citation.get("url") else "file")
+        key = (kind, (citation.get("url") if kind == "web" else None) or filename)
         if not filename or key in seen:
             continue
         seen.add(key)
-        if url:
-            cleaned.append({"filename": filename, "url": url})
-        else:
-            cleaned.append({"filename": filename, "file_id": citation.get("file_id")})
+        cleaned.append(
+            {
+                "filename": filename,
+                "file_id": citation.get("file_id") if kind == "file" else None,
+                "kind": kind,
+                "title": citation.get("title"),
+                "url": citation.get("url"),
+            }
+        )
     return cleaned

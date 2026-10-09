@@ -87,7 +87,7 @@ def test_citations_are_the_files_the_answer_names() -> None:
     named = cited_files("Shear stress is V/A [Lecture-1-Intro-Stress.txt].", passages)
     unnamed = cited_files("No citations here.", passages)
 
-    assert named == [{"filename": "Lecture-1-Intro-Stress.txt", "file_id": "f1"}]
+    assert named == [{"filename": "Lecture-1-Intro-Stress.txt", "file_id": "f1", "kind": "file"}]
     assert [item["filename"] for item in unnamed] == [
         "Lecture-1-Intro-Stress.txt",
         "SYDE286-Syllabus.txt",

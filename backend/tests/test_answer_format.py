@@ -31,7 +31,19 @@ def test_citations_drop_upload_prefix_and_duplicates() -> None:
     ]
 
     assert clean_citations(citations) == [
-        {"filename": "course-outline.txt", "file_id": "file-1"},
-        {"filename": "Homework_2.txt", "file_id": "file-3"},
+        {
+            "filename": "course-outline.txt",
+            "file_id": "file-1",
+            "kind": "file",
+            "title": None,
+            "url": None,
+        },
+        {
+            "filename": "Homework_2.txt",
+            "file_id": "file-3",
+            "kind": "file",
+            "title": None,
+            "url": None,
+        },
     ]
     assert display_filename("notes_without_prefix.pdf") == "notes_without_prefix.pdf"

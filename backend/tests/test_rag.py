@@ -221,3 +221,6 @@ def test_files_are_indexed_in_small_chunks_and_reindexed_when_chunking_changes(t
     assert "f-2" in client.deleted
     manifest = json.loads(service.manifest_path.read_text(encoding="utf-8"))
     assert manifest["files"]["r-old"]["chunking"] == CHUNKING == "static-400-100"
+    # Unchanged files are not re-uploaded but get their LEARN title and link refreshed.
+    assert manifest["files"]["r-current"]["title"] == "current.txt"
+    assert manifest["files"]["r-current"]["file_id"] == "f-1"
