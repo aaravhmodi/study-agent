@@ -1,5 +1,6 @@
 """OpenAI hosted vector-store indexing and grounded course Q&A."""
 
+import hashlib
 import json
 import logging
 import time
@@ -13,6 +14,7 @@ from app.config import Settings
 from app.db.database import SessionLocal, ensure_schema
 from app.models import Course, Resource
 from app.schemas.chat import ChatCitation, ChatResponse, ChatUsage
+from app.services.answer_cache import AnswerCache, cache_key, index_fingerprint
 from app.services.answer_format import clean_answer, clean_citations, display_filename
 from app.services.figure_guide import FIGURE_GUIDE
 from app.services.figures import extract_figures
@@ -186,7 +188,9 @@ class RagService:
             indexed += 1
         return indexed, skipped, failed
 
-    def ask(self, question: str, course_code: str | None = None) -> ChatResponse:
+    def ask(
+        self, question: str, course_code: str | None = None, *, fresh: bool = False
+    ) -> ChatResponse:
         manifest = self._load_manifest()
         vector_store_id = manifest.get("vector_store_id")
         if not vector_store_id:
@@ -201,6 +205,10 @@ class RagService:
                 "Sign in to LEARN, run `study-agent sync`, then `study-agent rag-index`."
             )
         files = manifest.get("files", {})
+        cache = AnswerCache(self.manifest_path.with_name("answer_cache.json"))
+        key = cache_key(question, normalized_course_code, settings=self._answer_shape(files))
+        if not fresh and (saved := cache.get(key)):
+            return saved.model_copy(update={"cached": True, "usage": None})
         lecture_ids = matching_resource_ids(question, files, normalized_course_code)
         context = []
         if normalized_course_code:
@@ -239,12 +247,29 @@ class RagService:
             answer += "\n\n_Answer cut short by the length limit; ask about one concept at a time._"
         answer, figures = extract_figures(answer)
         citations = clean_citations(cited_files(answer, passages) + _citations(response))
-        return ChatResponse(
+        result = ChatResponse(
             answer=answer,
             citations=[ChatCitation.model_validate(citation) for citation in citations],
             figures=figures,
             usage=_usage(response),
         )
+        cache.put(key, result)
+        return result
+
+    def _answer_shape(self, files: dict[str, Any]) -> dict[str, Any]:
+        """Everything besides the question that changes what an answer looks like."""
+
+        settings = self.settings
+        return {
+            "model": settings.openai_chat_model,
+            "effort": settings.openai_chat_reasoning_effort,
+            "max_output": settings.rag_max_output_tokens,
+            "passages": [settings.rag_max_results, settings.rag_context_tokens],
+            "min_score": settings.rag_min_score,
+            "web": settings.rag_web_search,
+            "prompt": hashlib.sha256(TUTOR_INSTRUCTIONS.encode("utf-8")).hexdigest()[:16],
+            "index": index_fingerprint(files),
+        }
 
     def _passages(
         self,

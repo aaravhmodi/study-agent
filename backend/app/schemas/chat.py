@@ -8,6 +8,8 @@ class ChatRequest(BaseModel):
 
     question: str = Field(min_length=2, max_length=4000)
     course_code: str | None = Field(default=None, max_length=100)
+    # Skip the saved answer and ask the model again.
+    fresh: bool = False
 
 
 class ChatCitation(BaseModel):
@@ -96,3 +98,5 @@ class ChatResponse(BaseModel):
     # Answers mark each figure's place with a ```figure block holding its index here.
     figures: list[ChatFigure] = Field(default_factory=list)
     usage: ChatUsage | None = None
+    # True when this is a saved answer to the same question; it cost no tokens.
+    cached: bool = False

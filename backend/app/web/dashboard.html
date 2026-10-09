@@ -504,7 +504,7 @@ function renderSuggestions(data) {
   $('#try').innerHTML = 'Try: ' + ideas.map(([text, course]) => `<button type="button" data-ask="${esc(text)}" data-course="${esc(course || '')}">${esc(text)}</button>`).join('<span aria-hidden="true"> · </span>');
 }
 
-async function askChat() {
+async function askChat(fresh = false) {
   const button = $('#chat-ask');
   const output = $('#chat-answer');
   const question = $('#chat-question').value.trim();
@@ -514,15 +514,16 @@ async function askChat() {
   const progress = startWaiting(output, course);
   output.scrollIntoView({behavior: 'smooth', block: 'nearest'});
   try {
-    const result = await getJson('/chat', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question, course_code: course})});
+    const result = await getJson('/chat', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question, course_code: course, fresh})});
     progress.stop();
     const seconds = Math.round(progress.elapsed() / 1000);
     output.innerHTML = `<div class="answer-wrap">
-      <p class="answer-meta">${course ? `${esc(course)} · ` : ''}answered in ${seconds} s${tokenNote(result.usage)}</p>
+      <p class="answer-meta">${course ? `${esc(course)} · ` : ''}${result.cached ? `saved answer, no tokens used · <button type="button" class="quiet-button" data-fresh>ask fresh</button>` : `answered in ${seconds} s${tokenNote(result.usage)}`}</p>
       ${renderAnswer(result.answer)}
       ${renderSources(result.citations || [])}
     </div>`;
     drawFigures(output.querySelector('.answer'), result.figures || []);
+    output.querySelector('[data-fresh]')?.addEventListener('click', () => askChat(true));
   } catch (error) {
     progress.stop();
     output.innerHTML = `<div class="notice">${esc(error.message || error)}</div>`;
@@ -611,7 +612,7 @@ async function load() {
 }
 
 const fail = error => toast(error.message || String(error), 'error');
-$('#chat-ask').addEventListener('click', askChat);
+$('#chat-ask').addEventListener('click', () => askChat());
 function fillQuestion(question, course) {
   $('#chat-question').value = question;
   $('#chat-course').value = course || '';

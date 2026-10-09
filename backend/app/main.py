@@ -23,7 +23,9 @@ _DASHBOARD_PAGE = Path(__file__).parent / "web" / "dashboard.html"
 def chat(request: ChatRequest) -> ChatResponse:
     """Answer a student question using the indexed course materials."""
     try:
-        return RagService(get_settings()).ask(request.question, request.course_code)
+        return RagService(get_settings()).ask(
+            request.question, request.course_code, fresh=request.fresh
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

@@ -367,3 +367,30 @@ def test_answers_report_their_token_usage(tmp_path: Path) -> None:
         7000,
         900,
     )
+
+
+def test_repeated_question_is_answered_from_the_cache(tmp_path: Path) -> None:
+    responses = FakeResponses()
+    service = _service(tmp_path, responses)
+
+    first = service.ask("Explain shear force.", SHEAR_COURSE)
+    again = service.ask("  explain shear FORCE ", "syde 286")
+
+    assert len(responses.calls) == 1
+    assert not first.cached and again.cached
+    assert again.answer == first.answer and again.usage is None
+
+
+def test_fresh_question_and_reindexing_skip_the_cache(tmp_path: Path) -> None:
+    responses = FakeResponses()
+    service = _service(tmp_path, responses)
+    service.ask("Explain shear force.", SHEAR_COURSE)
+
+    service.ask("Explain shear force.", SHEAR_COURSE, fresh=True)
+    assert len(responses.calls) == 2
+
+    manifest = json.loads(service.manifest_path.read_text(encoding="utf-8"))
+    manifest["files"]["r1"]["content_hash"] = "new lecture notes"
+    service.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    service.ask("Explain shear force.", SHEAR_COURSE)
+    assert len(responses.calls) == 3
