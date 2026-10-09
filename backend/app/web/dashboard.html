@@ -179,7 +179,9 @@ button.row:hover b{text-decoration:underline;text-decoration-color:var(--pencil)
 .detail .resource .sub{color:var(--ink-2);font-size:13.5px;margin-top:2px}
 .detail ul{padding-left:20px}
 .detail .note-help{color:var(--ink-2);font-size:13.5px;margin:0 0 8px}
-.detail .note-actions{margin-top:8px}
+.detail .note-actions{margin-top:8px;display:flex;gap:10px;flex-wrap:wrap}
+.detail .note-text{white-space:pre-wrap}
+#course-notes{margin-bottom:10px}
 .detail li{margin:5px 0}
 .detail .type{font:12px var(--mono);color:var(--ink-3);margin-left:4px}
 .detail .stat{margin:6px 0 0;color:var(--ink-2)}
@@ -730,8 +732,9 @@ async function openCourse(id, name, row) {
       <p class="stat"><b>${c.completed_assessments}</b> of <b>${c.assessments.length}</b> assessments completed · <b>${c.resources.length}</b> collected resources</p>
       <h3>Your notes for this course</h3>
       <p class="sub note-help">What your instructor said that isn't on LEARN, like what a midterm covers. The tutor reads these with every question about ${esc(c.code || c.name)}.</p>
-      <textarea id="course-note" maxlength="4000" placeholder="e.g. Midterm Oct 20: chapters 1-4, Major Topic 1, two R coding questions, 40 multiple choice.">${esc(c.note || '')}</textarea>
-      <div class="note-actions"><button class="secondary-button" data-save-note="${esc(c.id)}">Save notes</button></div>
+      <div id="course-notes">${notesList(c.notes || [], c.id)}</div>
+      <textarea id="course-note" maxlength="4000" placeholder="e.g. The midterm covers chapters 1-4; two R coding questions; 40 multiple choice."></textarea>
+      <div class="note-actions"><select id="note-about" aria-label="About"><option value="">About the whole course</option>${c.assessments.map(a => `<option value="${esc(a.title)}">About: ${esc(a.title)}</option>`).join('')}</select><button class="secondary-button" data-save-note="${esc(c.id)}">Add note</button></div>
       <h3>Assessments</h3><div>${c.assessments.length ? c.assessments.map(a => `<button class="row" data-assessment="${esc(a.id)}" data-name="${esc(a.title)}"><span><b>${esc(a.title)}</b><span class="sub">${esc(a.type)} · ${esc(date(a.due_at))}</span></span><span class="side">${statusPill(a.status, a.due_at)}</span></button>`).join('') : '<div class="empty">No assessments found.</div>'}</div>
       <h3>Coursework you have</h3><div>${c.resources.length ? c.resources.map(r => `<div class="resource"><b>${resourceLink(r)}</b> <span class="type">${esc(String(r.type || '').toLowerCase())}</span>${r.description ? `<div class="sub">${esc(r.description)}</div>` : ''}</div>`).join('') : '<div class="empty">No resources found.</div>'}</div>
       <h3>Announcements</h3><div>${c.announcements.length ? c.announcements.slice(0, 10).map(a => `<div class="resource"><b>${esc(a.title)}</b><div class="sub">${esc(a.body || '')}</div></div>`).join('') : '<div class="empty">No announcements stored.</div>'}</div>
@@ -848,17 +851,39 @@ $('#detail').addEventListener('click', event => {
   if (target.dataset.assessment) { openAssessment(target.dataset.assessment, target.dataset.name, target).catch(fail); return }
   if (target.dataset.complete) { changeStatus(target.dataset.complete, 'complete', target); return }
   if (target.dataset.reopen) { changeStatus(target.dataset.reopen, 'reopen', target); return }
-  if (target.dataset.saveNote) saveCourseNote(target.dataset.saveNote, target);
+  if (target.dataset.saveNote) { saveCourseNote(target.dataset.saveNote, target); return }
+  if (target.dataset.deleteNote) deleteCourseNote(target.dataset.courseId, target.dataset.deleteNote);
 });
+function notesList(notes, courseId) {
+  if (!notes.length) return '<div class="empty">No notes yet.</div>';
+  return notes.map(n => `<div class="resource"><b>${esc(n.about || 'Course')}</b> <span class="type">${esc(date(n.added))}</span>
+    <button type="button" class="row-action" data-delete-note="${esc(n.id)}" data-course-id="${esc(courseId)}">Delete</button>
+    <div class="sub note-text">${esc(n.text)}</div></div>`).join('');
+}
+
 async function saveCourseNote(id, button) {
+  const text = $('#course-note').value.trim();
+  if (!text) { $('#course-note').focus(); toast('Type the note first.'); return }
   const done = setBusy(button, 'Saving');
   try {
-    const result = await getJson(`/courses/${encodeURIComponent(id)}/note`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text: $('#course-note').value})});
-    toast(result.text ? `Notes saved for ${result.course}` : `Notes cleared for ${result.course}`);
+    await getJson(`/courses/${encodeURIComponent(id)}/notes`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text, about: $('#note-about').value || null})});
+    $('#course-note').value = '';
+    $('#course-notes').innerHTML = notesList(await getJson(`/courses/${encodeURIComponent(id)}/notes`), id);
+    toast('Note saved. The tutor will use it for this course.');
   } catch (error) {
     toast(error.message || String(error), 'error');
   } finally {
     done();
+  }
+}
+
+async function deleteCourseNote(courseId, noteId) {
+  try {
+    await getJson(`/courses/${encodeURIComponent(courseId)}/notes/${encodeURIComponent(noteId)}`, {method: 'DELETE'});
+    $('#course-notes').innerHTML = notesList(await getJson(`/courses/${encodeURIComponent(courseId)}/notes`), courseId);
+    toast('Note deleted');
+  } catch (error) {
+    toast(error.message || String(error), 'error');
   }
 }
 
