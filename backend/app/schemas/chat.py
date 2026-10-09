@@ -78,6 +78,16 @@ class SketchFigure(BaseModel):
 ChatFigure = Annotated[PlotFigure | DiagramFigure | SketchFigure, Field(discriminator="kind")]
 
 
+class ChatUsage(BaseModel):
+    """Tokens one answer cost, so the student can see what caching and retrieval save."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    input_tokens: int = 0
+    cached_tokens: int = 0
+    output_tokens: int = 0
+
+
 class ChatResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -85,3 +95,4 @@ class ChatResponse(BaseModel):
     citations: list[ChatCitation] = Field(default_factory=list)
     # Answers mark each figure's place with a ```figure block holding its index here.
     figures: list[ChatFigure] = Field(default_factory=list)
+    usage: ChatUsage | None = None

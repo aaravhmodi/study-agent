@@ -12,7 +12,7 @@ from sqlalchemy import select
 from app.config import Settings
 from app.db.database import SessionLocal, ensure_schema
 from app.models import Course, Resource
-from app.schemas.chat import ChatCitation, ChatResponse
+from app.schemas.chat import ChatCitation, ChatResponse, ChatUsage
 from app.services.answer_format import clean_answer, clean_citations, display_filename
 from app.services.figure_guide import FIGURE_GUIDE
 from app.services.figures import extract_figures
@@ -233,6 +233,7 @@ class RagService:
             answer=answer,
             citations=[ChatCitation.model_validate(citation) for citation in citations],
             figures=figures,
+            usage=_usage(response),
         )
 
     def _create_vector_store(self) -> str:
@@ -302,6 +303,18 @@ def _file_filters(course_code: str | None, resource_ids: list[str]) -> dict[str,
     if len(resource_ids) == 1:
         lectures = lectures["filters"][0]
     return {"type": "and", "filters": [course, lectures]} if course else lectures
+
+
+def _usage(response: Any) -> ChatUsage | None:
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return None
+    details = getattr(usage, "input_tokens_details", None)
+    return ChatUsage(
+        input_tokens=int(getattr(usage, "input_tokens", 0) or 0),
+        cached_tokens=int(getattr(details, "cached_tokens", 0) or 0),
+        output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
+    )
 
 
 def _hit_output_limit(response: Any) -> bool:

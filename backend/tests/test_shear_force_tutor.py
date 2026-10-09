@@ -332,3 +332,21 @@ def test_answers_return_drawable_figures(tmp_path: Path) -> None:
     assert response.answer.endswith("```figure\n0\n```")
     payload = ChatResponse.model_validate_json(response.model_dump_json())
     assert payload.figures == response.figures
+
+
+def test_answers_report_their_token_usage(tmp_path: Path) -> None:
+    usage = SimpleNamespace(
+        input_tokens=12000,
+        input_tokens_details=SimpleNamespace(cached_tokens=7000),
+        output_tokens=900,
+    )
+    responses = FakeResponses(usage=usage)
+
+    result = _service(tmp_path, responses).ask("Explain shear force.", SHEAR_COURSE)
+
+    assert result.usage is not None
+    assert (result.usage.input_tokens, result.usage.cached_tokens, result.usage.output_tokens) == (
+        12000,
+        7000,
+        900,
+    )

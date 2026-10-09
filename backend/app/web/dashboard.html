@@ -473,6 +473,14 @@ function startWaiting(container, course) {
   return {elapsed: () => Date.now() - started, stop: () => clearInterval(timer)};
 }
 
+// Token cost of an answer, e.g. " · 9.8k tokens (7.1k cached)".
+function tokenNote(usage) {
+  if (!usage) return '';
+  const k = n => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+  const total = usage.input_tokens + usage.output_tokens;
+  return ` · ${k(total)} tokens${usage.cached_tokens ? ` (${k(usage.cached_tokens)} cached)` : ''}`;
+}
+
 // Course files first, then web pages; web entries are links labelled with their site.
 function renderSources(citations) {
   const web = citations.filter(c => /^https?:\/\//.test(c.url || ''));
@@ -510,7 +518,7 @@ async function askChat() {
     progress.stop();
     const seconds = Math.round(progress.elapsed() / 1000);
     output.innerHTML = `<div class="answer-wrap">
-      <p class="answer-meta">${course ? `${esc(course)} · ` : ''}answered in ${seconds} s</p>
+      <p class="answer-meta">${course ? `${esc(course)} · ` : ''}answered in ${seconds} s${tokenNote(result.usage)}</p>
       ${renderAnswer(result.answer)}
       ${renderSources(result.citations || [])}
     </div>`;
