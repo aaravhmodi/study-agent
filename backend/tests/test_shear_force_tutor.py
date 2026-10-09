@@ -397,29 +397,29 @@ def test_fresh_question_and_reindexing_skip_the_cache(tmp_path: Path) -> None:
 
 
 def test_course_notes_go_with_questions_about_that_course(tmp_path: Path) -> None:
-    from app.services.course_notes import save_note
+    from app.services.course_notes import add_note
 
     responses = FakeResponses()
     service = _service(tmp_path, responses)
-    save_note(service.notes_path, SHEAR_COURSE, "Midterm covers chapters 1-4; 40 multiple choice.")
+    add_note(service.notes_path, SHEAR_COURSE, "Midterm covers chapters 1-4; 40 multiple choice.")
 
     service.ask("What is on the midterm?", SHEAR_COURSE)
     service.ask("What is on the syde286 midterm?")  # course named in the question
     service.ask("What is on the midterm?")  # no course chosen or named: no notes
 
     first, named, other = (call["input"] for call in responses.calls)
-    note = "Instructor notes for SYDE 286 (added by the student):\nMidterm covers chapters 1-4"
+    note = "Instructor notes for SYDE 286 (what the professor said"
     assert note in first and note in named
     assert "Instructor notes" not in other
 
 
 def test_changing_course_notes_refreshes_saved_answers(tmp_path: Path) -> None:
-    from app.services.course_notes import save_note
+    from app.services.course_notes import add_note
 
     responses = FakeResponses()
     service = _service(tmp_path, responses)
     service.ask("What is on the midterm?", SHEAR_COURSE)
-    save_note(service.notes_path, SHEAR_COURSE, "Midterm covers chapters 1-4.")
+    add_note(service.notes_path, SHEAR_COURSE, "Midterm covers chapters 1-4.")
 
     service.ask("What is on the midterm?", SHEAR_COURSE)
 
@@ -523,11 +523,11 @@ def test_named_chapters_are_outlined_and_searched_by_their_titles(tmp_path: Path
 
 
 def test_chapters_in_course_notes_are_outlined_too(tmp_path: Path) -> None:
-    from app.services.course_notes import save_note
+    from app.services.course_notes import add_note
 
     responses = FakeResponses()
     service = _service_with_book(tmp_path, responses)
-    save_note(service.notes_path, SHEAR_COURSE, "Midterm: chapters 3-4.")
+    add_note(service.notes_path, SHEAR_COURSE, "Midterm: chapters 3-4.")
 
     service.ask("What is on the midterm?", SHEAR_COURSE)
 

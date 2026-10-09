@@ -18,7 +18,7 @@ from app.schemas.chat import ChatCitation, ChatResponse, ChatUsage
 from app.schemas.chat_session import ChatTurn
 from app.services.answer_cache import AnswerCache, cache_key, index_fingerprint
 from app.services.answer_format import clean_answer, clean_citations, display_filename
-from app.services.course_notes import NOTES_FILE, course_in_question, get_note
+from app.services.course_notes import NOTES_FILE, course_in_question, tutor_notes
 from app.services.figure_guide import FIGURE_GUIDE
 from app.services.figures import extract_figures
 from app.services.learn_links import viewer_url
@@ -270,7 +270,7 @@ class RagService:
         note_course = normalized_course_code or course_in_question(
             question, {str(entry.get("course_code", "")).upper() for entry in files.values()}
         )
-        note = get_note(self.notes_path, note_course)
+        note = tutor_notes(self.notes_path, note_course)
         key = cache_key(question, normalized_course_code, settings=self._answer_shape(files, note))
         earlier = (history or [])[-FOLLOW_UP_TURNS:]
         # A follow-up depends on the conversation, so it is never served from the cache.
@@ -281,7 +281,10 @@ class RagService:
         if normalized_course_code:
             context.append(f"Course: {normalized_course_code}")
         if note:
-            context.append(f"Instructor notes for {note_course} (added by the student):\n{note}")
+            context.append(
+                f"Instructor notes for {note_course} (what the professor said, saved by the "
+                f"student; newest first):\n{note}"
+            )
         named_chapters = _chapter_numbers(question)
         outline = _chapter_outline(
             files, note_course, named_chapters | _chapter_numbers(note or "")

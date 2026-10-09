@@ -17,9 +17,10 @@ from app.models import Assessment, Course, Resource
 from app.services.course_notes import (
     NOTES_FILE,
     CourseNoteError,
-    clear_note,
-    get_note,
-    save_note,
+    add_note,
+    clear_notes,
+    delete_note,
+    list_notes,
 )
 from app.services.manual_import import ImportFileError, import_file
 from app.services.rag import RagService
@@ -302,9 +303,11 @@ def import_file_command(
         rag_index()
 
 
-_NOTE_FILE = typer.Option(None, "--file", help="Read the note from a text file.")
-_NOTE_TEXT = typer.Option(None, "--text", help="The note itself.")
-_NOTE_CLEAR = typer.Option(False, "--clear", help="Remove the note.")
+_NOTE_FILE = typer.Option(None, "--file", help="Add a note read from a text file.")
+_NOTE_TEXT = typer.Option(None, "--text", help="Add this note.")
+_NOTE_ABOUT = typer.Option(None, "--about", help="The assessment it is about, e.g. Midterm.")
+_NOTE_DELETE = typer.Option(None, "--delete", help="Delete the note with this id.")
+_NOTE_CLEAR = typer.Option(False, "--clear", help="Delete all of the course's notes.")
 
 
 @app.command("course-note")
@@ -312,25 +315,35 @@ def course_note(
     course: str,
     file: Path | None = _NOTE_FILE,
     text: str | None = _NOTE_TEXT,
+    about: str | None = _NOTE_ABOUT,
+    delete: str | None = _NOTE_DELETE,
     clear: bool = _NOTE_CLEAR,
 ) -> None:
-    """Show or set notes for a course, e.g. what the instructor said the midterm covers."""
+    """List, add or delete notes for a course, e.g. what the professor said about the midterm."""
     path = get_settings().data_dir / NOTES_FILE
     if clear:
-        removed = clear_note(path, course)
-        console.print("[green][OK][/green] Note removed" if removed else "No note to remove")
+        console.print(f"[green][OK][/green] Deleted {clear_notes(path, course)} notes")
+        return
+    if delete:
+        removed = delete_note(path, course, delete)
+        console.print("[green][OK][/green] Note deleted" if removed else "No note with that id")
         return
     if file is not None:
         text = file.read_text(encoding="utf-8")
     if text is None:
-        console.print(get_note(path, course) or f"No note for {course}.")
+        notes = list_notes(path, course)
+        for note in notes:
+            about_note = f" about {note.about}" if note.about else ""
+            console.print(f"[bold]{note.id}[/bold] {note.added:%b %d}{about_note}\n{note.text}\n")
+        if not notes:
+            console.print(f"No notes for {course}.")
         return
     try:
-        save_note(path, course, text)
+        note = add_note(path, course, text, about=about)
     except CourseNoteError as exc:
         console.print(f"[red][FAIL][/red] {exc}")
         raise typer.Exit(code=1) from exc
-    console.print(f"[green][OK][/green] Saved the note for {course.strip().upper()}")
+    console.print(f"[green][OK][/green] Saved note {note.id} for {course.strip().upper()}")
 
 
 _EVAL_QUESTION_OPTION = typer.Option(

@@ -88,3 +88,12 @@ def test_a_corrupt_file_reads_as_no_sessions(tmp_path: Path) -> None:
     path.write_text("{not json", encoding="utf-8")
 
     assert ChatSessionStore(path).list() == []
+
+
+def test_sessions_from_the_same_clock_tick_list_newest_created_first(tmp_path: Path) -> None:
+    store = ChatSessionStore(tmp_path / "sessions.json")
+    first = store.create("first", None, now=NOW)
+    second = store.create("second", None, now=NOW)
+    third = store.create("third", None, now=NOW)
+
+    assert [item.id for item in store.list()] == [third.id, second.id, first.id]

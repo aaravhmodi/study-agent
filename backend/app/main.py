@@ -17,10 +17,11 @@ from app.schemas.course_note import CourseNoteRequest
 from app.services.chat_sessions import SESSIONS_FILE, ChatSessionStore
 from app.services.course_notes import (
     NOTES_FILE,
+    CourseNote,
     CourseNoteError,
-    clear_note,
-    get_note,
-    save_note,
+    add_note,
+    delete_note,
+    list_notes,
 )
 from app.services.learn_links import viewer_url
 from app.services.rag import RagService
@@ -78,23 +79,35 @@ def _sessions_path() -> Path:
     return get_settings().data_dir / SESSIONS_FILE
 
 
-@app.put("/courses/{course_id}/note")
-def save_course_note(course_id: str, request: CourseNoteRequest) -> dict[str, Any]:
-    """Save what the instructor said about this course; the tutor reads it with questions."""
+@app.get("/courses/{course_id}/notes", response_model=list[CourseNote])
+def course_notes(course_id: str) -> list[CourseNote]:
+    """Notes saved for this course, newest first."""
+    return list_notes(_notes_path(), _course_code(course_id))
+
+
+@app.post("/courses/{course_id}/notes", response_model=CourseNote)
+def add_course_note(course_id: str, request: CourseNoteRequest) -> CourseNote:
+    """Save something the professor said; the tutor reads it with questions about the course."""
+    try:
+        return add_note(_notes_path(), _course_code(course_id), request.text, about=request.about)
+    except CourseNoteError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.delete("/courses/{course_id}/notes/{note_id}")
+def delete_course_note(course_id: str, note_id: str) -> dict[str, bool]:
+    if not delete_note(_notes_path(), _course_code(course_id), note_id):
+        raise HTTPException(status_code=404, detail="Note not found")
+    return {"deleted": True}
+
+
+def _course_code(course_id: str) -> str:
     ensure_schema()
     with SessionLocal() as session:
         course = session.get(Course, course_id)
         if course is None or not course.active:
             raise HTTPException(status_code=404, detail="Course not found")
-        code = course.code or course.name
-    path = _notes_path()
-    if not request.text.strip():
-        clear_note(path, code)
-        return {"course": code, "text": ""}
-    try:
-        return {"course": code, "text": save_note(path, code, request.text)}
-    except CourseNoteError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return course.code or course.name
 
 
 def _notes_path() -> Path:
@@ -247,7 +260,10 @@ def _course_detail_payload(course: Course) -> dict[str, Any]:
         "term": course.term,
         "url": course.url,
         "last_scanned_at": _iso(course.last_scanned_at),
-        "note": get_note(_notes_path(), course.code or course.name) or "",
+        "notes": [
+            note.model_dump(mode="json")
+            for note in list_notes(_notes_path(), course.code or course.name)
+        ],
         "assessments": assessments_data,
         "completed_assessments": sum(item["status"] == "COMPLETED" for item in assessments_data),
         "resources": [
@@ -299,6 +315,12 @@ def _assessment_detail_payload(assessment: Assessment) -> dict[str, Any]:
         **_assessment_summary(assessment, course),
         "coursework": relevant_coursework(assessment, course.resources),
         "study_guidance": study_guidance(assessment),
+        # Notes the student saved about this assessment.
+        "notes": [
+            note.model_dump(mode="json")
+            for note in list_notes(_notes_path(), course.code or course.name)
+            if (note.about or "").casefold() == assessment.title.casefold()
+        ],
     }
 
 

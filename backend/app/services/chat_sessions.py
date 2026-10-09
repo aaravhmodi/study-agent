@@ -73,7 +73,7 @@ class ChatSessionStore:
         return session
 
     def list(self, limit: int = 30) -> list[ChatSessionSummary]:
-        newest = sorted(self._load().values(), key=lambda item: item.updated_at, reverse=True)
+        newest = _newest_first(self._load())
         return [
             ChatSessionSummary(
                 id=session.id,
@@ -110,7 +110,17 @@ class ChatSessionStore:
         return sessions
 
     def _save(self, sessions: dict[str, ChatSession]) -> None:
-        newest = sorted(sessions.values(), key=lambda item: item.updated_at, reverse=True)
-        payload = {item.id: item.model_dump(mode="json") for item in newest[:MAX_SESSIONS]}
+        newest = _newest_first(sessions)
+        # Stored oldest first, so file order is creation order for tie-breaking on load.
+        kept = reversed(newest[:MAX_SESSIONS])
+        payload = {item.id: item.model_dump(mode="json") for item in kept}
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
+def _newest_first(sessions: dict[str, ChatSession]) -> list[ChatSession]:
+    # Sessions updated in the same clock tick: the later-created one counts as newer.
+    ranked = sorted(
+        enumerate(sessions.values()), key=lambda pair: (pair[1].updated_at, pair[0]), reverse=True
+    )
+    return [session for _, session in ranked]
