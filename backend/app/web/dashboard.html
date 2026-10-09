@@ -108,6 +108,10 @@ textarea:focus,select:focus{border-color:var(--ink);outline:none;box-shadow:inse
 .sources ol{margin:6px 0 0;padding-left:22px}
 .sources li{margin:3px 0}
 .sources .where{font:12px var(--mono);color:var(--ink-3);margin-left:6px}
+.figure{margin:20px 0;padding:12px 14px 10px;background:var(--sheet);border:1px solid var(--rule);max-width:70ch}
+.figure figcaption{font:500 15px/1.3 var(--serif);color:var(--ink);margin:0 0 8px}
+.figure .plot{position:relative;height:280px}
+.figure .figure-error{font:12.5px var(--mono);color:var(--ink-3);margin:0}
 .notice{margin-top:18px;padding:10px 14px;border-left:3px solid var(--pencil);background:var(--pencil-wash);font-size:14px}
 
 .index{list-style:none;margin:0;padding:0}
@@ -292,6 +296,129 @@ function renderAnswer(text) {
   return `<div class="answer">${tagged.replace(/%%MATH(\d+)%%/g, (_, index) => math[Number(index)])}</div>`;
 }
 
+// The server validates every figure and computes every plotted point, so the
+// page only draws. Libraries load on first use to keep the dashboard light.
+const LIBRARIES = {
+  chart: 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js',
+};
+const loadedLibraries = {};
+function loadLibrary(name) {
+  return loadedLibraries[name] ||= new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = LIBRARIES[name];
+    script.onload = resolve;
+    script.onerror = () => { delete loadedLibraries[name]; reject(new Error(`could not load ${name}`)) };
+    document.head.append(script);
+  });
+}
+
+const token = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const PLOT_COLOURS = ['--ink', '--pencil', '#3d6a8a', '--ok', '--warn', '#6b4f8a'];
+const withAlpha = (hex, alpha) => hex + Math.round(alpha * 255).toString(16).padStart(2, '0');
+const shortNumber = value => Number(Number(value).toPrecision(4));
+
+// Dashed lines for loads or limits (x only) and labelled dots (x and y).
+const markerPlugin = {
+  id: 'markers',
+  afterDatasetsDraw(chart, _args, options) {
+    const {ctx, chartArea: area, scales: {x, y}} = chart;
+    ctx.save();
+    ctx.font = `12px ${token('--mono')}`;
+    ctx.fillStyle = ctx.strokeStyle = token('--pencil');
+    for (const marker of options.items || []) {
+      const px = x.getPixelForValue(marker.x);
+      if (marker.y == null) {
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.moveTo(px, area.top); ctx.lineTo(px, area.bottom); ctx.stroke();
+        ctx.setLineDash([]);
+        if (marker.label) ctx.fillText(marker.label, Math.min(px + 5, area.right - ctx.measureText(marker.label).width), area.top + 12);
+      } else {
+        const py = y.getPixelForValue(marker.y);
+        ctx.beginPath(); ctx.arc(px, py, 4, 0, 2 * Math.PI); ctx.fill();
+        if (!marker.label) continue;
+        // Keep the label inside the plot, flipping it below or left of the dot near an edge.
+        const width = ctx.measureText(marker.label).width;
+        const lx = px + 7 + width > area.right ? px - 7 - width : px + 7;
+        ctx.fillText(marker.label, lx, py - 7 < area.top + 12 ? py + 16 : py - 7);
+      }
+    }
+    ctx.restore();
+  },
+};
+
+async function drawPlot(holder, figure) {
+  holder.innerHTML = `${figure.title ? `<figcaption>${esc(figure.title)}</figcaption>` : ''}<div class="plot"><canvas role="img" aria-label="${esc(figure.title || 'Graph')}"></canvas></div>`;
+  await loadLibrary('chart');
+  Chart.defaults.font.family = token('--sans');
+  const ink2 = token('--ink-2'), rule = token('--rule'), ink3 = token('--ink-3');
+  let colour = 0, current = token('--ink');
+  const datasets = figure.series.map(series => {
+    // A shaded range follows the colour of the curve it belongs to.
+    if (series.legend) { const pick = PLOT_COLOURS[colour++ % PLOT_COLOURS.length]; current = pick.startsWith('--') ? token(pick) : pick }
+    return {
+      label: series.label,
+      data: series.points.map(([x, y]) => ({x, y})),
+      showLine: series.style === 'line',
+      pointRadius: series.style === 'points' ? 3.5 : 0,
+      pointHoverRadius: series.style === 'points' ? 5 : 3,
+      borderWidth: series.legend ? 2 : 0,
+      borderColor: current,
+      backgroundColor: series.fill ? withAlpha(current, series.legend ? 0.1 : 0.25) : current,
+      fill: series.fill ? 'origin' : false,
+      spanGaps: false,
+      order: series.legend ? 0 : 1,
+    };
+  });
+  const axis = (label, min, max) => ({
+    type: 'linear', min: min ?? undefined, max: max ?? undefined, grace: '8%',
+    title: {display: Boolean(label), text: label, color: ink2},
+    ticks: {color: ink3, maxTicksLimit: 9},
+    grid: {color: context => context.tick?.value === 0 ? ink3 : rule},
+    border: {display: false},
+  });
+  const named = figure.series.filter(series => series.legend && series.label);
+  new Chart(holder.querySelector('canvas'), {
+    type: 'scatter',
+    data: {datasets},
+    plugins: [markerPlugin],
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: {duration: 300},
+      interaction: {mode: 'nearest', axis: 'x', intersect: false},
+      scales: {x: axis(figure.x_label, figure.x_min, figure.x_max), y: axis(figure.y_label, figure.y_min, figure.y_max)},
+      plugins: {
+        legend: {display: named.length > 1, labels: {color: ink2, boxWidth: 14, filter: item => figure.series[item.datasetIndex].legend}},
+        tooltip: {
+          filter: item => figure.series[item.datasetIndex].legend,
+          callbacks: {label: item => `${item.dataset.label ? item.dataset.label + ': ' : ''}x = ${shortNumber(item.parsed.x)}, y = ${shortNumber(item.parsed.y)}`},
+        },
+        markers: {items: figure.markers},
+      },
+    },
+  });
+}
+
+// The answer marks each figure's place with a ```figure block holding its index.
+async function drawFigures(answer, figures) {
+  if (!answer || !figures.length) return;
+  const slots = new Map();
+  answer.querySelectorAll('pre > code.language-figure').forEach(code => {
+    const holder = document.createElement('figure');
+    holder.className = 'figure';
+    code.parentElement.replaceWith(holder);
+    slots.set(Number(code.textContent.trim()), holder);
+  });
+  await Promise.all(figures.map(async (figure, index) => {
+    let holder = slots.get(index);
+    if (!holder) { holder = document.createElement('figure'); holder.className = 'figure'; answer.append(holder) }
+    try {
+      if (figure.kind === 'plot') await drawPlot(holder, figure);
+      else holder.innerHTML = `<pre>${esc(figure.source)}</pre>`;
+    } catch (error) {
+      holder.innerHTML = `<p class="figure-error">This figure could not be drawn (${esc(error.message || error)}).</p>`;
+    }
+  }));
+}
+
 // /chat returns one response with no progress events, so show only what is
 // true: what is being searched and how long it has taken.
 function startWaiting(container, course) {
@@ -351,6 +478,7 @@ async function askChat() {
       ${renderAnswer(result.answer)}
       ${renderSources(result.citations || [])}
     </div>`;
+    drawFigures(output.querySelector('.answer'), result.figures || []);
   } catch (error) {
     progress.stop();
     output.innerHTML = `<div class="notice">${esc(error.message || error)}</div>`;

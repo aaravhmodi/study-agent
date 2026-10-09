@@ -9,3 +9,4 @@ def test_dashboard_page_is_served() -> None:
     assert response.headers["content-type"].startswith("text/html")
     assert 'id="chat-ask"' in response.text
     assert "function renderAnswer" in response.text
+    assert "function drawFigures" in response.text
