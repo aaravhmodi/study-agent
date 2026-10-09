@@ -93,6 +93,34 @@ uv run study-agent rag-eval -q "Explain bending stress." --course "SYDE 286"
 
 Each answer is scored for structure, concept coverage, balanced LaTeX, paragraph and sentence length, cited sources, and (for questions about a shape) whether a figure came back; the full report is written to `data/rag_eval.json`.
 
+### Conversations and follow-ups
+
+Every question starts a chat that is saved locally (`data/chat_sessions.json`). Ask a follow-up ("why is that?", "show me an example") and the tutor answers it in context: the last three exchanges go with the question, and a short follow-up is searched together with the question it follows. "Recent chats" in the dashboard reopens any conversation with its answers, figures and sources; "New chat" starts over. The API is `POST /chat` with the returned `session_id`, plus `GET /chat/sessions`, `GET /chat/sessions/{id}` and `DELETE /chat/sessions/{id}`.
+
+### Sources and links
+
+Answers cite course files inline, with the page for PDFs (`[course text.pdf, p. 87]`). Every cited file links to its LEARN page, and the Sources list names it by its LEARN title.
+
+### Course notes
+
+Some things the instructor says never reach LEARN, or not where sync reads them, such as what a midterm covers. Add them once per course, in the course's panel on the dashboard or from the terminal:
+
+```powershell
+uv run study-agent course-note "SYDE 212" --file midterm.txt   # or --text "...", --clear
+```
+
+The tutor reads a course's notes with every question about it. It says whether a topic is in scope, and writes practice questions in the exam's format (for example multiple choice).
+
+### Files too large to sync
+
+Sync skips LEARN files over 15 MB, such as a whole course textbook. Download the file from LEARN yourself, then attach it to its LEARN item:
+
+```powershell
+uv run study-agent import-file "$HOME\Downloads\course-text.pdf" --link "https://learn.uwaterloo.ca/d2l/le/content/1299242/viewContent/6617316/View"
+```
+
+This saves it with the item, extracts the PDF text page by page and indexes it. The tutor then searches it and cites it with its LEARN title, link and page numbers. Later syncs keep the imported copy.
+
 ### Figures in answers
 
 When a topic has a shape or a picture, the tutor draws it next to the text it explains:
