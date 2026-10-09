@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from app.models import Assessment, Resource
+from app.services.learn_links import viewer_url
 
 _STOP_WORDS = {
     "a",
@@ -50,7 +51,7 @@ def relevant_coursework(
             "id": resource.id,
             "title": resource.title,
             "type": resource.resource_type,
-            "url": resource.url,
+            "url": viewer_url(resource.url),
             "description": resource.description,
             "match_reason": (
                 f"Matched terms: {', '.join(sorted(overlap))}"

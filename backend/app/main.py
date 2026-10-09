@@ -12,6 +12,7 @@ from app.config import get_settings
 from app.db.database import SessionLocal, ensure_schema
 from app.models import Assessment, ChangeEvent, Course, Resource, SyncRun
 from app.schemas.chat import ChatRequest, ChatResponse
+from app.services.learn_links import viewer_url
 from app.services.rag import RagService
 from app.services.study_context import relevant_coursework, study_guidance
 
@@ -137,7 +138,7 @@ def resources() -> list[dict[str, Any]]:
                 "title": resource.title,
                 "type": resource.resource_type,
                 "description": resource.description,
-                "url": resource.url,
+                "url": viewer_url(resource.url),
                 "first_seen_at": _iso(resource.first_seen_at),
             }
             for resource, course in rows
@@ -183,7 +184,7 @@ def _course_detail_payload(course: Course) -> dict[str, Any]:
                 "id": resource.id,
                 "title": resource.title,
                 "type": resource.resource_type,
-                "url": resource.url,
+                "url": viewer_url(resource.url),
                 "description": resource.description,
                 "first_seen_at": _iso(resource.first_seen_at),
             }

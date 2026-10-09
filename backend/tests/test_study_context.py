@@ -23,10 +23,16 @@ def test_relevant_coursework_prefers_matching_resource_titles() -> None:
         first_seen_at=datetime.now(UTC),
     )
 
+    matching.url = "https://learn.uwaterloo.ca/d2l/api/le/1.82/1292783/content/topics/6611171/file"
+
     result = relevant_coursework(assessment, [unrelated, matching])
 
     assert result[0]["title"] == matching.title
     assert "ammeters" in result[0]["match_reason"]
+    # Links open the LEARN page for the file rather than downloading it.
+    assert result[0]["url"] == (
+        "https://learn.uwaterloo.ca/d2l/le/content/1292783/viewContent/6611171/View"
+    )
 
 
 def test_study_guidance_is_assessment_type_specific() -> None:
