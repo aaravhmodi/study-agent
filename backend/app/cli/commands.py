@@ -287,6 +287,7 @@ def rag_eval(
     table.add_column("Question")
     table.add_column("Words", justify="right")
     table.add_column("Concepts", justify="right")
+    table.add_column("Figures", justify="right")
     table.add_column("Issues")
     for result in results:
         quality = result.quality
@@ -294,12 +295,14 @@ def rag_eval(
             (quality.issues if quality else [])
             + [f"missing term: {term}" for term in result.missing_terms]
             + ([] if result.citations else ["no cited sources"])
+            + (["no graph"] if result.missing_figure else [])
         )
         table.add_row(
             "[green]PASS[/green]" if result.passed else "[red]FAIL[/red]",
             result.question,
             str(quality.word_count) if quality else "-",
             str(len(quality.concepts)) if quality else "-",
+            str(len(result.figures)),
             issues,
         )
     console.print(table)

@@ -16,6 +16,8 @@ class EvalQuestion(BaseModel):
     # "Explain ..." questions must follow the concept-by-concept layout.
     explain: bool = True
     expected_terms: list[str] = Field(default_factory=list)
+    # Questions about a shape (a diagram, a distribution) should come with a graph.
+    expect_figure: bool = False
 
 
 class EvalResult(BaseModel):
@@ -26,6 +28,8 @@ class EvalResult(BaseModel):
     quality: AnswerQuality | None = None
     missing_terms: list[str] = Field(default_factory=list)
     citations: list[str] = Field(default_factory=list)
+    figures: list[str] = Field(default_factory=list)
+    missing_figure: bool = False
     error: str | None = None
 
     @property
@@ -36,6 +40,7 @@ class EvalResult(BaseModel):
             and self.quality.readable
             and not self.missing_terms
             and bool(self.citations)
+            and not self.missing_figure
         )
 
 
@@ -67,6 +72,7 @@ SHEAR_FORCE_QUESTIONS: list[EvalQuestion] = [
         "with a point load.",
         course_code=_SHEAR,
         expected_terms=["shear force", "support", "reaction"],
+        expect_figure=True,
     ),
     EvalQuestion(
         question="Explain shear stress and how it differs from shear force.",
@@ -88,6 +94,12 @@ COURSE_QUESTIONS: list[EvalQuestion] = [
         question="Explain conditional probability and Bayes' theorem.",
         course_code="SYDE 212",
         expected_terms=["conditional probability", "bayes"],
+    ),
+    EvalQuestion(
+        question="Explain the normal distribution and how to find P(a < X < b).",
+        course_code="SYDE 212",
+        expected_terms=["normal", "standard deviation"],
+        expect_figure=True,
     ),
     EvalQuestion(
         question="Explain signal energy and power.",
@@ -145,6 +157,8 @@ def run_eval(
                 quality=assess_answer(response.answer, expect_sections=item.explain),
                 missing_terms=[term for term in item.expected_terms if term not in lowered],
                 citations=[citation.filename for citation in response.citations],
+                figures=[figure.kind for figure in response.figures],
+                missing_figure=item.expect_figure and not response.figures,
             )
         )
     return results

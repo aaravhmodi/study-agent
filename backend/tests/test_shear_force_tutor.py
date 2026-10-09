@@ -246,6 +246,27 @@ def test_eval_records_errors_and_keeps_going() -> None:
     assert results[1].passed
 
 
+def test_eval_needs_a_graph_only_where_one_is_expected() -> None:
+    plot = {"x": {"min": 0, "max": 6}, "series": [{"expr": "4"}]}
+    with_graph = GOOD + f"\n\n```plot\n{json.dumps(plot)}\n```"
+    question = EvalQuestion(question="Explain shear force diagrams.", expect_figure=True)
+
+    def ask(answer: str) -> Any:
+        _, figures = extract_figures(answer)
+        return lambda question, course_code: ChatResponse(
+            answer=answer, citations=[{"filename": "Lecture_07.pdf"}], figures=figures
+        )
+
+    [missing] = run_eval(ask(GOOD), [question])
+    [drawn] = run_eval(ask(with_graph), [question])
+    [optional] = run_eval(ask(GOOD), [EvalQuestion(question="Explain shear force.")])
+
+    assert missing.missing_figure and not missing.passed
+    assert drawn.figures == ["plot"] and not drawn.missing_figure
+    assert optional.passed
+    assert sum(item.expect_figure for item in EVAL_QUESTIONS) >= 2
+
+
 def test_eval_fails_an_answer_without_sources() -> None:
     def ask(question: str, course_code: str | None) -> ChatResponse:
         return ChatResponse.model_validate({"answer": GOOD, "citations": []})
