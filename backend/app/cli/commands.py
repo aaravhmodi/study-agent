@@ -247,15 +247,12 @@ def rag_index() -> None:
     """Upload saved course documents into the persistent OpenAI vector store."""
     configure_logging()
     try:
-        vector_store_id, indexed, skipped, failed = RagService(
-            get_settings()
-        ).index_database()
+        vector_store_id, indexed, skipped, failed = RagService(get_settings()).index_database()
     except Exception as exc:
         console.print(f"[red][FAIL] RAG indexing failed:[/red] {exc}")
         raise typer.Exit(code=1) from exc
     console.print(
-        f"[green][OK][/green] Vector store {vector_store_id}: "
-        f"{indexed} indexed, {skipped} skipped"
+        f"[green][OK][/green] Vector store {vector_store_id}: {indexed} indexed, {skipped} skipped"
     )
     if failed:
         console.print(f"[yellow]WARNING[/yellow] {failed} documents could not be indexed")

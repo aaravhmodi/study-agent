@@ -278,18 +278,14 @@ def test_content_page_text_is_preserved_for_rag() -> None:
 
 def test_syde286_lecture_one_shear_stress_resource_uses_content_api() -> None:
     snapshot = BrowserPageSnapshot(
-        url=(
-            "https://learn.uwaterloo.ca/d2l/api/le/1.82/1292394/"
-            "content/topics/6590136/file"
-        ),
+        url=("https://learn.uwaterloo.ca/d2l/api/le/1.82/1292394/content/topics/6590136/file"),
         title="Lecture 1-Intro & Stress",
         text="Lecture 1 introduces normal stress and shear stress.",
         links=[
             PageLink(
                 text="Lecture 1-Intro & Stress",
                 href=(
-                    "https://learn.uwaterloo.ca/d2l/api/le/1.82/1292394/"
-                    "content/topics/6590136/file"
+                    "https://learn.uwaterloo.ca/d2l/api/le/1.82/1292394/content/topics/6590136/file"
                 ),
             )
         ],

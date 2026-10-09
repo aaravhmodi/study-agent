@@ -84,9 +84,7 @@ class RagService:
             ).all()
             return self.index_resources([(resource, course) for resource, course in rows])
 
-    def index_resources(
-        self, rows: list[tuple[Resource, Course]]
-    ) -> tuple[str, int, int, int]:
+    def index_resources(self, rows: list[tuple[Resource, Course]]) -> tuple[str, int, int, int]:
         """Sync saved resources into the vector store; return (id, indexed, skipped, failed)."""
         manifest = self._load_manifest()
         vector_store_id = str(manifest.get("vector_store_id") or self._create_vector_store())

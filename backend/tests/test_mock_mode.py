@@ -36,9 +36,7 @@ async def test_demo_site_lists_all_six_courses() -> None:
 @pytest.mark.asyncio
 async def test_demo_course_scan_finds_dated_work_lectures_and_news() -> None:
     agent = CourseAgent(_demo(), get_settings())
-    course = next(
-        c for c in (await agent.discover_courses()).courses if c.code == "SYDE 286"
-    )
+    course = next(c for c in (await agent.discover_courses()).courses if c.code == "SYDE 286")
 
     scan = await agent.scan_course(course)
 

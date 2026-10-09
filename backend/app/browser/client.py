@@ -223,6 +223,7 @@ class BrowserUseClient(BrowserClient):
             raise BrowserClientError(
                 "Browser Use CLI was not found. Install it with uv venv and uv pip install."
             )
+
         async def download_once(fresh_tab: bool) -> BrowserDownloadedResource:
             try:
                 # Downloads run in their own Browser Use process. Keep a single
@@ -237,9 +238,7 @@ class BrowserUseClient(BrowserClient):
                 raise BrowserClientError("Browser Use resource download timed out") from exc
             if completed.returncode != 0:
                 detail = completed.stderr.strip() or "unknown Browser Use error"
-                raise BrowserClientError(
-                    f"Browser Use resource download failed: {detail[-2000:]}"
-                )
+                raise BrowserClientError(f"Browser Use resource download failed: {detail[-2000:]}")
             try:
                 return BrowserDownloadedResource.model_validate(_extract_result(completed.stdout))
             except Exception as exc:
@@ -298,7 +297,7 @@ matching = [
 ]
 matching.sort(
     key=lambda tab: 0
-    if urlsplit(str(tab.get('url', ''))).path in {'/d2l/home', '/d2l/'}
+    if urlsplit(str(tab.get('url', ''))).path in {"/d2l/home", "/d2l/"}
     else 1
 )
 if matching:
@@ -716,7 +715,7 @@ def _download_script(url: str, fresh_tab: bool = False) -> str:
   state.offset = start + chunk.length;
   return JSON.stringify({chunk, done: state.offset >= state.content_base64.length});
 })()"""
-    expression = rf'''(async () => {{
+    expression = rf"""(async () => {{
   try {{
     const fetchWithTimeout = async resourceUrl => {{
       const controller = new AbortController();
@@ -803,7 +802,7 @@ def _download_script(url: str, fresh_tab: bool = False) -> str:
   }} catch (error) {{
     return JSON.stringify({{error: String(error)}});
   }}
-}})()'''
+}})()"""
     if fresh_tab:
         tab_setup = """download_tab = new_tab('https://learn.uwaterloo.ca/d2l/home')
 time.sleep(1)"""

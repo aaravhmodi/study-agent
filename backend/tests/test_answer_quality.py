@@ -124,9 +124,7 @@ def test_unclosed_code_fence_is_reported() -> None:
 
 def test_too_short_and_too_long_answers_are_reported() -> None:
     assert "too short (4 words)" in assess_answer("Shear force is internal.").issues
-    assert any(
-        issue.startswith("too long") for issue in assess_answer(GOOD, max_words=200).issues
-    )
+    assert any(issue.startswith("too long") for issue in assess_answer(GOOD, max_words=200).issues)
 
 
 def test_direct_questions_do_not_need_the_explain_layout() -> None:

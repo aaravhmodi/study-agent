@@ -59,8 +59,7 @@ def test_shear_stress_question_is_scoped_to_syde286(tmp_path) -> None:
             self.call = kwargs
             return SimpleNamespace(
                 output_text=(
-                    "Shear stress is tangential force per unit area, as described "
-                    "in Lecture 1."
+                    "Shear stress is tangential force per unit area, as described in Lecture 1."
                 ),
                 model_dump=lambda: {},
             )

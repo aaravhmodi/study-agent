@@ -707,18 +707,19 @@ def _extract_resources(snapshots: list[BrowserPageSnapshot]) -> list[ResourceExt
             if not title or link.href.startswith("javascript:"):
                 continue
             is_content_resource = (
-                "/d2l/le/content/" in link.href
-                and (
-                    "viewContent" in link.href
-                    or any(
-                        token in title.upper()
-                        for token in ("PDF", "DOCUMENT", "WORD", "SLIDE", "POWERPOINT")
+                (
+                    "/d2l/le/content/" in link.href
+                    and (
+                        "viewContent" in link.href
+                        or any(
+                            token in title.upper()
+                            for token in ("PDF", "DOCUMENT", "WORD", "SLIDE", "POWERPOINT")
+                        )
                     )
                 )
-            ) or (
-                "/d2l/api/le/" in link.href
-                and "/content/topics/" in link.href
-            ) or "/d2l/common/viewFile" in link.href
+                or ("/d2l/api/le/" in link.href and "/content/topics/" in link.href)
+                or "/d2l/common/viewFile" in link.href
+            )
             if is_content_resource:
                 resource_type = _resource_type(title, link.href)
                 detail = snapshots_by_url.get(link.href)

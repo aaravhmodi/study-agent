@@ -25,11 +25,7 @@ class DocumentCollector:
         self.settings = settings
         self.browser = browser
         self.download_dir = settings.downloads_dir
-        self.vision_pdf = (
-            VisionPdfTranscriber(settings)
-            if settings.openai_api_key
-            else None
-        )
+        self.vision_pdf = VisionPdfTranscriber(settings) if settings.openai_api_key else None
 
     async def collect(self, session: Session, course: Course) -> tuple[int, int]:
         """Download visible course resources; return (saved, failed)."""
@@ -65,9 +61,7 @@ class DocumentCollector:
                         resource.local_path = None
                         resource.content_hash = None
                         continue
-                    downloaded_content = base64.b64decode(
-                        downloaded.content_base64, validate=True
-                    )
+                    downloaded_content = base64.b64decode(downloaded.content_base64, validate=True)
                     content = downloaded_content
                     filename = downloaded.filename
                     content_type = downloaded.content_type
@@ -88,8 +82,10 @@ class DocumentCollector:
                     resource.local_path = None
                     resource.content_hash = None
                     raise BrowserClientError("authenticated browser returned a login redirect")
-                suffix = ".txt" if saved_as_text else _suffix(
-                    filename, content_type, resource.resource_type
+                suffix = (
+                    ".txt"
+                    if saved_as_text
+                    else _suffix(filename, content_type, resource.resource_type)
                 )
                 path = self.download_dir / f"{resource.id}_{_safe_name(resource.title)}{suffix}"
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -143,12 +139,15 @@ def _suffix(filename: str, content_type: str, resource_type: str) -> str:
         "text/html": ".html",
         "text/plain": ".txt",
     }
-    return mime_suffixes.get(content_type.split(";", 1)[0].lower(), {
-        "PDF": ".pdf",
-        "DOCUMENT": ".docx",
-        "SLIDES": ".pptx",
-        "PAGE": ".html",
-    }.get(resource_type, ".bin"))
+    return mime_suffixes.get(
+        content_type.split(";", 1)[0].lower(),
+        {
+            "PDF": ".pdf",
+            "DOCUMENT": ".docx",
+            "SLIDES": ".pptx",
+            "PAGE": ".html",
+        }.get(resource_type, ".bin"),
+    )
 
 
 def _remove_previous_file(previous: str | None, current: Path) -> None:

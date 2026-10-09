@@ -37,10 +37,7 @@ def test_write_pdf_text_sidecar(monkeypatch, tmp_path: Path) -> None:
 def test_shear_stress_question_has_lecture_text_to_search(monkeypatch, tmp_path: Path) -> None:
     class LectureOneReader:
         pages = [
-            _Page(
-                "Lecture 1: Shear stress is tangential force divided by area. "
-                "The symbol is tau."
-            )
+            _Page("Lecture 1: Shear stress is tangential force divided by area. The symbol is tau.")
         ]
 
     monkeypatch.setattr(pdf_text, "PdfReader", lambda _path, **_kwargs: LectureOneReader())

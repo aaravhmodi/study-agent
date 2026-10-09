@@ -141,7 +141,11 @@ def test_online_sources_are_returned_with_their_urls(tmp_path: Path) -> None:
     responses = FakeResponses(
         [
             {"type": "file_citation", "filename": f"{PREFIX}Lecture_07.pdf", "file_id": "f1"},
-            {"type": "url_citation", "title": "Shear and moment diagrams", "url": "https://x.org/a"},
+            {
+                "type": "url_citation",
+                "title": "Shear and moment diagrams",
+                "url": "https://x.org/a",
+            },
             {"type": "url_citation", "title": "Same page again", "url": "https://x.org/a"},
         ]
     )

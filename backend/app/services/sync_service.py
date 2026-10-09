@@ -234,9 +234,7 @@ def _remove_obsolete_unprocessed_wrappers(
     }
     if not api_resources:
         return
-    resources = list(
-        session.scalars(select(Resource).where(Resource.course_id == course.id)).all()
-    )
+    resources = list(session.scalars(select(Resource).where(Resource.course_id == course.id)).all())
     processed_urls = {resource.url for resource in resources if resource.processed and resource.url}
     for resource in resources:
         url = resource.url or ""
