@@ -5,10 +5,11 @@ from typing import Any
 
 import pytest
 from app.config import Settings
-from app.schemas.chat import ChatResponse, PlotFigure
+from app.schemas.chat import ChatResponse, PlotFigure, SketchFigure
 from app.services.answer_quality import assess_answer
+from app.services.figure_guide import FIGURE_GUIDE
 from app.services.figures import extract_figures
-from app.services.rag import TUTOR_INSTRUCTIONS, RagService
+from app.services.rag import TUTOR_GUIDE, TUTOR_INSTRUCTIONS, RagService
 from app.services.rag_eval import (
     COURSE_QUESTIONS,
     EVAL_QUESTIONS,
@@ -118,21 +119,26 @@ def test_instructions_ask_for_concept_by_concept_chapter_explanations() -> None:
         assert section in TUTOR_INSTRUCTIONS
     assert "chapter or lecture" in TUTOR_INSTRUCTIONS
     assert "### heading per concept" in TUTOR_INSTRUCTIONS
-    # The prompt stays short; it is a static, cacheable prefix, so the figure
-    # guide costs little after the first question.
-    assert len(TUTOR_INSTRUCTIONS.split()) < 450
+    # The teaching guide stays short; the figure guide is separate and both are a
+    # static, cacheable prefix, so they cost little after the first question.
+    assert len(TUTOR_GUIDE.split()) < 300
+    assert len(FIGURE_GUIDE.split()) < 500
+    assert TUTOR_INSTRUCTIONS.startswith(TUTOR_GUIDE) and TUTOR_INSTRUCTIONS.endswith(FIGURE_GUIDE)
 
 
-def test_instructions_example_plot_is_valid_and_physically_consistent() -> None:
-    _, figures = extract_figures(TUTOR_INSTRUCTIONS)
+def test_every_figure_example_in_the_guide_renders() -> None:
+    _, figures = extract_figures(FIGURE_GUIDE)
 
-    (figure,) = figures
-    assert isinstance(figure, PlotFigure)
-    shear = dict(figure.series[0].points)
+    plot, fbd, circuit = figures
+    assert isinstance(plot, PlotFigure)
+    shear = dict(plot.series[0].points)
     # Simply supported 6 m beam, 6 kN at x = 2: R_A = 4 kN, so V drops from 4 to -2 at the load.
     assert shear[0.0] == 4.0 and shear[6.0] == -2.0
-    assert [marker.x for marker in figure.markers] == [2.0]
-    assert "mermaid" in TUTOR_INSTRUCTIONS and "step(x)" in TUTOR_INSTRUCTIONS
+    assert [marker.x for marker in plot.markers] == [2.0]
+    assert isinstance(fbd, SketchFigure) and "W = mg" in fbd.svg
+    assert isinstance(circuit, SketchFigure) and "R = 1 kΩ" in circuit.svg
+    for kind in ("mermaid", "svg", "step(x)"):
+        assert kind in FIGURE_GUIDE
 
 
 def test_question_is_filtered_to_the_shear_force_course(tmp_path: Path) -> None:
