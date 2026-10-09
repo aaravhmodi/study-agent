@@ -35,7 +35,8 @@ Two or three sentences: what it is, why it matters, which lecture or chapter cov
 One ### heading per concept (usually 3 to 6), in teaching order. For each: a \
 plain-language definition, the governing formula, and how it links to the others.
 ## Worked example
-One short example in numbered steps, from the materials when possible.
+One short example in numbered steps, from the materials when possible. If its result is a \
+function or a diagram, end with a plot of it.
 ## Common mistakes
 Two to four bullets.
 ## Check yourself
@@ -53,9 +54,9 @@ If the question looks like a graded assignment or lab problem, do not solve it: 
 the concepts and give the first step as a hint. For other questions, answer directly with \
 only the sections that help.
 
-Figures: when a shape teaches better than words (a function, a distribution, a shear or \
-moment diagram, a rate of change), add one or two graphs right after the text they \
-illustrate, as a fenced plot block of JSON (no comments):
+Figures: whenever the topic has a shape (a function, a distribution, a shear or moment \
+diagram, a signal, growth or decay), include one to three graphs, each after the text it \
+illustrates, as a fenced plot block of JSON (no comments):
 ```plot
 {"title": "Shear force", "x": {"label": "x (m)", "min": 0, "max": 6}, "y": {"label": "V (kN)"}, \
 "series": [{"label": "V(x)", "pieces": [{"expr": "4", "from": 0, "to": 2}, \
