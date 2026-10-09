@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -15,6 +17,43 @@ class ChatCitation(BaseModel):
     file_id: str | None = None
     # Set for online sources; course files have only a filename.
     url: str | None = None
+
+
+class PlotSeries(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = ""
+    # [x, y] pairs; a null y breaks the line (a jump or an undefined value).
+    points: list[tuple[float, float | None]]
+    style: Literal["line", "points"] = "line"
+    fill: bool = False
+    legend: bool = True
+
+
+class PlotMarker(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    x: float
+    # Without y the marker is a vertical reference line at x.
+    y: float | None = None
+    label: str = ""
+
+
+class PlotFigure(BaseModel):
+    """A graph whose points were computed by the server from the tutor's formulas."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["plot"] = "plot"
+    title: str = ""
+    x_label: str = ""
+    y_label: str = ""
+    x_min: float
+    x_max: float
+    y_min: float | None = None
+    y_max: float | None = None
+    series: list[PlotSeries]
+    markers: list[PlotMarker] = Field(default_factory=list)
 
 
 class ChatResponse(BaseModel):
