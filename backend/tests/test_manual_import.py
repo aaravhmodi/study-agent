@@ -3,7 +3,6 @@ from pathlib import Path
 
 import pytest
 from app import models  # noqa: F401
-from app.config import Settings
 from app.db.database import Base
 from app.models import Course, Resource
 from app.services.manual_import import ImportFileError, find_resource, import_file
@@ -52,9 +51,7 @@ def test_imported_file_is_saved_for_indexing(tmp_path: Path) -> None:
     source.parent.mkdir()
     source.write_text("Chapter 1: Data", encoding="utf-8")
 
-    resource = import_file(
-        session, Settings(openai_api_key=None, database_url="sqlite://"), source, VIEW
-    )
+    resource = import_file(session, tmp_path / "downloads", source, VIEW)
 
     assert resource.id == active.id
     saved = Path(resource.local_path or "")
@@ -79,14 +76,14 @@ def test_unknown_links_are_rejected(link: str, reason: str, tmp_path: Path) -> N
     source.write_bytes(b"%PDF")
 
     with pytest.raises(ImportFileError, match=reason):
-        import_file(session, Settings(openai_api_key=None), source, link)
+        import_file(session, tmp_path / "downloads", source, link)
 
 
 def test_missing_file_is_rejected(tmp_path: Path) -> None:
     session, _ = _session()
 
     with pytest.raises(ImportFileError, match="file not found"):
-        import_file(session, Settings(openai_api_key=None), tmp_path / "nope.pdf", VIEW)
+        import_file(session, tmp_path / "downloads", tmp_path / "nope.pdf", VIEW)
 
 
 def test_import_command_reports_unknown_links(tmp_path: Path) -> None:
@@ -102,3 +99,31 @@ def test_import_command_reports_unknown_links(tmp_path: Path) -> None:
 
     assert result.exit_code == 1
     assert "not a LEARN content link" in result.output
+
+
+@pytest.mark.parametrize(
+    "link_args", [["--link", "https://example.com/x"], ["https://example.com/x"]]
+)
+def test_import_command_takes_the_link_either_way(tmp_path: Path, link_args: list[str]) -> None:
+    from app.cli.commands import app
+    from typer.testing import CliRunner
+
+    source = tmp_path / "book.pdf"
+    source.write_bytes(b"%PDF")
+
+    result = CliRunner().invoke(app, ["import-file", str(source), *link_args, "--no-index"])
+
+    # Both forms reach link checking (and fail on this non-LEARN link).
+    assert "not a LEARN content link" in result.output
+
+
+def test_import_command_without_a_link_says_so(tmp_path: Path) -> None:
+    from app.cli.commands import app
+    from typer.testing import CliRunner
+
+    source = tmp_path / "book.pdf"
+    source.write_bytes(b"%PDF")
+
+    result = CliRunner().invoke(app, ["import-file", str(source), "--no-index"])
+
+    assert result.exit_code == 1 and "LEARN page link" in result.output

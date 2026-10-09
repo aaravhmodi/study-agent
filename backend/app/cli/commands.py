@@ -268,22 +268,31 @@ def rag_index() -> None:
 
 
 _IMPORT_PATH = typer.Argument(..., help="The file you downloaded from LEARN.")
+_IMPORT_LINK_ARG = typer.Argument(None, help="The item's LEARN page, if not given with --link.")
 _IMPORT_LINK = typer.Option(
-    ..., "--link", help="The item's LEARN page (.../viewContent/<id>/View)."
+    None, "--link", help="The item's LEARN page (.../viewContent/<id>/View)."
 )
 _IMPORT_INDEX = typer.Option(True, "--index/--no-index", help="Add it to the tutor right away.")
 
 
 @app.command("import-file")
 def import_file_command(
-    path: Path = _IMPORT_PATH, link: str = _IMPORT_LINK, index: bool = _IMPORT_INDEX
+    path: Path = _IMPORT_PATH,
+    link_arg: str | None = _IMPORT_LINK_ARG,
+    link: str | None = _IMPORT_LINK,
+    index: bool = _IMPORT_INDEX,
 ) -> None:
     """Attach a file you downloaded from LEARN (e.g. a textbook too large to sync) to its item."""
     configure_logging()
     ensure_schema()
+    # The link may come as --link or as a second argument (pasted lines often lose "--link").
+    learn_link = link or link_arg
+    if not learn_link:
+        console.print("[red][FAIL][/red] Give the item's LEARN page link after the file.")
+        raise typer.Exit(code=1)
     with SessionLocal() as session:
         try:
-            resource = import_file(session, get_settings(), path, link)
+            resource = import_file(session, get_settings().downloads_dir, path, learn_link)
         except ImportFileError as exc:
             console.print(f"[red][FAIL][/red] {exc}")
             raise typer.Exit(code=1) from exc

@@ -13,7 +13,6 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.config import Settings
 from app.models import Course, Resource
 from app.services.document_collector import safe_name
 from app.services.learn_links import topic_key
@@ -41,7 +40,7 @@ def find_resource(session: Session, link: str) -> tuple[Resource, Course]:
     return resource, course
 
 
-def import_file(session: Session, settings: Settings, source: Path, link: str) -> Resource:
+def import_file(session: Session, downloads_dir: Path, source: Path, link: str) -> Resource:
     """Copy ``source`` into the downloads folder as the file for the LEARN item at ``link``."""
 
     if not source.is_file():
@@ -51,7 +50,7 @@ def import_file(session: Session, settings: Settings, source: Path, link: str) -
     if not content:
         raise ImportFileError("file is empty")
     suffix = source.suffix.lower() or ".bin"
-    target = settings.downloads_dir / f"{resource.id}_{safe_name(resource.title)}{suffix}"
+    target = downloads_dir / f"{resource.id}_{safe_name(resource.title)}{suffix}"
     target.parent.mkdir(parents=True, exist_ok=True)
     if source.resolve() != target.resolve():
         shutil.copyfile(source, target)
