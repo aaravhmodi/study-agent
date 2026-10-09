@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>StudyAgent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<style>
+/* Quiet surfaces, charcoal type, a trace of lavender. */
+:root{--bg:#faf9f7;--ink:#27252c;--ink-2:#605b66;--ink-3:#8b8296;--faint:#b4adb9;--line:#ebe7ee;--line-2:#e4e0e7;--accent:#51415d;--accent-2:#8c7ca9;--wash:#f4f1f8}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Geist,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;-webkit-font-smoothing:antialiased}
+button,select,textarea,input{font:inherit;color:inherit}
+button:not(:disabled){cursor:pointer}
+button:disabled{cursor:not-allowed;opacity:.55}
+:focus-visible{outline:2px solid #8b75ad;outline-offset:4px}
+::selection{background:#e6def1}
+a{color:var(--accent)}
+.hidden{display:none!important}
+
+.ambient{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden}
+.ambient i{position:absolute;width:65vw;height:70vh;border-radius:50%;filter:blur(75px);opacity:.32}
+.ambient i:nth-child(1){background:radial-gradient(ellipse,#ded5ee,transparent 66%);top:-20%;left:-25%;animation:drift-one 38s ease-in-out infinite alternate}
+.ambient i:nth-child(2){background:radial-gradient(ellipse,#e4dfea,transparent 68%);bottom:-25%;right:-25%;animation:drift-two 46s ease-in-out infinite alternate}
+.ambient i:nth-child(3){background:radial-gradient(ellipse,#e8e1d7,transparent 70%);top:28%;left:26%;opacity:.18;animation:drift-one 52s ease-in-out -12s infinite alternate-reverse}
+@keyframes drift-one{to{transform:translate(65vw,28vh) scale(1.2)}}
+@keyframes drift-two{to{transform:translate(-60vw,-45vh) scale(.9)}}
+
+.shell{max-width:1180px;margin:auto;padding:0 5% 80px}
+header{height:92px;display:flex;align-items:center;justify-content:space-between;gap:24px}
+.wordmark{display:flex;align-items:center;gap:9px;font-size:23px;letter-spacing:-1.1px;font-weight:580}
+.brand-symbol{display:inline-grid;place-items:center;width:27px;height:27px;border:1.5px solid #39323f;border-radius:50% 50% 50% 12%;font-size:20px;font-style:italic;line-height:1;padding-bottom:3px}
+.micro-label{margin:0;font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:#827c89;font-weight:500;display:flex;align-items:center;gap:9px}
+.muted{color:var(--faint)}
+.status-dot{display:inline-block;width:5px;height:5px;border-radius:50%;background:#9a89b0;flex-shrink:0}
+.status-dot.pulse{animation:dot-pulse 1.6s ease-in-out infinite}
+@keyframes dot-pulse{50%{transform:scale(1.8);opacity:.45}}
+
+.hero{padding:28px 0 8px}
+.hero h1{margin:22px 0 0;font-size:clamp(38px,4.6vw,62px);line-height:1.04;font-weight:480;letter-spacing:-3px}
+.hero h1 > span{display:block}
+.hero h1 .muted-title{color:var(--ink-3)}
+header .quiet-button{text-decoration:none;font-size:12px}
+.hero p{color:#7b7482;font-size:14.5px;line-height:1.85;max-width:520px;margin:18px 0 0}
+.word-reveal{display:inline-block;animation:word-arrive .65s cubic-bezier(.16,1,.3,1) both}
+@keyframes word-arrive{from{opacity:0;transform:translateY(9px);filter:blur(3px)}to{opacity:1;transform:none;filter:none}}
+@keyframes reveal-in{from{opacity:0;transform:translateY(14px);filter:blur(4px)}to{opacity:1;transform:none;filter:none}}
+
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:34px 0 26px}
+.tile{background:#fff;border:1px solid #ece8ef;border-radius:14px;padding:16px 18px;box-shadow:0 1px 2px #2d283305;transition:border-color .2s,box-shadow .2s,transform .2s;animation:reveal-in .8s cubic-bezier(.16,1,.3,1) var(--d,0s) both}
+.tile:hover{border-color:#ddd5e6;box-shadow:0 8px 24px #2d28330a;transform:translateY(-1px)}
+.tile-label{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--faint);font-weight:600}
+.tile-value{margin-top:8px;font-size:24px;font-weight:560;letter-spacing:-.8px;font-variant-numeric:tabular-nums}
+.tile-value.small{font-size:15px;letter-spacing:-.2px;line-height:1.35}
+
+.panel{background:#ffffffd9;border:1px solid #ebe7ee;border-radius:18px;padding:24px;box-shadow:0 10px 40px #231e2d06;margin-bottom:16px;backdrop-filter:blur(6px)}
+.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:16px}
+.panel h2{margin:8px 0 0;font-size:19px;font-weight:520;letter-spacing:-.5px}
+.panel h3{margin:24px 0 8px;font-size:13px;font-weight:600;letter-spacing:-.1px}
+.columns{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.columns .panel{margin:0}
+.reveal{animation:reveal-in .7s cubic-bezier(.16,1,.3,1) both}
+
+.ask-box{display:grid;gap:12px}
+textarea,select{width:100%;border:1px solid var(--line-2);border-radius:12px;background:#fffffff2;padding:13px 15px;outline:none;transition:border-color .2s,box-shadow .2s}
+textarea{min-height:104px;resize:vertical;line-height:1.6}
+textarea:hover,select:hover{border-color:#d6cfdd}
+textarea:focus,select:focus{border-color:var(--accent-2);box-shadow:0 0 0 4px #8c7ca91a}
+.ask-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.ask-row select{width:auto;min-width:190px;padding:11px 14px}
+.ask-row .hint{margin-left:auto}
+
+.primary-button,.secondary-button,.quiet-button{display:inline-flex;align-items:center;justify-content:center;gap:12px;border-radius:9px;padding:12px 20px;font-size:12.5px;font-weight:520;transition:transform .2s,box-shadow .2s,background .2s,border-color .2s;white-space:nowrap}
+.primary-button{background:#302b36;color:#fff;border:1px solid #302b36;box-shadow:0 3px 0 #ffffff24 inset,0 4px 9px #302b3610}
+.primary-button:hover:not(:disabled){background:#423a4b;transform:translateY(-2px);box-shadow:0 6px 20px #302b3620}
+.secondary-button{background:#ffffffb3;border:1px solid var(--line-2);color:#4f4957}
+.secondary-button:hover:not(:disabled){border-color:#bdb1cb;transform:translateY(-1px)}
+.quiet-button{border:0;background:none;color:var(--ink-2);padding:8px 0}
+.quiet-button:hover{color:#221b2d}
+.arrow{transition:transform .2s}
+.primary-button:hover:not(:disabled) .arrow{transform:translateX(3px)}
+.spinner{width:13px;height:13px;border-radius:50%;border:1.6px solid currentColor;border-right-color:transparent;animation:spin .7s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+button.busy{pointer-events:none;opacity:.8}
+
+/* Narrated progress while the API works; stages advance on a timer because
+   /chat returns a single response, not live progress. */
+.progress{margin-top:22px;padding-top:22px;border-top:1px solid var(--line);animation:reveal-in .5s cubic-bezier(.16,1,.3,1) both}
+.progress-now{margin-top:18px;min-height:74px;max-width:560px}
+.progress-now h3{margin:0;font-size:18px;font-weight:500;letter-spacing:-.4px;animation:word-arrive .6s cubic-bezier(.16,1,.3,1) both}
+.progress-now p{margin:7px 0 0;font-size:13px;line-height:1.8;color:#7b7482;animation:word-arrive .7s .12s cubic-bezier(.16,1,.3,1) both}
+.progress-steps{list-style:none;padding:0;margin:14px 0 0;display:grid;gap:9px}
+.progress-steps li{display:flex;align-items:center;gap:11px;font-size:12px;color:#c2bac9;transition:color .4s}
+.progress-steps li.done{color:#8e819a}
+.progress-steps li.active{color:#2f2a35;font-weight:500}
+.progress-mark{display:grid;place-items:center;width:15px;height:15px;border-radius:50%;border:1px solid #e3dce9;font-size:8px;color:#81708f;flex-shrink:0;transition:all .3s}
+.progress-steps li.done .progress-mark{border-color:#cfc2db}
+.progress-steps li.active .progress-mark{border-color:var(--accent);background:var(--accent);box-shadow:0 0 0 4px #ede8f1;animation:dot-pulse 1.6s ease-in-out infinite}
+.progress-time{margin:18px 0 0;font-size:10.5px;color:#a79aae;letter-spacing:.4px;font-family:"Geist Mono",ui-monospace,monospace}
+
+.skeleton{display:grid;gap:10px;margin-top:20px}
+.skeleton i{display:block;height:11px;border-radius:6px;background:linear-gradient(100deg,#f1edf4 30%,#e5ddee 50%,#f1edf4 70%);background-size:300% 100%;animation:shimmer 1.6s ease-in-out infinite}
+.skeleton i:nth-child(2){width:86%}.skeleton i:nth-child(3){width:64%}.skeleton i:nth-child(4){width:78%}
+@keyframes shimmer{from{background-position:100% 0}to{background-position:0 0}}
+
+.answer-wrap{margin-top:22px;padding-top:22px;border-top:1px solid var(--line)}
+.answer-meta{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.answer{font-size:14.5px;line-height:1.75;color:#34303a;overflow-wrap:anywhere;max-width:820px}
+.answer.plain{white-space:pre-wrap}
+.answer > *{animation:reveal-in .8s cubic-bezier(.16,1,.3,1) var(--d,0s) both}
+.answer h1,.answer h2,.answer h3{color:var(--ink);line-height:1.3;letter-spacing:-.4px;font-weight:540}
+.answer h1{font-size:24px;margin:22px 0 10px;letter-spacing:-.8px}
+.answer h2{font-size:19px;margin:30px 0 10px}
+.answer h3{font-size:15.5px;margin:22px 0 8px}
+.answer p{margin:11px 0}
+.answer strong{color:var(--ink);font-weight:620}
+.answer ul,.answer ol{padding-left:22px}
+.answer li{margin:6px 0}
+.answer li::marker{color:var(--accent-2)}
+.answer blockquote{margin:16px 0;padding:12px 18px;border-left:3px solid #cfc2db;background:var(--wash);border-radius:0 10px 10px 0;color:var(--ink)}
+.answer blockquote p{margin:4px 0}
+.answer table{width:100%;border-collapse:separate;border-spacing:0;margin:16px 0;font-size:13.5px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.answer th{background:#f7f5f9;color:var(--ink-2);font-weight:600;font-size:12px;text-align:left}
+.answer th,.answer td{padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+.answer tr:last-child td{border-bottom:0}
+.answer code{background:#f2eff5;border-radius:5px;padding:1px 6px;font-family:"Geist Mono",ui-monospace,monospace;font-size:.88em}
+.answer pre{background:#f6f4f8;border:1px solid var(--line);border-radius:12px;padding:14px;overflow-x:auto}
+.answer pre code{background:none;padding:0}
+.answer hr{border:0;border-top:1px solid var(--line);margin:24px 0}
+.answer .katex{font-size:1.06em}
+.answer .katex-display{overflow-x:auto;overflow-y:hidden;padding:10px 0;margin:14px 0}
+.sources{display:flex;flex-wrap:wrap;gap:7px;margin-top:22px;padding-top:16px;border-top:1px solid var(--line)}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line-2);background:#fff;border-radius:99px;padding:5px 11px;font-size:11.5px;color:var(--ink-2);animation:reveal-in .6s cubic-bezier(.16,1,.3,1) var(--d,0s) both}
+.chip::before{content:"";width:5px;height:5px;border-radius:50%;background:#c7bedb}
+.notice{margin-top:18px;padding:13px 16px;border-radius:12px;background:#fbefec;color:#8f3a28;font-size:13px;line-height:1.6}
+
+.row{display:flex;justify-content:space-between;align-items:center;gap:16px;width:calc(100% + 20px);padding:13px 10px;margin:0 -10px;border:0;border-top:1px solid var(--line);background:none;text-align:left;border-radius:10px;transition:background .2s}
+.row:first-child{border-top-color:transparent}
+button.row:hover{background:#f7f4fa}
+button.row:hover + .row{border-top-color:transparent}
+button.row.busy{background:#f3eff7}
+.row b{font-weight:560}
+.row .sub{display:block;color:var(--ink-3);font-size:12.5px;margin-top:3px}
+.row .side{color:var(--ink-3);font-size:12px;text-align:right;line-height:1.6;display:flex;align-items:center;gap:10px}
+.empty{color:var(--ink-3);padding:10px 0;font-size:13px}
+
+.pill{display:inline-block;border-radius:99px;padding:3px 9px;font-size:11px;font-weight:550;letter-spacing:.2px;background:#f1edf6;color:#5e4b72;white-space:nowrap}
+.pill.overdue{background:#fbeeea;color:#a3412c}
+.pill.completed{background:#edf4ef;color:#3f6b4c}
+.pill.unknown{background:#f3f2f4;color:#77717d}
+
+.table{width:100%;border-collapse:collapse;font-size:13.5px}
+.table th{text-align:left;color:var(--faint);font-size:10px;letter-spacing:1.2px;text-transform:uppercase;font-weight:600;padding:0 10px 10px}
+.table td{padding:12px 10px;border-top:1px solid var(--line)}
+.table tbody tr{transition:background .2s;cursor:pointer}
+.table tbody tr:hover{background:#f7f4fa}
+.table tbody tr.busy{background:#f3eff7}
+.link-button{border:0;background:none;padding:0;text-align:left;font-weight:560}
+
+.detail .resource{padding:11px 0;border-top:1px solid var(--line)}
+.detail .resource:first-child{border-top:0}
+.detail .resource .sub{color:var(--ink-3);font-size:12.5px;margin-top:3px;line-height:1.6}
+.detail ul{padding-left:20px;line-height:1.7}
+.detail li{margin:6px 0}
+.detail li::marker{color:var(--accent-2)}
+.detail .stat{margin:10px 0 0;color:var(--ink-2)}
+.detail .actions{display:flex;gap:10px;flex-wrap:wrap}
+
+.toast{position:fixed;left:50%;bottom:28px;transform:translate(-50%,20px);opacity:0;pointer-events:none;background:#302b36;color:#fff;border-radius:12px;padding:12px 18px;font-size:13px;box-shadow:0 12px 32px #231e2d2e;display:flex;align-items:center;gap:10px;transition:opacity .3s,transform .4s cubic-bezier(.16,1,.3,1);z-index:10;max-width:min(560px,calc(100vw - 32px))}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.toast.error{background:#8f3a28}
+
+@media (max-width:860px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.columns{grid-template-columns:1fr}.ask-row .hint{display:none}.table .hide-sm{display:none}}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+</style>
+</head>
+<body>
+<div class="ambient" aria-hidden="true"><i></i><i></i><i></i></div>
+<div class="shell">
+  <header>
+    <div class="wordmark"><span class="brand-symbol">s</span>StudyAgent</div>
+    <a class="quiet-button" href="/docs">API docs</a>
+  </header>
+
+  <section class="hero">
+    <p class="micro-label" id="hero-label"><span class="status-dot pulse"></span>Loading your courses</p>
+    <h1 aria-label="Your courses, at a glance.">
+      <span aria-hidden="true"><span class="word-reveal">Your&nbsp;</span><span class="word-reveal" style="animation-delay:80ms">courses,</span></span>
+      <span class="muted-title" aria-hidden="true"><span class="word-reveal" style="animation-delay:160ms">at&nbsp;</span><span class="word-reveal" style="animation-delay:240ms">a&nbsp;</span><span class="word-reveal" style="animation-delay:320ms">glance.</span></span>
+    </h1>
+    <p>Ask questions grounded in the files collected from LEARN, open a course or assessment for what to study, and track what you have finished.</p>
+  </section>
+
+  <div class="tiles" id="summary">
+    <div class="tile"><div class="tile-label">Courses</div><div class="skeleton"><i></i></div></div>
+    <div class="tile"><div class="tile-label">Assessments</div><div class="skeleton"><i></i></div></div>
+    <div class="tile"><div class="tile-label">Resources</div><div class="skeleton"><i></i></div></div>
+    <div class="tile"><div class="tile-label">Last sync</div><div class="skeleton"><i></i></div></div>
+  </div>
+
+  <section class="panel">
+    <div class="panel-head"><div><p class="micro-label">Ask your course materials</p><h2>What do you want to understand?</h2></div></div>
+    <div class="ask-box">
+      <textarea id="chat-question" placeholder="Example: Get me up to speed for SYDE 252 tomorrow."></textarea>
+      <div class="ask-row">
+        <select id="chat-course" aria-label="Course"><option value="">All courses</option></select>
+        <button class="primary-button" id="chat-ask"><span data-label>Ask StudyAgent</span><span class="arrow" aria-hidden="true">→</span></button>
+        <span class="micro-label hint">Ctrl + Enter to ask</span>
+      </div>
+    </div>
+    <div id="chat-answer"></div>
+  </section>
+
+  <section id="detail" class="panel detail hidden" aria-live="polite"><div id="detail-content"></div></section>
+
+  <div class="columns">
+    <section class="panel"><div class="panel-head"><div><p class="micro-label">Courses</p><h2>Open a course</h2></div></div><div id="courses"><div class="skeleton"><i></i><i></i><i></i></div></div></section>
+    <section class="panel"><div class="panel-head"><div><p class="micro-label">Since last sync</p><h2>Recent changes</h2></div></div><div id="changes"><div class="skeleton"><i></i><i></i><i></i></div></div></section>
+  </div>
+
+  <section class="panel" style="margin-top:16px"><div class="panel-head"><div><p class="micro-label">Assessments</p><h2>Click one for study guidance</h2></div></div><div id="assessments"><div class="skeleton"><i></i><i></i><i></i><i></i></div></div></section>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const $ = selector => document.querySelector(selector);
+const pad = n => String(n).padStart(2, '0');
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const date = value => value ? new Date(value).toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}) : 'No date';
+const statusPill = status => `<span class="pill ${({OVERDUE:'overdue', COMPLETED:'completed', UNKNOWN:'unknown'})[status] || ''}">${esc(String(status || '').toLowerCase())}</span>`;
+const resourceLink = r => r.url ? `<a target="_blank" rel="noreferrer" href="${esc(r.url)}">${esc(r.title)}</a>` : esc(r.title);
+const skeleton = lines => `<div class="skeleton">${'<i></i>'.repeat(lines)}</div>`;
+
+async function getJson(path, options) {
+  const response = await fetch(path, options);
+  if (!response.ok) {
+    let message = await response.text();
+    try { message = JSON.parse(message).detail || message } catch (_) {}
+    throw new Error(message);
+  }
+  return response.json();
+}
+
+let toastTimer;
+function toast(message, kind = '') {
+  const el = $('#toast');
+  el.className = `toast show ${kind}`;
+  el.textContent = message;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = 'toast' }, kind === 'error' ? 6000 : 2600);
+}
+
+// Show work in progress on the button that started it.
+function setBusy(button, label) {
+  if (!button) return () => {};
+  const original = button.innerHTML;
+  button.disabled = true;
+  button.classList.add('busy');
+  if (label) button.innerHTML = `<span class="spinner" aria-hidden="true"></span><span>${esc(label)}</span>`;
+  return () => { button.disabled = false; button.classList.remove('busy'); button.innerHTML = original };
+}
+
+// Math is rendered by KaTeX before Markdown parsing so Markdown cannot eat
+// LaTeX backslashes/underscores; placeholders are swapped back after
+// DOMPurify sanitizes the Markdown HTML.
+function renderAnswer(text) {
+  if (!window.marked || !window.DOMPurify || !window.katex) return `<div class="answer plain">${esc(text)}</div>`;
+  const math = [];
+  const keep = (tex, display) => { math.push(katex.renderToString(tex.trim(), {displayMode: display, throwOnError: false})); return `%%MATH${math.length - 1}%%` };
+  const source = String(text)
+    .replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) => keep(tex, true))
+    .replace(/\\\[([\s\S]+?)\\\]/g, (_, tex) => keep(tex, true))
+    .replace(/\\\(([\s\S]+?)\\\)/g, (_, tex) => keep(tex, false))
+    .replace(/(^|[^\\$\w])\$(?!\s)([^$\n]+?)(?<!\s)\$(?![\w$])/g, (_, before, tex) => before + keep(tex, false));
+  const html = DOMPurify.sanitize(marked.parse(source, {gfm: true}));
+  return `<div class="answer">${html.replace(/%%MATH(\d+)%%/g, (_, index) => math[Number(index)])}</div>`;
+}
+
+// Narrates the real /chat pipeline in order. The stages advance on a timer:
+// the API returns one response, not live progress.
+function askStages(course) {
+  const scope = course ? `${course} materials` : 'every synced course';
+  return [
+    {at: 0, title: 'Reading your question', how: `Working out what you are asking and scoping the search to ${scope}.`},
+    {at: 2500, title: 'Searching your course files', how: 'Running a semantic search over the lecture notes, homework solutions and outlines indexed from LEARN.'},
+    {at: 7000, title: 'Pulling the relevant passages', how: 'Collecting the definitions, formulas and worked examples that match your question.'},
+    {at: 13000, title: 'Writing your explanation', how: 'Connecting the ideas into a teachable answer and citing the file each claim comes from.'},
+    {at: Infinity, title: 'Formatting equations', how: 'Typesetting the math and laying out the answer.'},
+  ];
+}
+
+function startProgress(container, stages, {verb, lingerMs, linger}) {
+  container.innerHTML = `<div class="progress" role="status" aria-live="polite">
+    <p class="micro-label"><span class="status-dot pulse"></span><span data-label></span></p>
+    <div class="progress-now" data-now></div>
+    <ol class="progress-steps" aria-hidden="true">${stages.map(s => `<li><span class="progress-mark"></span>${esc(s.title)}</li>`).join('')}</ol>
+    ${skeleton(4)}
+    <p class="progress-time" data-time></p>
+  </div>`;
+  const label = container.querySelector('[data-label]');
+  const now = container.querySelector('[data-now]');
+  const time = container.querySelector('[data-time]');
+  const items = [...container.querySelectorAll('.progress-steps li')];
+  const started = Date.now();
+  let shown = -1;
+  const show = current => {
+    if (current === shown) return;
+    shown = current;
+    now.innerHTML = `<h3>${esc(stages[current].title)}</h3><p>${esc(stages[current].how)}</p>`;
+    items.forEach((li, i) => {
+      li.className = i < current ? 'done' : i === current ? 'active' : '';
+      li.firstChild.textContent = i < current ? '✓' : '';
+    });
+    label.innerHTML = `${esc(verb)} · ${pad(current + 1)}<span class="muted">&nbsp;/ ${pad(stages.length)}</span>`;
+  };
+  const tick = () => {
+    const elapsed = Date.now() - started;
+    show(stages.reduce((found, stage, i) => elapsed >= stage.at ? i : found, 0));
+    time.textContent = `${Math.floor(elapsed / 1000)}s${elapsed > lingerMs ? ` · ${linger}` : ''}`;
+  };
+  tick();
+  const timer = setInterval(tick, 250);
+  return {
+    elapsed: () => Date.now() - started,
+    async finish() { clearInterval(timer); show(stages.length - 1); await sleep(450) },
+    stop() { clearInterval(timer) },
+  };
+}
+
+async function askChat() {
+  const button = $('#chat-ask');
+  const output = $('#chat-answer');
+  const question = $('#chat-question').value.trim();
+  if (!question) { $('#chat-question').focus(); toast('Type a question first.'); return }
+  const course = $('#chat-course').value || null;
+  const done = setBusy(button, 'Thinking…');
+  const progress = startProgress(output, askStages(course), {
+    verb: 'Thinking', lingerMs: 45000, linger: 'Still writing. Detailed answers with worked examples can take a minute or two.',
+  });
+  output.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+  try {
+    const result = await getJson('/chat', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question, course_code: course})});
+    await progress.finish();
+    const seconds = Math.round(progress.elapsed() / 1000);
+    const sources = result.citations || [];
+    output.innerHTML = `<div class="answer-wrap">
+      <div class="answer-meta"><p class="micro-label"><span class="status-dot"></span>Answer${course ? ` · ${esc(course)}` : ''}</p><p class="micro-label muted">${seconds}s · ${sources.length} source${sources.length === 1 ? '' : 's'}</p></div>
+      ${renderAnswer(result.answer)}
+      ${sources.length ? `<div class="sources">${sources.map((c, i) => `<span class="chip" style="--d:${0.3 + i * 0.05}s">${esc(c.filename)}</span>`).join('')}</div>` : ''}
+    </div>`;
+    output.querySelectorAll('.answer > *').forEach((el, i) => el.style.setProperty('--d', `${Math.min(i, 24) * 60}ms`));
+  } catch (error) {
+    progress.stop();
+    output.innerHTML = `<div class="notice reveal">${esc(error.message || error)}</div>`;
+  } finally {
+    done();
+  }
+}
+
+function showDetail(html) {
+  const detail = $('#detail');
+  $('#detail-content').innerHTML = html;
+  detail.classList.remove('hidden');
+}
+function closeDetail() { $('#detail').classList.add('hidden') }
+function openingDetail(what) {
+  showDetail(`<p class="micro-label"><span class="status-dot pulse"></span>Opening ${esc(what)}</p>${skeleton(5)}`);
+  $('#detail').scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+async function withRowBusy(row, work) {
+  row?.classList.add('busy');
+  try { await work() } finally { row?.classList.remove('busy') }
+}
+
+async function openCourse(id, name, row) {
+  openingDetail(name || 'course');
+  await withRowBusy(row, async () => {
+    const c = await getJson(`/courses/${encodeURIComponent(id)}`);
+    showDetail(`<div class="reveal">
+      <div class="panel-head"><div><p class="micro-label">${esc(c.term || 'Course')}</p><h2>${esc(c.code || c.name)}</h2><p class="stat">${esc(c.name)}</p></div><button class="secondary-button" data-close>Close</button></div>
+      <p class="stat"><b>${c.completed_assessments}</b> of <b>${c.assessments.length}</b> assessments completed · <b>${c.resources.length}</b> collected resources</p>
+      <h3>Assessments</h3><div>${c.assessments.length ? c.assessments.map(a => `<button class="row" data-assessment="${esc(a.id)}" data-name="${esc(a.title)}"><span><b>${esc(a.title)}</b><span class="sub">${esc(a.type)} · ${esc(date(a.due_at))}</span></span><span class="side">${statusPill(a.status)}</span></button>`).join('') : '<div class="empty">No assessments found.</div>'}</div>
+      <h3>Coursework you have</h3><div>${c.resources.length ? c.resources.map(r => `<div class="resource"><b>${resourceLink(r)}</b> <span class="muted">${esc(r.type)}</span>${r.description ? `<div class="sub">${esc(r.description)}</div>` : ''}</div>`).join('') : '<div class="empty">No resources found.</div>'}</div>
+      <h3>Announcements</h3><div>${c.announcements.length ? c.announcements.slice(0, 10).map(a => `<div class="resource"><b>${esc(a.title)}</b><div class="sub">${esc(a.body || '')}</div></div>`).join('') : '<div class="empty">No announcements stored.</div>'}</div>
+    </div>`);
+  });
+}
+
+async function openAssessment(id, name, row) {
+  openingDetail(name || 'assessment');
+  await withRowBusy(row, async () => {
+    const a = await getJson(`/assessments/${encodeURIComponent(id)}`);
+    const action = a.status === 'COMPLETED'
+      ? `<button class="secondary-button" data-reopen="${esc(a.id)}">Mark not completed</button>`
+      : `<button class="primary-button" data-complete="${esc(a.id)}">Mark completed</button>`;
+    showDetail(`<div class="reveal">
+      <div class="panel-head"><div><p class="micro-label">${esc(a.course)} · ${esc(a.type)}</p><h2>${esc(a.title)}</h2><p class="stat">Due ${esc(date(a.due_at))} · ${statusPill(a.status)}${a.weight_percent == null ? '' : ` · ${esc(a.weight_percent)}% of grade`}</p></div><div class="actions">${action}<button class="secondary-button" data-close>Close</button></div></div>
+      ${a.description ? `<p class="stat">${esc(a.description)}</p>` : ''}
+      <h3>Relevant coursework</h3><div>${a.coursework.length ? a.coursework.map(r => `<div class="resource"><b>${resourceLink(r)}</b> <span class="muted">${esc(r.type)}</span><div class="sub">${esc(r.match_reason)}</div>${r.description ? `<div class="sub">${esc(r.description)}</div>` : ''}</div>`).join('') : '<div class="empty">No matching course resources yet. Run sync after the instructor posts material.</div>'}</div>
+      <h3>How to study for it</h3><ul>${a.study_guidance.map(step => `<li>${esc(step)}</li>`).join('')}</ul>
+    </div>`);
+  });
+}
+
+async function changeStatus(id, action, button) {
+  const done = setBusy(button, 'Saving…');
+  try {
+    await getJson(`/assessments/${encodeURIComponent(id)}/${action}`, {method: 'POST'});
+    await load();
+    await openAssessment(id);
+    toast(action === 'complete' ? '✓  Marked completed' : 'Marked not completed');
+  } catch (error) {
+    done();
+    toast(`Could not save this change: ${error.message || error}`, 'error');
+  }
+}
+
+async function load() {
+  const data = await getJson('/api/dashboard');
+  const sync = data.last_sync;
+  const tiles = [['Courses', data.courses.length], ['Assessments', sync?.assessments_found ?? 0], ['Resources', sync?.resources_found ?? 0], ['Last sync', sync?.finished_at ? date(sync.finished_at) : 'Never']];
+  $('#summary').innerHTML = tiles.map(([label, value], i) => `<div class="tile" style="--d:${i * 70}ms"><div class="tile-label">${esc(label)}</div><div class="tile-value ${label === 'Last sync' ? 'small' : ''}">${esc(value)}</div></div>`).join('');
+  $('#hero-label').innerHTML = `<span class="status-dot"></span>${data.courses.length} active courses${sync?.finished_at ? ` · synced ${esc(date(sync.finished_at))}` : ' · not synced yet'}`;
+
+  const select = $('#chat-course');
+  const chosen = select.value;
+  select.innerHTML = '<option value="">All courses</option>' + data.courses.filter(c => c.code).map(c => `<option value="${esc(c.code)}">${esc(c.code)}</option>`).join('');
+  select.value = chosen;
+
+  $('#courses').innerHTML = data.courses.length ? data.courses.map(c => `<button class="row" data-course="${esc(c.id)}" data-name="${esc(c.code || c.name)}"><span><b>${esc(c.code || c.name)}</b><span class="sub">${esc(c.name)}</span></span><span class="side"><span>${c.completed_assessment_count}/${c.assessment_count} done<br>${c.resource_count} files</span><span class="arrow">→</span></span></button>`).join('') : '<div class="empty">Run sync to discover courses.</div>';
+  $('#changes').innerHTML = data.changes.length ? data.changes.map(c => `<div class="row"><span><b>${esc(c.type)}</b><span class="sub">${esc(c.description)}</span></span><span class="side">${esc(date(c.detected_at))}</span></div>`).join('') : '<div class="empty">No stored change events yet.</div>';
+  $('#assessments').innerHTML = data.assessments.length ? `<table class="table"><thead><tr><th>Course</th><th>Assessment</th><th class="hide-sm">Type</th><th>Due</th><th>Status</th></tr></thead><tbody>${data.assessments.map(a => `<tr data-assessment="${esc(a.id)}" data-name="${esc(a.title)}"><td>${esc(a.course)}</td><td><button class="link-button">${esc(a.title)}</button></td><td class="hide-sm">${esc(a.type)}</td><td>${esc(date(a.due_at))}</td><td>${statusPill(a.status)}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">No assessments stored yet.</div>';
+}
+
+const fail = error => toast(error.message || String(error), 'error');
+$('#chat-ask').addEventListener('click', askChat);
+$('#chat-question').addEventListener('keydown', event => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') askChat() });
+$('#courses').addEventListener('click', event => {
+  const row = event.target.closest('[data-course]');
+  if (row) openCourse(row.dataset.course, row.dataset.name, row).catch(fail);
+});
+$('#assessments').addEventListener('click', event => {
+  const row = event.target.closest('[data-assessment]');
+  if (row) openAssessment(row.dataset.assessment, row.dataset.name, row).catch(fail);
+});
+$('#detail').addEventListener('click', event => {
+  const target = event.target.closest('button');
+  if (!target) return;
+  if (target.hasAttribute('data-close')) { closeDetail(); return }
+  if (target.dataset.assessment) { openAssessment(target.dataset.assessment, target.dataset.name, target).catch(fail); return }
+  if (target.dataset.complete) { changeStatus(target.dataset.complete, 'complete', target); return }
+  if (target.dataset.reopen) { changeStatus(target.dataset.reopen, 'reopen', target) }
+});
+load().catch(error => {
+  $('#hero-label').innerHTML = '<span class="status-dot"></span>Could not load your courses';
+  fail(error);
+});
+</script>
+</body>
+</html>
