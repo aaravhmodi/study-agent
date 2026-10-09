@@ -202,8 +202,6 @@ aside .section-head h2{font-size:19px}
 <script>
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const $ = selector => document.querySelector(selector);
-const pad = n => String(n).padStart(2, '0');
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const date = value => value ? new Date(value).toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}) : 'No date';
 const DAY = 86400000;
 // "in 3 days", "tomorrow", "2 days ago": how far away a due date is reads faster than the date.
@@ -282,56 +280,22 @@ function renderAnswer(text) {
   return `<div class="answer">${html.replace(/%%MATH(\d+)%%/g, (_, index) => math[Number(index)])}</div>`;
 }
 
-// Narrates the real /chat pipeline in order. The stages advance on a timer:
-// the API returns one response, not live progress.
-function askStages(course) {
-  const scope = course ? `${course} materials` : 'every synced course';
-  return [
-    {at: 0, title: 'Reading your question', how: `Working out what you are asking and scoping the search to ${scope}.`},
-    {at: 2500, title: 'Searching your course files', how: 'Running a semantic search over the lecture notes, homework solutions and outlines indexed from LEARN.'},
-    {at: 7000, title: 'Pulling the relevant passages', how: 'Collecting the definitions, formulas and worked examples that match your question.'},
-    {at: 10000, title: 'Checking online sources', how: 'Looking up extra context the course files leave out; online facts are marked (online) and linked.'},
-    {at: 15000, title: 'Writing your explanation', how: 'Teaching it concept by concept, citing each file, and adding self-test questions.'},
-    {at: Infinity, title: 'Formatting equations', how: 'Typesetting the math and laying out the answer.'},
-  ];
-}
-
-function startProgress(container, stages, {verb, lingerMs, linger}) {
-  container.innerHTML = `<div class="progress" role="status" aria-live="polite">
-    <p class="micro-label"><span class="status-dot pulse"></span><span data-label></span></p>
-    <div class="progress-now" data-now></div>
-    <ol class="progress-steps" aria-hidden="true">${stages.map(s => `<li><span class="progress-mark"></span>${esc(s.title)}</li>`).join('')}</ol>
-    ${loading("Working")}
-    <p class="progress-time" data-time></p>
-  </div>`;
-  const label = container.querySelector('[data-label]');
-  const now = container.querySelector('[data-now]');
+// /chat returns one response with no progress events, so show only what is
+// true: what is being searched and how long it has taken.
+function startWaiting(container, course) {
+  const scope = course ? `${course} files` : 'files from every course';
+  container.innerHTML = `<p class="waiting" role="status">Searching ${esc(scope)} and the web, then writing <span data-time>0 s</span><span class="slow hidden" data-slow>Long answers with worked examples can take a minute or two.</span></p>`;
   const time = container.querySelector('[data-time]');
-  const items = [...container.querySelectorAll('.progress-steps li')];
+  const slow = container.querySelector('[data-slow]');
   const started = Date.now();
-  let shown = -1;
-  const show = current => {
-    if (current === shown) return;
-    shown = current;
-    now.innerHTML = `<h3>${esc(stages[current].title)}</h3><p>${esc(stages[current].how)}</p>`;
-    items.forEach((li, i) => {
-      li.className = i < current ? 'done' : i === current ? 'active' : '';
-      li.firstChild.textContent = i < current ? '✓' : '';
-    });
-    label.innerHTML = `${esc(verb)} · ${pad(current + 1)}<span class="muted">&nbsp;/ ${pad(stages.length)}</span>`;
-  };
   const tick = () => {
-    const elapsed = Date.now() - started;
-    show(stages.reduce((found, stage, i) => elapsed >= stage.at ? i : found, 0));
-    time.textContent = `${Math.floor(elapsed / 1000)}s${elapsed > lingerMs ? ` · ${linger}` : ''}`;
+    const seconds = Math.floor((Date.now() - started) / 1000);
+    time.textContent = `· ${seconds} s`;
+    slow.classList.toggle('hidden', seconds < 30);
   };
   tick();
-  const timer = setInterval(tick, 250);
-  return {
-    elapsed: () => Date.now() - started,
-    async finish() { clearInterval(timer); show(stages.length - 1); await sleep(450) },
-    stop() { clearInterval(timer) },
-  };
+  const timer = setInterval(tick, 1000);
+  return {elapsed: () => Date.now() - started, stop: () => clearInterval(timer)};
 }
 
 async function askChat() {
@@ -340,14 +304,12 @@ async function askChat() {
   const question = $('#chat-question').value.trim();
   if (!question) { $('#chat-question').focus(); toast('Type a question first.'); return }
   const course = $('#chat-course').value || null;
-  const done = setBusy(button, 'Thinking…');
-  const progress = startProgress(output, askStages(course), {
-    verb: 'Thinking', lingerMs: 45000, linger: 'Still writing. Detailed answers with worked examples can take a minute or two.',
-  });
+  const done = setBusy(button, 'Asking');
+  const progress = startWaiting(output, course);
   output.scrollIntoView({behavior: 'smooth', block: 'nearest'});
   try {
     const result = await getJson('/chat', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question, course_code: course})});
-    await progress.finish();
+    progress.stop();
     const seconds = Math.round(progress.elapsed() / 1000);
     const sources = result.citations || [];
     output.innerHTML = `<div class="answer-wrap">
