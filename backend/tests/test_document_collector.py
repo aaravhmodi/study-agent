@@ -78,3 +78,33 @@ async def test_resave_removes_previously_mislabelled_file(tmp_path: Path) -> Non
     assert not stale.exists()
     assert resource.local_path is not None
     assert Path(resource.local_path).suffix == ".pdf"
+
+
+class SkippingBrowser:
+    """LEARN item over the browser transfer limit."""
+
+    async def download_resource(self, url: str) -> BrowserDownloadedResource:
+        return BrowserDownloadedResource(
+            url=url,
+            filename="textbook.pdf",
+            content_type="application/pdf",
+            content_base64="",
+            skipped=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_too_large_item_keeps_a_hand_imported_copy(tmp_path: Path) -> None:
+    session, course, resource = _session_with_document(None)
+    imported = tmp_path / "textbook.pdf"
+    imported.write_bytes(_PDF_BYTES)
+    resource.local_path, resource.content_hash = str(imported), "hash"
+    collector = DocumentCollector(Settings(openai_api_key=None), cast(Any, SkippingBrowser()))
+
+    await collector.collect(session, course)
+
+    assert (resource.local_path, resource.content_hash) == (str(imported), "hash")
+
+    imported.unlink()
+    await collector.collect(session, course)
+    assert (resource.local_path, resource.content_hash) == (None, None)

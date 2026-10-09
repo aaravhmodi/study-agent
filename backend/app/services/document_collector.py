@@ -58,8 +58,10 @@ class DocumentCollector:
                     downloaded = await self.browser.download_resource(resource.url)
                     if downloaded.skipped:
                         resource.processed = True
-                        resource.local_path = None
-                        resource.content_hash = None
+                        # Keep a copy the student imported by hand (too large to fetch).
+                        if not (resource.local_path and Path(resource.local_path).is_file()):
+                            resource.local_path = None
+                            resource.content_hash = None
                         continue
                     downloaded_content = base64.b64decode(downloaded.content_base64, validate=True)
                     content = downloaded_content
@@ -87,7 +89,7 @@ class DocumentCollector:
                     if saved_as_text
                     else _suffix(filename, content_type, resource.resource_type)
                 )
-                path = self.download_dir / f"{resource.id}_{_safe_name(resource.title)}{suffix}"
+                path = self.download_dir / f"{resource.id}_{safe_name(resource.title)}{suffix}"
                 path.parent.mkdir(parents=True, exist_ok=True)
                 _remove_previous_file(resource.local_path, path)
                 path.write_bytes(content)
@@ -164,7 +166,7 @@ def _remove_previous_file(previous: str | None, current: Path) -> None:
         previous_path.unlink(missing_ok=True)
 
 
-def _safe_name(title: str) -> str:
+def safe_name(title: str) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "-", title).strip("-.")
     return (cleaned or "course-resource")[:100]
 
