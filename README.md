@@ -51,7 +51,7 @@ Mock mode syncs a made-up copy of the six Fall 2026 courses: dated assignments a
 ```powershell
 $env:BROWSER_MODE = "mock"
 uv run study-agent sync
-uv run uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
+uv run study-agent dashboard
 ```
 
 Demo data goes to `data/demo.db` and `data/demo-downloads/`, never to your real `data/study_agent.db`, even if `.env` names that database. Remove the variable (`Remove-Item Env:BROWSER_MODE`) to go back to your real courses.
@@ -99,10 +99,10 @@ It performs one full sync immediately and repeats every hour. Leave that window 
 Start the local read-only dashboard from the repository root:
 
 ```powershell
-uv run uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
+uv run study-agent dashboard
 ```
 
-Open <http://127.0.0.1:8000/dashboard>. Click a course to see its assessments, collected coursework, announcements, and locally marked completion count. Click an assessment to see ranked relevant coursework and study instructions tailored to quizzes/tests versus assignments/labs/projects. The assessment panel lets you mark work completed or reopen it; this is stored locally and survives future syncs. The JSON API is available at `/api/dashboard`, `/courses/{id}`, `/assessments/{id}`, `/resources`, and `/changes`.
+It opens <http://127.0.0.1:8000/dashboard> in your browser; press `Ctrl+C` to stop it. Use `--port 8001` if 8000 is taken, or `--no-open` to skip opening the browser. Click a course to see its assessments, collected coursework, announcements, and locally marked completion count. Click an assessment to see ranked relevant coursework and study instructions tailored to quizzes/tests versus assignments/labs/projects. The assessment panel lets you mark work completed or reopen it; this is stored locally and survives future syncs. The JSON API is available at `/api/dashboard`, `/courses/{id}`, `/assessments/{id}`, `/resources`, and `/changes`.
 
 Completion is deliberately explicit: StudyAgent does not claim that an assessment is complete just because you opened a page or viewed a file. Resources are shown as collected coursework; actual assessment completion is marked by you from the dashboard.
 

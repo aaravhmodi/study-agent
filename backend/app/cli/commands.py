@@ -200,6 +200,28 @@ def resources() -> None:
 
 
 @app.command()
+def dashboard(
+    port: int = typer.Option(8000, help="Port to serve the dashboard on."),
+    open_browser: bool = typer.Option(True, "--open/--no-open", help="Open it in your browser."),
+) -> None:
+    """Serve the local dashboard at http://127.0.0.1:<port>/dashboard."""
+    import threading
+    import webbrowser
+
+    import uvicorn
+
+    from app.main import app as web_app
+
+    configure_logging()
+    ensure_schema()
+    url = f"http://127.0.0.1:{port}/dashboard"
+    console.print(f"[green][OK][/green] Dashboard at {url} (Ctrl+C to stop)")
+    if open_browser:
+        threading.Timer(1.5, webbrowser.open, args=(url,)).start()
+    uvicorn.run(web_app, host="127.0.0.1", port=port, log_level="warning")
+
+
+@app.command()
 def submissions() -> None:
     """Show read-only submission and Dropbox notes found in Content pages."""
     table = Table("Course", "Resource", "Submission notes")
