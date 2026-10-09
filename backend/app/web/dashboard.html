@@ -255,7 +255,7 @@ const ago = value => {
 const statusPill = (status, due) => {
   const soon = status !== 'COMPLETED' && status !== 'OVERDUE' && due && new Date(due) - Date.now() < 3 * DAY;
   const kind = ({OVERDUE: 'overdue', COMPLETED: 'completed'})[status] || (soon ? 'soon' : '');
-  const text = ({OVERDUE: 'overdue', COMPLETED: 'done', UNKNOWN: 'no date'})[status] || (soon ? 'due soon' : 'upcoming');
+  const text = ({OVERDUE: 'overdue', COMPLETED: 'completed', UNKNOWN: 'no date'})[status] || (soon ? 'due soon' : 'upcoming');
   return `<span class="state ${kind}">${text}</span>`;
 };
 const resourceLink = r => r.url ? `<a target="_blank" rel="noreferrer" href="${esc(r.url)}">${esc(r.title)}</a>` : esc(r.title);
@@ -689,9 +689,6 @@ async function openAssessment(id, name, row) {
   });
 }
 
-// Open work first by due date; finished work sinks to the bottom.
-const comingUp = assessments => [...assessments].sort((a, b) => (a.status === 'COMPLETED') - (b.status === 'COMPLETED'));
-
 async function markFromList(id, complete, button) {
   const done = setBusy(button, 'Saving');
   try {
@@ -734,7 +731,7 @@ async function load() {
   const courses = [...data.courses].sort((a, b) => (a.code || a.name).localeCompare(b.code || b.name, undefined, {numeric: true}));
   $('#courses').innerHTML = courses.length ? courses.map(c => `<button class="row" data-course="${esc(c.id)}" data-name="${esc(c.code || c.name)}"><span><b>${esc(c.code || c.name)}</b><span class="sub">${esc(c.name)}</span></span><span class="side">${c.completed_assessment_count}/${c.assessment_count} done</span></button>`).join('') : '<div class="empty">Run sync to discover courses.</div>';
   $('#changes').innerHTML = data.changes.length ? data.changes.map(c => `<div class="row"><span class="sub">${esc(c.description)}</span><span class="side">${esc(ago(c.detected_at))}</span></div>`).join('') : '<div class="empty">No stored change events yet.</div>';
-  $('#assessments').innerHTML = data.assessments.length ? `<table class="table"><thead><tr><th>Due</th><th>Assessment</th><th class="hide-sm">Course</th><th>Status</th></tr></thead><tbody>${comingUp(data.assessments).map(a => `<tr class="${a.status === 'COMPLETED' ? 'done' : ''}" data-assessment="${esc(a.id)}" data-name="${esc(a.title)}"><td class="due" title="${esc(date(a.due_at))}">${esc(until(a.due_at))}</td><td><button class="link-button">${esc(a.title)}</button><span class="sub hide-lg"> · ${esc(a.course)}</span></td><td class="hide-sm">${esc(a.course)}</td><td class="status-cell">${statusPill(a.status, a.due_at)}${a.status === 'COMPLETED' ? `<button type="button" class="row-action" data-row-reopen="${esc(a.id)}" title="Mark not completed">Undo</button>` : `<button type="button" class="row-action" data-row-complete="${esc(a.id)}" title="Mark completed">Mark done</button>`}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">No assessments stored yet.</div>';
+  $('#assessments').innerHTML = data.assessments.length ? `<table class="table"><thead><tr><th>Due</th><th>Assessment</th><th class="hide-sm">Course</th><th>Status</th></tr></thead><tbody>${data.assessments.map(a => `<tr class="${a.status === 'COMPLETED' ? 'done' : ''}" data-assessment="${esc(a.id)}" data-name="${esc(a.title)}"><td class="due" title="${esc(date(a.due_at))}">${esc(until(a.due_at))}</td><td><button class="link-button">${esc(a.title)}</button><span class="sub hide-lg"> · ${esc(a.course)}</span></td><td class="hide-sm">${esc(a.course)}</td><td class="status-cell">${statusPill(a.status, a.due_at)}${a.status === 'COMPLETED' ? `<button type="button" class="row-action" data-row-reopen="${esc(a.id)}" title="Mark not completed">Undo</button>` : `<button type="button" class="row-action" data-row-complete="${esc(a.id)}" title="Mark completed">Mark done</button>`}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">No assessments stored yet.</div>';
 }
 
 const fail = error => toast(error.message || String(error), 'error');
