@@ -10,6 +10,8 @@ from app.models import Course, Resource
 from app.services.rag import RagService, _citations
 from openai import NotFoundError
 
+from tests.fake_openai import FakeVectorStores
+
 
 def test_citations_are_deduplicated() -> None:
     response = SimpleNamespace(
@@ -65,7 +67,7 @@ def test_shear_stress_question_is_scoped_to_syde286(tmp_path) -> None:
             )
 
     fake_responses = FakeResponses()
-    fake_client = SimpleNamespace(responses=fake_responses)
+    fake_client = SimpleNamespace(responses=fake_responses, vector_stores=FakeVectorStores())
     service = RagService(Settings(openai_api_key="test-key"), client=fake_client)
     service.manifest_path = tmp_path / "manifest.json"
     service.manifest_path.write_text(
@@ -82,8 +84,7 @@ def test_shear_stress_question_is_scoped_to_syde286(tmp_path) -> None:
 
     assert "shear stress" in result.answer.lower()
     assert fake_responses.call is not None
-    search_tool = fake_responses.call["tools"][0]
-    assert search_tool["filters"] == {
+    assert fake_client.vector_stores.calls[0]["filters"] == {
         "type": "eq",
         "key": "course_code",
         "value": "SYDE 286",

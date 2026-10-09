@@ -18,6 +18,8 @@ from app.services.rag_eval import (
     run_eval,
 )
 
+from tests.fake_openai import LECTURE_7, FakeVectorStores
+
 GOOD = (Path(__file__).parent / "fixtures" / "shear_force_answer.md").read_text(encoding="utf-8")
 SHEAR_COURSE = "SYDE 286"
 
@@ -30,12 +32,9 @@ class FakeResponses:
 
     def create(self, **kwargs: Any) -> SimpleNamespace:
         self.calls.append(kwargs)
-        annotations = [
-            {"type": "file_citation", "filename": "abc_Lecture_07_Shear_and_Moment.pdf"},
-        ]
         return SimpleNamespace(
             output_text=self.text,
-            model_dump=lambda: {"output": [{"content": [{"annotations": annotations}]}]},
+            model_dump=lambda: {"output": []},
             **self.extra,
         )
 
@@ -43,7 +42,7 @@ class FakeResponses:
 def _service(tmp_path: Path, responses: FakeResponses, **settings: Any) -> RagService:
     service = RagService(
         Settings(openai_api_key="test-key", **settings),
-        client=SimpleNamespace(responses=responses),  # type: ignore[arg-type]
+        client=SimpleNamespace(responses=responses, vector_stores=FakeVectorStores()),  # type: ignore[arg-type]
     )
     service.manifest_path = tmp_path / "manifest.json"
     service.manifest_path.write_text(
@@ -79,19 +78,29 @@ def test_chat_model_and_budget_are_configurable(tmp_path: Path) -> None:
     call = responses.calls[0]
     assert call["model"] == "gpt-6.1-sol"
     assert call["reasoning"] == {"effort": "medium"}
-    assert call["tools"][0]["max_num_results"] == 4
+    # Over-fetched three times, then deduplicated down to at most four passages.
+    assert service.client.vector_stores.calls[0]["max_num_results"] == 12  # type: ignore[attr-defined]
     assert call["max_output_tokens"] == 1200
 
 
 def test_token_budget_defaults_are_small(tmp_path: Path) -> None:
     responses = FakeResponses()
+    service = _service(tmp_path, responses)
 
-    _service(tmp_path, responses).ask("Explain shear force.", SHEAR_COURSE)
+    service.ask("Explain shear force.", SHEAR_COURSE)
 
     call = responses.calls[0]
     assert call["reasoning"] == {"effort": "low"}
-    assert call["tools"][0]["max_num_results"] == 6
     assert call["max_output_tokens"] == 3000
+    # Passages are sent in the input, so the model gets no file search of its own
+    # and at most one web search.
+    assert [tool["type"] for tool in call["tools"]] == ["web_search"]
+    assert call["max_tool_calls"] == 1
+    assert call["prompt_cache_key"] == "study-agent-tutor"
+    search = service.client.vector_stores.calls[0]  # type: ignore[attr-defined]
+    assert search["max_num_results"] == 18
+    assert search["ranking_options"] == {"score_threshold": 0.3}
+    assert Settings().rag_context_tokens == 3000
 
 
 def test_instructions_are_static_and_input_holds_only_the_question(tmp_path: Path) -> None:
@@ -104,8 +113,10 @@ def test_instructions_are_static_and_input_holds_only_the_question(tmp_path: Pat
     first, second = responses.calls
     # An identical instruction prefix on every call lets OpenAI cache it.
     assert first["instructions"] == second["instructions"] == TUTOR_INSTRUCTIONS
-    assert first["input"] == "Course: SYDE 286\nQuestion: Explain shear force."
-    assert len(first["input"]) < 80
+    assert first["input"].startswith(
+        "Course: SYDE 286\nQuestion: Explain shear force.\n\nCourse passages (cite by file name):"
+    )
+    assert f"[{LECTURE_7}]\nShear force V is the internal transverse force." in first["input"]
 
 
 def test_instructions_ask_for_concept_by_concept_chapter_explanations() -> None:
@@ -144,9 +155,11 @@ def test_every_figure_example_in_the_guide_renders() -> None:
 def test_question_is_filtered_to_the_shear_force_course(tmp_path: Path) -> None:
     responses = FakeResponses()
 
-    _service(tmp_path, responses).ask("Explain shear force.", " syde 286 ")
+    service = _service(tmp_path, responses)
 
-    assert responses.calls[0]["tools"][0]["filters"] == {
+    service.ask("Explain shear force.", " syde 286 ")
+
+    assert service.client.vector_stores.calls[0]["filters"] == {  # type: ignore[attr-defined]
         "type": "eq",
         "key": "course_code",
         "value": SHEAR_COURSE,
@@ -156,18 +169,22 @@ def test_question_is_filtered_to_the_shear_force_course(tmp_path: Path) -> None:
 def test_unscoped_question_searches_every_course(tmp_path: Path) -> None:
     responses = FakeResponses()
 
-    _service(tmp_path, responses).ask("Explain shear force.")
+    service = _service(tmp_path, responses)
 
-    assert "filters" not in responses.calls[0]["tools"][0]
-    assert responses.calls[0]["input"] == "Question: Explain shear force."
+    service.ask("Explain shear force.")
+
+    assert "filters" not in service.client.vector_stores.calls[0]  # type: ignore[attr-defined]
+    assert responses.calls[0]["input"].startswith("Question: Explain shear force.\n\n")
 
 
 def test_shear_force_answer_reaches_the_student_readable(tmp_path: Path) -> None:
     result = _service(tmp_path, FakeResponses()).ask("Explain shear force.", SHEAR_COURSE)
 
     assert assess_answer(result.answer).readable
+    # Sources are the passage files the answer cites by name.
     assert [citation.filename for citation in result.citations] == [
-        "abc_Lecture_07_Shear_and_Moment.pdf"
+        LECTURE_7,
+        "Tutorial_04_Beams.pdf",
     ]
 
 

@@ -9,6 +9,8 @@ from app.services.answer_format import clean_citations
 from app.services.lecture_scope import lecture_refs, matching_resource_ids
 from app.services.rag import RagService, _citations
 
+from tests.fake_openai import FakeVectorStores, search_result
+
 PREFIX = "b0467ae8-9051-4969-8f79-f903ef74fc92_"
 FILES: dict[str, dict[str, str]] = {
     "r-l7": {"course_code": "SYDE 286", "filename": f"{PREFIX}Lecture_07_Shear_and_Moment.pdf"},
@@ -65,10 +67,12 @@ class FakeResponses:
         return SimpleNamespace(output_text="An answer.", model_dump=lambda: payload)
 
 
-def _service(tmp_path: Path, responses: FakeResponses, **settings: Any) -> RagService:
+def _service(
+    tmp_path: Path, responses: FakeResponses, results: list[Any] | None = None, **settings: Any
+) -> RagService:
     service = RagService(
         Settings(openai_api_key="test-key", **settings),
-        client=SimpleNamespace(responses=responses),  # type: ignore[arg-type]
+        client=SimpleNamespace(responses=responses, vector_stores=FakeVectorStores(results)),  # type: ignore[arg-type]
     )
     service.manifest_path = tmp_path / "manifest.json"
     service.manifest_path.write_text(
@@ -77,13 +81,19 @@ def _service(tmp_path: Path, responses: FakeResponses, **settings: Any) -> RagSe
     return service
 
 
+def _search(service: RagService) -> dict[str, Any]:
+    return service.client.vector_stores.calls[0]  # type: ignore[attr-defined, no-any-return]
+
+
 def test_named_lecture_narrows_file_search_to_its_files(tmp_path: Path) -> None:
     responses = FakeResponses()
 
-    _service(tmp_path, responses).ask("What did lecture 7 cover?", "SYDE 286")
+    service = _service(tmp_path, responses)
+
+    service.ask("What did lecture 7 cover?", "SYDE 286")
 
     call = responses.calls[0]
-    assert call["tools"][0]["filters"] == {
+    assert _search(service)["filters"] == {
         "type": "and",
         "filters": [
             {"type": "eq", "key": "course_code", "value": "SYDE 286"},
@@ -102,9 +112,11 @@ def test_named_lecture_narrows_file_search_to_its_files(tmp_path: Path) -> None:
 def test_single_lecture_file_uses_a_plain_filter(tmp_path: Path) -> None:
     responses = FakeResponses()
 
-    _service(tmp_path, responses).ask("Summarize lecture 7", "SYDE 252")
+    service = _service(tmp_path, responses)
 
-    assert responses.calls[0]["tools"][0]["filters"]["filters"][1] == {
+    service.ask("Summarize lecture 7", "SYDE 252")
+
+    assert _search(service)["filters"]["filters"][1] == {
         "type": "eq",
         "key": "resource_id",
         "value": "r-252-l7",
@@ -114,10 +126,12 @@ def test_single_lecture_file_uses_a_plain_filter(tmp_path: Path) -> None:
 def test_unknown_lecture_falls_back_to_the_whole_course(tmp_path: Path) -> None:
     responses = FakeResponses()
 
-    _service(tmp_path, responses).ask("What did lecture 30 cover?", "SYDE 286")
+    service = _service(tmp_path, responses)
+
+    service.ask("What did lecture 30 cover?", "SYDE 286")
 
     call = responses.calls[0]
-    assert call["tools"][0]["filters"] == {"type": "eq", "key": "course_code", "value": "SYDE 286"}
+    assert _search(service)["filters"] == {"type": "eq", "key": "course_code", "value": "SYDE 286"}
     assert "Lecture files" not in call["input"]
 
 
@@ -126,7 +140,7 @@ def test_web_search_adds_online_context_cheaply(tmp_path: Path) -> None:
 
     _service(tmp_path, responses).ask("Explain shear force.", "SYDE 286")
 
-    assert responses.calls[0]["tools"][1] == {"type": "web_search", "search_context_size": "low"}
+    assert responses.calls[0]["tools"] == [{"type": "web_search", "search_context_size": "low"}]
 
 
 def test_web_search_can_be_turned_off(tmp_path: Path) -> None:
@@ -134,13 +148,12 @@ def test_web_search_can_be_turned_off(tmp_path: Path) -> None:
 
     _service(tmp_path, responses, rag_web_search=False).ask("Explain shear force.", "SYDE 286")
 
-    assert [tool["type"] for tool in responses.calls[0]["tools"]] == ["file_search"]
+    assert responses.calls[0]["tools"] == []
 
 
 def test_online_sources_are_returned_with_their_urls(tmp_path: Path) -> None:
     responses = FakeResponses(
         [
-            {"type": "file_citation", "filename": f"{PREFIX}Lecture_07.pdf", "file_id": "f1"},
             {
                 "type": "url_citation",
                 "title": "Shear and moment diagrams",
@@ -150,8 +163,11 @@ def test_online_sources_are_returned_with_their_urls(tmp_path: Path) -> None:
         ]
     )
 
-    result = _service(tmp_path, responses).ask("Explain shear force.", "SYDE 286")
+    passages = [search_result(f"{PREFIX}Lecture_07.pdf", "Shear force V.", file_id="f1")]
 
+    result = _service(tmp_path, responses, passages).ask("Explain shear force.", "SYDE 286")
+
+    # Course passage files first, then web pages, each once.
     assert [citation.model_dump() for citation in result.citations] == [
         {"filename": "Lecture_07.pdf", "file_id": "f1", "url": None},
         {"filename": "Shear and moment diagrams", "file_id": None, "url": "https://x.org/a"},

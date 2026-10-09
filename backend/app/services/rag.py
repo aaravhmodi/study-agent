@@ -17,12 +17,22 @@ from app.services.answer_format import clean_answer, clean_citations, display_fi
 from app.services.figure_guide import FIGURE_GUIDE
 from app.services.figures import extract_figures
 from app.services.lecture_scope import matching_resource_ids
+from app.services.retrieval import (
+    Passage,
+    cited_files,
+    format_passages,
+    from_search,
+    select_passages,
+)
 
 logger = logging.getLogger(__name__)
 
+# Requests sharing the tutor prefix are routed together so the prefix stays cached.
+_CACHE_KEY = "study-agent-tutor"
+
 
 TUTOR_GUIDE = """\
-You are StudyAgent, a university study tutor. Course materials from file search are the \
+You are StudyAgent, a university study tutor. The course passages in the input are the \
 source of truth: use their notation, sign conventions and examples. Use web search only to \
 add context the materials lack (intuition, real-world uses, a clearer derivation), mark \
 those sentences "(online)", and never let them contradict the course. If neither supports \
@@ -202,15 +212,12 @@ class RagService:
             )
             context.append(f"Lecture files: {names}")
         context.append(f"Question: {question}")
-        file_search: dict[str, Any] = {
-            "type": "file_search",
-            "vector_store_ids": [str(vector_store_id)],
-            "max_num_results": self.settings.rag_max_results,
-        }
-        filters = _file_filters(normalized_course_code, lecture_ids)
-        if filters:
-            file_search["filters"] = filters
-        tools: list[dict[str, Any]] = [file_search]
+        passages = self._passages(
+            question, str(vector_store_id), normalized_course_code, lecture_ids
+        )
+        context.append("")
+        context.append(format_passages(passages))
+        tools: list[dict[str, Any]] = []
         if self.settings.rag_web_search:
             tools.append({"type": "web_search", "search_context_size": "low"})
         response = self.client.responses.create(
@@ -219,6 +226,9 @@ class RagService:
             instructions=TUTOR_INSTRUCTIONS,
             input="\n".join(context),
             tools=cast(Any, tools),
+            # One web search at most; course passages are already in the input.
+            max_tool_calls=1,
+            prompt_cache_key=_CACHE_KEY,
             reasoning=cast(Any, {"effort": self.settings.openai_chat_reasoning_effort}),
             max_output_tokens=self.settings.rag_max_output_tokens,
         )
@@ -228,12 +238,38 @@ class RagService:
         if _hit_output_limit(response):
             answer += "\n\n_Answer cut short by the length limit; ask about one concept at a time._"
         answer, figures = extract_figures(answer)
-        citations = clean_citations(_citations(response))
+        citations = clean_citations(cited_files(answer, passages) + _citations(response))
         return ChatResponse(
             answer=answer,
             citations=[ChatCitation.model_validate(citation) for citation in citations],
             figures=figures,
             usage=_usage(response),
+        )
+
+    def _passages(
+        self,
+        question: str,
+        vector_store_id: str,
+        course_code: str | None,
+        lecture_ids: list[str],
+    ) -> list[Passage]:
+        """Search the course index once and keep the best distinct passages."""
+
+        search: dict[str, Any] = {
+            "query": question,
+            # Over-fetch: duplicates and repeats from one file are dropped below.
+            "max_num_results": min(self.settings.rag_max_results * 3, 50),
+            "rewrite_query": True,
+            "ranking_options": {"score_threshold": self.settings.rag_min_score},
+        }
+        filters = _file_filters(course_code, lecture_ids)
+        if filters:
+            search["filters"] = filters
+        results = self.client.vector_stores.search(vector_store_id, **search)
+        return select_passages(
+            from_search(results.data),
+            budget_tokens=self.settings.rag_context_tokens,
+            max_passages=self.settings.rag_max_results,
         )
 
     def _create_vector_store(self) -> str:
