@@ -15,3 +15,4 @@ data/demo-downloads/
 data/rag_manifest.json
 data/rag_eval.json
 data/answer_cache.json
+data/course_notes.json
