@@ -114,6 +114,8 @@ textarea:focus,select:focus{border-color:var(--ink);outline:none;box-shadow:inse
 .figure .diagram{overflow-x:auto;text-align:center}
 .figure .diagram svg{max-width:100%;height:auto}
 .figure .diagram .label{font:inherit;letter-spacing:normal;text-transform:none;color:inherit;margin:0}
+.figure .sketch{overflow-x:auto}
+.figure .sketch svg{display:block;margin:0 auto;max-width:100%;height:auto;max-height:420px}
 .figure .figure-error{font:12.5px var(--mono);color:var(--ink-3);margin:0}
 .notice{margin-top:18px;padding:10px 14px;border-left:3px solid var(--pencil);background:var(--pencil-wash);font-size:14px}
 
@@ -423,6 +425,12 @@ async function drawDiagram(holder, figure) {
   holder.innerHTML = `<div class="diagram">${DOMPurify.sanitize(svg, {USE_PROFILES: {svg: true, svgFilters: true}})}</div>`;
 }
 
+// Sketches (free-body diagrams, circuits, any drawing) arrive as server-sanitized SVG.
+function drawSketch(holder, figure) {
+  const svg = DOMPurify.sanitize(figure.svg, {USE_PROFILES: {svg: true, svgFilters: true}});
+  holder.innerHTML = `${figure.title ? `<figcaption>${esc(figure.title)}</figcaption>` : ''}<div class="sketch">${svg}</div>`;
+}
+
 // The answer marks each figure's place with a ```figure block holding its index.
 async function drawFigures(answer, figures) {
   if (!answer || !figures.length) return;
@@ -438,6 +446,7 @@ async function drawFigures(answer, figures) {
     if (!holder) { holder = document.createElement('figure'); holder.className = 'figure'; answer.append(holder) }
     try {
       if (figure.kind === 'plot') await drawPlot(holder, figure);
+      else if (figure.kind === 'sketch') drawSketch(holder, figure);
       else await drawDiagram(holder, figure);
     } catch (error) {
       holder.innerHTML = `<p class="figure-error">This figure could not be drawn (${esc(error.message || error)}).</p>`;
