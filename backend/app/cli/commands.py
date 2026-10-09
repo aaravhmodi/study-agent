@@ -1,4 +1,5 @@
 import asyncio
+import json
 import time
 from datetime import UTC, datetime
 
@@ -13,6 +14,7 @@ from app.db.database import SessionLocal, ensure_schema
 from app.logging import configure_logging
 from app.models import Assessment, Course, Resource
 from app.services.rag import RagService
+from app.services.rag_eval import EVAL_QUESTIONS, EvalQuestion, run_eval
 from app.services.sync_service import SyncService
 
 app = typer.Typer(help="Local-first academic agent for Waterloo LEARN.")
@@ -235,6 +237,62 @@ def rag_index() -> None:
     )
     if failed:
         console.print(f"[yellow]WARNING[/yellow] {failed} documents could not be indexed")
+
+
+_EVAL_QUESTION_OPTION = typer.Option(
+    None, "--question", "-q", help="Ask these instead of the built-in shear-force set."
+)
+
+
+@app.command("rag-eval")
+def rag_eval(
+    question: list[str] | None = _EVAL_QUESTION_OPTION,
+    course_code: str | None = typer.Option(None, "--course", help="Course for --question."),
+    rounds: int = typer.Option(1, min=1, max=10, help="Repeat the set to check consistency."),
+) -> None:
+    """Ask tutor questions against the index and check each answer is readable."""
+    configure_logging()
+    questions = (
+        [EvalQuestion(question=text, course_code=course_code) for text in question]
+        if question
+        else EVAL_QUESTIONS
+    )
+    try:
+        service = RagService(get_settings())
+    except RuntimeError as exc:
+        console.print(f"[red][FAIL][/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    results = [result for _ in range(rounds) for result in run_eval(service.ask, questions)]
+    table = Table(title="Tutor answer readability")
+    table.add_column("Result")
+    table.add_column("Question")
+    table.add_column("Words", justify="right")
+    table.add_column("Concepts", justify="right")
+    table.add_column("Issues")
+    for result in results:
+        quality = result.quality
+        issues = result.error or "; ".join(
+            (quality.issues if quality else [])
+            + [f"missing term: {term}" for term in result.missing_terms]
+            + ([] if result.citations else ["no cited sources"])
+        )
+        table.add_row(
+            "[green]PASS[/green]" if result.passed else "[red]FAIL[/red]",
+            result.question,
+            str(quality.word_count) if quality else "-",
+            str(len(quality.concepts)) if quality else "-",
+            issues,
+        )
+    console.print(table)
+    report = get_settings().data_dir / "rag_eval.json"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(
+        json.dumps([result.model_dump() for result in results], indent=2), encoding="utf-8"
+    )
+    passed = sum(result.passed for result in results)
+    console.print(f"{passed}/{len(results)} answers readable. Report: {report}")
+    if passed < len(results):
+        raise typer.Exit(code=1)
 
 
 def _as_utc(value: datetime | None) -> datetime | None:

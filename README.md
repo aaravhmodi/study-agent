@@ -54,6 +54,17 @@ uv run study-agent rag-index
 
 Start the dashboard and ask questions in the “Ask your course materials” box, or call `POST /chat` with `{"question":"Get me up to speed for SYDE 252 tomorrow.","course_code":"SYDE 252"}`. Answers are grounded with OpenAI File Search and include source filenames. Re-run `rag-index` after future syncs; unchanged files are skipped.
 
+Chat answers use the lighter `OPENAI_CHAT_MODEL` (default `gpt-6-luna`) with low reasoning effort, at most 6 retrieved chunks, and a 2,500-token output cap; handwritten-PDF transcription keeps `OPENAI_MODEL`. "Explain ..." questions are answered concept by concept: Overview, Key concepts (one subsection per concept in the chapter), Worked example, Common mistakes, Study checklist.
+
+To check that live answers are readable, run the built-in SYDE 286 shear-force question set (or your own with `-q`):
+
+```powershell
+uv run study-agent rag-eval --rounds 3
+uv run study-agent rag-eval -q "Explain bending stress." --course "SYDE 286"
+```
+
+Each answer is scored for structure, concept coverage, balanced LaTeX, paragraph and sentence length, and cited sources; the full report is written to `data/rag_eval.json`.
+
 ## Keep it running in the background
 
 With Chrome open and signed in, run this in a separate PowerShell window:

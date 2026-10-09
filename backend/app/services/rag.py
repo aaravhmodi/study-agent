@@ -18,6 +18,32 @@ from app.services.answer_format import clean_answer, clean_citations
 logger = logging.getLogger(__name__)
 
 
+TUTOR_INSTRUCTIONS = """\
+You are StudyAgent, a university study tutor. Use the course materials from file search \
+as the source of truth; if they do not support a claim, say so instead of guessing.
+
+When asked to explain a topic, find the chapter or lecture it belongs to and teach it \
+concept by concept. Use this Markdown layout:
+## Overview
+Two or three sentences: what the topic is, why it matters, and which chapter or lecture \
+covers it.
+## Key concepts
+One ### heading per concept in the chapter (usually 3 to 6), in teaching order. For each: \
+a plain-language definition, the governing formula, and how it connects to the others.
+## Worked example
+One short example in numbered steps, taken from the materials when possible.
+## Common mistakes
+Two to four bullets.
+## Study checklist
+Three to five prioritized bullets.
+
+For other questions, answer directly with only the sections that help.
+
+Style: short paragraphs, **bold** key terms, LaTeX math with \\( ... \\) inline and \\[ ... \\] \
+for display, and cite supporting filenames inline like [filename]. Be concise.\
+"""
+
+
 class VectorFileError(RuntimeError):
     """A single uploaded file could not be processed by the vector store."""
 
@@ -146,23 +172,11 @@ class RagService:
                 f"No indexed materials found for {normalized_course_code}. "
                 "Sign in to LEARN, run `study-agent sync`, then `study-agent rag-index`."
             )
-        scope = f" Focus on course {normalized_course_code}." if normalized_course_code else ""
-        prompt = (
-            "You are StudyAgent, a careful university study tutor. Answer using the uploaded "
-            "course materials as the source of truth. Give a detailed, teachable explanation: "
-            "define terms, connect ideas, show formulas or worked examples when supported, "
-            "and end with a short prioritized study checklist. If the materials do not support "
-            "a claim, say that clearly instead of guessing. Cite supporting filenames inline "
-            "like [filename]. Format the answer as Markdown: use **bold** for key terms, "
-            "headings, lists and tables where they help, and LaTeX for all math with "
-            "\\( ... \\) for inline and \\[ ... \\] for display equations."
-            + scope
-            + "\n\nStudent question:\n"
-            + question
-        )
+        scope = f"Course: {normalized_course_code}\n" if normalized_course_code else ""
         file_search: dict[str, Any] = {
             "type": "file_search",
             "vector_store_ids": [str(vector_store_id)],
+            "max_num_results": self.settings.rag_max_results,
         }
         if normalized_course_code:
             file_search["filters"] = {
@@ -171,13 +185,19 @@ class RagService:
                 "value": normalized_course_code,
             }
         response = self.client.responses.create(
-            model=self.settings.openai_model,
-            input=prompt,
+            model=self.settings.openai_chat_model,
+            # Static instructions form a stable prefix that OpenAI can cache.
+            instructions=TUTOR_INSTRUCTIONS,
+            input=f"{scope}Question: {question}",
             tools=cast(Any, [file_search]),
+            reasoning=cast(Any, {"effort": self.settings.openai_chat_reasoning_effort}),
+            max_output_tokens=self.settings.rag_max_output_tokens,
         )
         answer = clean_answer(str(getattr(response, "output_text", "")))
         if not answer:
             raise RuntimeError("OpenAI returned an empty answer")
+        if _hit_output_limit(response):
+            answer += "\n\n_Answer cut short by the length limit; ask about one concept at a time._"
         citations = clean_citations(_citations(response))
         return ChatResponse.model_validate({"answer": answer, "citations": citations})
 
@@ -230,6 +250,13 @@ class RagService:
     def _save_manifest(self, manifest: dict[str, Any]) -> None:
         self.manifest_path.parent.mkdir(parents=True, exist_ok=True)
         self.manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+
+def _hit_output_limit(response: Any) -> bool:
+    details = getattr(response, "incomplete_details", None)
+    return getattr(response, "status", None) == "incomplete" and (
+        getattr(details, "reason", None) == "max_output_tokens"
+    )
 
 
 def _citations(response: Any) -> list[dict[str, str | None]]:
