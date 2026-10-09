@@ -32,6 +32,12 @@ logger = logging.getLogger(__name__)
 # Requests sharing the tutor prefix are routed together so the prefix stays cached.
 _CACHE_KEY = "study-agent-tutor"
 
+# Smaller, less overlapping chunks than OpenAI's default (800 tokens, 400 overlap):
+# the same context budget then holds more distinct, more focused passages.
+CHUNK_TOKENS = 400
+CHUNK_OVERLAP_TOKENS = 100
+CHUNKING = f"static-{CHUNK_TOKENS}-{CHUNK_OVERLAP_TOKENS}"
+
 
 TUTOR_GUIDE = """\
 You are StudyAgent, a university study tutor. The course passages in the input are the \
@@ -141,7 +147,11 @@ class RagService:
                 skipped += 1
                 continue
             existing = files.get(resource.id)
-            if existing and existing.get("content_hash") == resource.content_hash:
+            if (
+                existing
+                and existing.get("content_hash") == resource.content_hash
+                and existing.get("chunking") == CHUNKING
+            ):
                 skipped += 1
                 continue
             path = Path(resource.local_path)
@@ -164,6 +174,13 @@ class RagService:
                         "resource_id": resource.id,
                         "resource_type": resource.resource_type,
                     },
+                    chunking_strategy={
+                        "type": "static",
+                        "static": {
+                            "max_chunk_size_tokens": CHUNK_TOKENS,
+                            "chunk_overlap_tokens": CHUNK_OVERLAP_TOKENS,
+                        },
+                    },
                 )
                 self._wait_for_file(vector_store_id, vector_file.id)
             except (VectorFileError, BadRequestError) as exc:
@@ -184,6 +201,7 @@ class RagService:
                 "filename": path.name,
                 "course_code": course.code or course.name,
                 "source_url": resource.url,
+                "chunking": CHUNKING,
             }
             indexed += 1
         return indexed, skipped, failed

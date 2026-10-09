@@ -7,7 +7,7 @@ from typing import Any, cast
 import httpx
 from app.config import Settings
 from app.models import Course, Resource
-from app.services.rag import RagService, _citations
+from app.services.rag import CHUNKING, RagService, _citations
 from openai import NotFoundError
 
 from tests.fake_openai import FakeVectorStores
@@ -98,14 +98,19 @@ class FakeIndexClient:
     def __init__(self) -> None:
         self.uploaded: dict[str, str] = {}
         self.deleted: list[str] = []
+        self.chunking: list[Any] = []
         self.files = SimpleNamespace(create=self._create_file, delete=self._delete_file)
         self.vector_stores = SimpleNamespace(
             files=SimpleNamespace(
-                create=lambda vector_store_id, file_id, attributes: SimpleNamespace(id=file_id),
+                create=self._attach,
                 retrieve=self._retrieve,
                 delete=self._detach,
             )
         )
+
+    def _attach(self, vector_store_id, file_id, attributes, chunking_strategy):
+        self.chunking.append(chunking_strategy)
+        return SimpleNamespace(id=file_id)
 
     def _create_file(self, file, purpose):
         file_id = f"file-{len(self.uploaded)}"
@@ -181,3 +186,38 @@ def test_failed_file_is_skipped_and_manifest_is_saved(tmp_path, caplog) -> None:
     assert "file-old" in client.deleted
     manifest = json.loads(service.manifest_path.read_text(encoding="utf-8"))
     assert set(manifest["files"]) == {"r-good"}
+
+
+def test_files_are_indexed_in_small_chunks_and_reindexed_when_chunking_changes(tmp_path) -> None:
+    client = FakeIndexClient()
+    service = RagService(Settings(openai_api_key="test-key"), client=cast(Any, client))
+    service.manifest_path = tmp_path / "manifest.json"
+    current = _resource(tmp_path, "r-current", "current.txt")
+    old = _resource(tmp_path, "r-old", "old.txt")
+    service.manifest_path.write_text(
+        json.dumps(
+            {
+                "vector_store_id": "vs-test",
+                "files": {
+                    "r-current": {
+                        "file_id": "f-1",
+                        "content_hash": "hash-r-current",
+                        "chunking": CHUNKING,
+                    },
+                    # Indexed before chunking was recorded: OpenAI's default 800/400.
+                    "r-old": {"file_id": "f-2", "content_hash": "hash-r-old"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    _, indexed, skipped, failed = service.index_resources([current, old])
+
+    assert (indexed, skipped, failed) == (1, 1, 0)
+    assert client.chunking == [
+        {"type": "static", "static": {"max_chunk_size_tokens": 400, "chunk_overlap_tokens": 100}}
+    ]
+    assert "f-2" in client.deleted
+    manifest = json.loads(service.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["files"]["r-old"]["chunking"] == CHUNKING == "static-400-100"

@@ -41,7 +41,10 @@ def cache_key(question: str, course_code: str | None, *, settings: dict[str, Any
 def index_fingerprint(files: dict[str, Any]) -> str:
     """Changes whenever a file is added, removed or re-indexed."""
 
-    items = sorted((key, str(entry.get("content_hash", ""))) for key, entry in files.items())
+    items = sorted(
+        (key, str(entry.get("content_hash", "")), str(entry.get("chunking", "")))
+        for key, entry in files.items()
+    )
     return hashlib.sha256(json.dumps(items).encode("utf-8")).hexdigest()[:16]
 
 
