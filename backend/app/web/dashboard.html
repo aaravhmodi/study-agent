@@ -397,7 +397,7 @@ async function openAssessment(id, name, row) {
       ? `<button class="secondary-button" data-reopen="${esc(a.id)}">Mark not completed</button>`
       : `<button class="primary-button" data-complete="${esc(a.id)}">Mark completed</button>`;
     showDetail(`<div>
-      <div class="section-head"><div><p class="label">${esc(a.course)} · ${esc(a.type)}</p><h2>${esc(a.title)}</h2><p class="stat"><span class="mono">Due ${esc(date(a.due_at))} (${esc(until(a.due_at))})</span> · ${statusPill(a.status, a.due_at)}${a.weight_percent == null ? '' : ` · ${esc(a.weight_percent)}% of grade`}</p></div><div class="actions">${action}<button class="secondary-button" data-close>Close</button></div></div>
+      <div class="section-head"><div><p class="label">${esc(a.course)} · ${esc(a.type)}</p><h2>${esc(a.title)}</h2><p class="stat"><span class="mono">Due ${esc(date(a.due_at))} (${esc(until(a.due_at))})</span> · ${statusPill(a.status, a.due_at)}${a.weight_percent == null ? '' : ` · ${esc(a.weight_percent)}% of grade`}</p></div><div class="actions">${action}<button class="secondary-button" data-ask="${esc(`What should I review for the ${a.course} ${a.title}?`)}" data-course="${esc(a.course)}">Ask how to study for this</button><button class="secondary-button" data-close>Close</button></div></div>
       ${a.description ? `<p class="stat">${esc(a.description)}</p>` : ''}
       <h3>Relevant coursework</h3><div>${a.coursework.length ? a.coursework.map(r => `<div class="resource"><b>${resourceLink(r)}</b> <span class="type">${esc(String(r.type || '').toLowerCase())}</span><div class="sub">${esc(r.match_reason)}</div>${r.description ? `<div class="sub">${esc(r.description)}</div>` : ''}</div>`).join('') : '<div class="empty">No matching course resources yet. Run sync after the instructor posts material.</div>'}</div>
       <h3>How to study for it</h3><ul>${a.study_guidance.map(step => `<li>${esc(step)}</li>`).join('')}</ul>
@@ -440,12 +440,15 @@ async function load() {
 
 const fail = error => toast(error.message || String(error), 'error');
 $('#chat-ask').addEventListener('click', askChat);
+function fillQuestion(question, course) {
+  $('#chat-question').value = question;
+  $('#chat-course').value = course || '';
+  $('#chat-question').scrollIntoView({behavior: 'smooth', block: 'center'});
+  $('#chat-question').focus({preventScroll: true});
+}
 $('#try').addEventListener('click', event => {
   const idea = event.target.closest('[data-ask]');
-  if (!idea) return;
-  $('#chat-question').value = idea.dataset.ask;
-  $('#chat-course').value = idea.dataset.course;
-  $('#chat-question').focus();
+  if (idea) fillQuestion(idea.dataset.ask, idea.dataset.course);
 });
 $('#chat-question').addEventListener('keydown', event => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') askChat() });
 $('#courses').addEventListener('click', event => {
@@ -460,6 +463,7 @@ $('#detail').addEventListener('click', event => {
   const target = event.target.closest('button');
   if (!target) return;
   if (target.hasAttribute('data-close')) { closeDetail(); return }
+  if (target.dataset.ask) { fillQuestion(target.dataset.ask, target.dataset.course); return }
   if (target.dataset.assessment) { openAssessment(target.dataset.assessment, target.dataset.name, target).catch(fail); return }
   if (target.dataset.complete) { changeStatus(target.dataset.complete, 'complete', target); return }
   if (target.dataset.reopen) { changeStatus(target.dataset.reopen, 'reopen', target) }
