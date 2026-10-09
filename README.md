@@ -82,7 +82,21 @@ uv run study-agent rag-eval --rounds 3
 uv run study-agent rag-eval -q "Explain bending stress." --course "SYDE 286"
 ```
 
-Each answer is scored for structure, concept coverage, balanced LaTeX, paragraph and sentence length, and cited sources; the full report is written to `data/rag_eval.json`.
+Each answer is scored for structure, concept coverage, balanced LaTeX, paragraph and sentence length, cited sources, and (for questions about a shape) whether a figure came back; the full report is written to `data/rag_eval.json`.
+
+### Figures in answers
+
+When a topic has a shape or a picture, the tutor draws it next to the text it explains:
+
+| Figure | Used for | Drawn by |
+| --- | --- | --- |
+| Graph | functions, distributions, shear and moment diagrams, signals; stems for x[n], PMFs and cash flows | Chart.js |
+| Free-body diagram | beams with supports and distributed loads, blocks on inclines, particles, disks | the server |
+| Circuit | schematics with sources, R, L, C, switches, diodes, meters | schemdraw |
+| Concept diagram | processes, cause and effect, proof outlines | Mermaid |
+| Sketch | anything else (a molecule, a geometric construction, a timeline) | the model's own SVG |
+
+The model only describes a figure as data; nothing it writes is run. The server checks every description with Pydantic. It evaluates formulas with a parser that accepts only arithmetic and math functions, and lays out free-body diagrams and circuits itself. Every SVG is rebuilt from an allow-list of drawing elements, and the browser sanitizes it again. A figure that can't be drawn is left out of the answer, never shown as raw JSON. Chart.js and Mermaid load only when an answer needs them.
 
 ## Keep it running in the background
 
