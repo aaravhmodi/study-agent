@@ -92,13 +92,15 @@ textarea:focus,select:focus{border-color:var(--ink)}
 .answer hr{border:0;border-top:1px solid var(--rule);margin:24px 0}
 .answer .katex{font-size:1.05em}
 .answer .katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0;margin:12px 0}
-.answer details{margin:4px 0 14px;border-left:2px solid var(--rule-2);padding:2px 0 2px 14px}
+.answer details{margin:2px 0 14px 24px;border-left:2px solid var(--rule-2);padding:2px 0 2px 14px}
 .answer details[open]{border-left-color:var(--pencil)}
-.answer summary{cursor:pointer;font:500 13.5px var(--sans);color:var(--ink-2);list-style:none}
+.answer summary{cursor:pointer;font:500 13.5px var(--sans);color:var(--ink-2);list-style:none;text-decoration:underline;text-decoration-color:var(--rule-2);text-underline-offset:3px;width:max-content}
+.answer summary:hover{text-decoration-color:var(--pencil)}
 .answer summary::-webkit-details-marker{display:none}
-.answer summary::before{content:"Show answer";text-decoration:underline;text-decoration-color:var(--rule-2);text-underline-offset:3px}
-.answer details[open] summary::before{content:"Hide answer"}
-.answer summary > *{display:none}
+.answer details[open] .show,.answer details:not([open]) .hide{display:none}
+.answer .cite{font:12px var(--mono);color:var(--ink-3);white-space:nowrap}
+.answer .cite::before{content:"↳ "}
+.answer .online{font:11px var(--mono);color:var(--pencil);border:1px solid currentColor;border-radius:2px;padding:0 3px;margin-left:2px;vertical-align:1px}
 .sources{margin:28px 0 0;padding-top:12px;border-top:1px solid var(--rule);font-size:13.5px;max-width:70ch}
 .sources ol{margin:6px 0 0;padding-left:22px}
 .sources li{margin:3px 0}
@@ -271,13 +273,18 @@ function renderAnswer(text) {
     .replace(/(^|[^\\$\w])\$(?!\s)([^$\n]+?)(?<!\s)\$(?![\w$])/g, (_, before, tex) => before + keep(tex, false))
     // Markdown would split a hidden answer out of its <details> box, so each
     // one is rendered on its own and dropped back in as a block.
-    .replace(/<details>\s*<summary>([\s\S]*?)<\/summary>([\s\S]*?)<\/details>/g, (_, summary, inner) => {
-      hidden.push(`<details><summary>${esc(summary.trim())}</summary>${marked.parse(inner.trim(), {gfm: true})}</details>`);
+    .replace(/<details>\s*<summary>([\s\S]*?)<\/summary>([\s\S]*?)<\/details>/g, (_, _summary, inner) => {
+      hidden.push(`<details><summary><span class="show">Show answer</span><span class="hide">Hide answer</span></summary>${marked.parse(inner.trim(), {gfm: true})}</details>`);
       return `\n\n%%HIDDEN${hidden.length - 1}%%\n\n`;
     });
   const html = DOMPurify.sanitize(marked.parse(source, {gfm: true})
     .replace(/(?:<p>)?%%HIDDEN(\d+)%%(?:<\/p>)?/g, (_, index) => hidden[Number(index)]));
-  return `<div class="answer">${html.replace(/%%MATH(\d+)%%/g, (_, index) => math[Number(index)])}</div>`;
+  // The tutor marks web-sourced sentences "(online)"; tag them so they stand apart from course material.
+  const tagged = html
+    .replace(/\s?\(online\)/g, ' <span class="online" title="From the web, not your course files">online</span>')
+    // Inline [file.pdf] citations become quiet references instead of bracketed noise.
+    .replace(/\[([^\]<>\n]+?\.(?:pdf|txt|docx?|pptx|md|html|tex))\]/gi, (_, name) => `<span class="cite" title="Course file">${name.replace(/[_-]+/g, ' ').replace(/\.\w+$/, '')}</span>`);
+  return `<div class="answer">${tagged.replace(/%%MATH(\d+)%%/g, (_, index) => math[Number(index)])}</div>`;
 }
 
 // /chat returns one response with no progress events, so show only what is
@@ -298,6 +305,17 @@ function startWaiting(container, course) {
   return {elapsed: () => Date.now() - started, stop: () => clearInterval(timer)};
 }
 
+// Course files first, then web pages; web entries are links labelled with their site.
+function renderSources(citations) {
+  const web = citations.filter(c => /^https?:\/\//.test(c.url || ''));
+  const files = citations.filter(c => !web.includes(c));
+  if (!files.length && !web.length) return '';
+  const site = url => new URL(url).hostname.replace(/^www\./, '');
+  const items = files.map(c => `<li>${esc(c.filename)}<span class="where">course file</span></li>`)
+    .concat(web.map(c => `<li><a href="${esc(c.url)}" target="_blank" rel="noopener noreferrer">${esc(c.filename)}</a><span class="where">${esc(site(c.url))}</span></li>`));
+  return `<div class="sources"><p class="label">Sources</p><ol>${items.join('')}</ol></div>`;
+}
+
 async function askChat() {
   const button = $('#chat-ask');
   const output = $('#chat-answer');
@@ -311,16 +329,14 @@ async function askChat() {
     const result = await getJson('/chat', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question, course_code: course})});
     progress.stop();
     const seconds = Math.round(progress.elapsed() / 1000);
-    const sources = result.citations || [];
     output.innerHTML = `<div class="answer-wrap">
-      <div class="answer-meta"><p class="micro-label"><span class="status-dot"></span>Answer${course ? ` · ${esc(course)}` : ''}</p><p class="micro-label muted">${seconds}s · ${sources.length} source${sources.length === 1 ? '' : 's'}</p></div>
+      <p class="answer-meta">${course ? `${esc(course)} · ` : ''}answered in ${seconds} s</p>
       ${renderAnswer(result.answer)}
-      ${sources.length ? `<div class="sources">${sources.map((c, i) => /^https?:\/\//.test(c.url || '') ? `<a class="chip web" href="${esc(c.url)}" target="_blank" rel="noopener noreferrer" style="--d:${0.3 + i * 0.05}s">↗ ${esc(c.filename)}</a>` : `<span class="chip" style="--d:${0.3 + i * 0.05}s">${esc(c.filename)}</span>`).join('')}</div>` : ''}
+      ${renderSources(result.citations || [])}
     </div>`;
-    output.querySelectorAll('.answer > *').forEach((el, i) => el.style.setProperty('--d', `${Math.min(i, 24) * 60}ms`));
   } catch (error) {
     progress.stop();
-    output.innerHTML = `<div class="notice reveal">${esc(error.message || error)}</div>`;
+    output.innerHTML = `<div class="notice">${esc(error.message || error)}</div>`;
   } finally {
     done();
   }
