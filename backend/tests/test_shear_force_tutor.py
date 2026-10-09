@@ -224,9 +224,7 @@ def test_eval_records_errors_and_keeps_going() -> None:
             {"answer": GOOD, "citations": [{"filename": "Lecture_07.pdf"}]}
         )
 
-    results = run_eval(
-        ask, [EvalQuestion(question="first"), EvalQuestion(question="second")]
-    )
+    results = run_eval(ask, [EvalQuestion(question="first"), EvalQuestion(question="second")])
 
     assert calls == ["first", "second"]
     assert results[0].error == "No indexed materials found for SYDE 286."
@@ -275,3 +273,21 @@ def test_eval_covers_every_course_and_a_lecture_in_each() -> None:
         item.course_code for item in COURSE_QUESTIONS if "Lecture 1" in item.question
     }
     assert lecture_courses == courses - {"SYDE 292L"}
+
+
+def test_answers_return_drawable_figures(tmp_path: Path) -> None:
+    plot = json.dumps(
+        {
+            "x": {"label": "x (m)", "min": 0, "max": 4},
+            "series": [{"label": "V(x)", "expr": "10 - 5*x"}],
+        }
+    )
+    responses = FakeResponses(text=GOOD + f"\n\n```plot\n{plot}\n```\n")
+
+    response = _service(tmp_path, responses).ask("Explain shear force.", SHEAR_COURSE)
+
+    (figure,) = response.figures
+    assert figure.kind == "plot"
+    assert response.answer.endswith("```figure\n0\n```")
+    payload = ChatResponse.model_validate_json(response.model_dump_json())
+    assert payload.figures == response.figures

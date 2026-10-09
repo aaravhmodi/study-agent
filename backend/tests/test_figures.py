@@ -2,7 +2,14 @@ import json
 from typing import Any
 
 import pytest
-from app.services.figures import SAMPLES, FigureError, parse_diagram, parse_plot
+from app.services.figures import (
+    MAX_FIGURES,
+    SAMPLES,
+    FigureError,
+    extract_figures,
+    parse_diagram,
+    parse_plot,
+)
 
 SHEAR = {
     "title": "Shear force, simply supported beam",
@@ -148,3 +155,45 @@ def test_concept_diagram_is_kept_trimmed() -> None:
 def test_unsafe_or_unsupported_diagrams_are_rejected(source: str, reason: str) -> None:
     with pytest.raises(FigureError, match=reason):
         parse_diagram(source)
+
+
+def _block(kind: str, body: str) -> str:
+    return f"```{kind}\n{body}\n```"
+
+
+def test_figure_blocks_become_numbered_placeholders() -> None:
+    answer = "\n\n".join(
+        [
+            "## Shear force",
+            _block("plot", json.dumps(SHEAR)),
+            "How the quantities connect:",
+            _block("mermaid", CONCEPT_MAP.strip()),
+            "```python\nprint('code stays')\n```",
+        ]
+    )
+
+    text, figures = extract_figures(answer)
+
+    assert [figure.kind for figure in figures] == ["plot", "diagram"]
+    assert "```figure\n0\n```" in text and "```figure\n1\n```" in text
+    assert "print('code stays')" in text
+    assert '"series"' not in text
+
+
+def test_broken_figures_are_dropped_and_logged(caplog: pytest.LogCaptureFixture) -> None:
+    answer = "Before\n\n" + _block("plot", "{not json") + "\n\nAfter"
+
+    text, figures = extract_figures(answer)
+
+    assert figures == []
+    assert text == "Before\n\nAfter"
+    assert "Left a plot out of the answer" in caplog.text
+
+
+def test_only_the_first_figures_are_kept() -> None:
+    answer = "\n\n".join(_block("mermaid", "flowchart LR\n  a --> b") for _ in range(6))
+
+    text, figures = extract_figures(answer)
+
+    assert len(figures) == MAX_FIGURES
+    assert text.count("```figure") == MAX_FIGURES

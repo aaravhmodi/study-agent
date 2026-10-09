@@ -12,8 +12,9 @@ from sqlalchemy import select
 from app.config import Settings
 from app.db.database import SessionLocal, ensure_schema
 from app.models import Course, Resource
-from app.schemas.chat import ChatResponse
+from app.schemas.chat import ChatCitation, ChatResponse
 from app.services.answer_format import clean_answer, clean_citations, display_filename
+from app.services.figures import extract_figures
 from app.services.lecture_scope import matching_resource_ids
 
 logger = logging.getLogger(__name__)
@@ -223,8 +224,13 @@ class RagService:
             raise RuntimeError("OpenAI returned an empty answer")
         if _hit_output_limit(response):
             answer += "\n\n_Answer cut short by the length limit; ask about one concept at a time._"
+        answer, figures = extract_figures(answer)
         citations = clean_citations(_citations(response))
-        return ChatResponse.model_validate({"answer": answer, "citations": citations})
+        return ChatResponse(
+            answer=answer,
+            citations=[ChatCitation.model_validate(citation) for citation in citations],
+            figures=figures,
+        )
 
     def _create_vector_store(self) -> str:
         vector_store = self.client.vector_stores.create(name="StudyAgent course materials")

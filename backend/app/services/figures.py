@@ -1,14 +1,17 @@
 """Validate the graphs a tutor answer asks for and compute the points to draw."""
 
 import json
+import logging
 import math
 import re
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from app.schemas.chat import DiagramFigure, PlotFigure, PlotMarker, PlotSeries
+from app.schemas.chat import ChatFigure, DiagramFigure, PlotFigure, PlotMarker, PlotSeries
 from app.services.plot_math import Formula, FormulaError, compile_formula
+
+logger = logging.getLogger(__name__)
 
 SAMPLES = 200
 # Values beyond this are treated as off the chart (asymptotes such as tan(x)).
@@ -219,3 +222,35 @@ def _first_error(exc: Exception) -> str:
         where = ".".join(str(part) for part in error["loc"])
         return f"{where}: {error['msg']}" if where else str(error["msg"])
     return str(exc)
+
+
+MAX_FIGURES = 4
+_FIGURE_BLOCK = re.compile(
+    r"^[ \t]*```[ \t]*(plot|mermaid)[ \t]*\r?\n(.*?)\r?\n[ \t]*```[ \t]*$",
+    flags=re.MULTILINE | re.DOTALL,
+)
+
+
+def extract_figures(answer: str) -> tuple[str, list[ChatFigure]]:
+    """Swap each valid ```plot or ```mermaid block for a ```figure placeholder.
+
+    The placeholder holds the figure's index in the returned list. Blocks that
+    cannot be drawn are removed so the student never sees raw JSON.
+    """
+
+    figures: list[ChatFigure] = []
+
+    def replace(match: re.Match[str]) -> str:
+        if len(figures) >= MAX_FIGURES:
+            return ""
+        kind, body = match.group(1), match.group(2)
+        try:
+            figure = parse_plot(body) if kind == "plot" else parse_diagram(body)
+        except FigureError as exc:
+            logger.warning("Left a %s out of the answer: %s", kind, exc)
+            return ""
+        figures.append(figure)
+        return f"```figure\n{len(figures) - 1}\n```"
+
+    text = _FIGURE_BLOCK.sub(replace, answer)
+    return re.sub(r"\n{3,}", "\n\n", text).strip(), figures

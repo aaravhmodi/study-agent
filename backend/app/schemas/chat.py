@@ -73,3 +73,5 @@ class ChatResponse(BaseModel):
 
     answer: str
     citations: list[ChatCitation] = Field(default_factory=list)
+    # Answers mark each figure's place with a ```figure block holding its index here.
+    figures: list[ChatFigure] = Field(default_factory=list)
