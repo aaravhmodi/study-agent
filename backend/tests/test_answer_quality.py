@@ -167,3 +167,11 @@ def test_unicode_symbol_inside_text_is_reported() -> None:
     answer = GOOD.replace(r"\text{kN}\cdot\text{m}", r"\text{kN·m}")
 
     assert "Unicode symbol inside \\text{} (KaTeX shows it in red)" in assess_answer(answer).issues
+
+
+def test_page_numbered_citations_count() -> None:
+    from app.services.answer_quality import _INLINE_CITATION
+
+    text = "See [course text.pdf, p. 87] and [Lecture_07.pdf, pp. 3-5] and [notes.txt]."
+
+    assert len(_INLINE_CITATION.findall(text)) == 3

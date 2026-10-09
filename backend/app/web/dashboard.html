@@ -299,7 +299,7 @@ function renderAnswer(text, citations = []) {
   const tagged = html
     .replace(/\s?\(online\)/g, ' <span class="online" title="From the web, not your course files">online</span>')
     // Inline [file.pdf] citations become quiet references instead of bracketed noise.
-    .replace(/\[([^\]<>\n]+?\.(?:pdf|txt|docx?|pptx|md|html|tex))\]/gi, (_, name) => citeLink(name, citations));
+    .replace(/\[([^\]<>\n]+?\.(?:pdf|txt|docx?|pptx|md|html|tex))(?:,\s*(pp?\.\s*[\d\u2013-]+))?\]/gi, (_, name, page) => citeLink(name, citations, page));
   return `<div class="answer">${tagged.replace(/%%MATH(\d+)%%/g, (_, index) => math[Number(index)])}</div>`;
 }
 
@@ -493,10 +493,10 @@ function whereLabel(url) {
 const openLink = (url, text, extra = '') => `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer"${extra}>${text}</a>`;
 
 // An inline [file.pdf] citation, linked to the file's LEARN page when the answer cites it.
-function citeLink(name, citations) {
+function citeLink(name, citations, page = '') {
   const key = value => String(value || '').toLowerCase().replace(/\.\w+$/, '');
   const source = citations.find(c => c.kind !== 'web' && key(c.filename) === key(name));
-  const label = name.replace(/[_-]+/g, ' ').replace(/\.\w+$/, '');
+  const label = name.replace(/[_-]+/g, ' ').replace(/\.\w+$/, '') + (page ? `, ${page}` : '');
   const url = safeUrl(source?.url);
   if (!url) return `<span class="cite" title="Course file">${label}</span>`;
   return openLink(url, label, ` class="cite" title="Open ${esc(source.title || name)} on ${esc(whereLabel(url))}"`);

@@ -29,7 +29,9 @@ def extract_pdf_text(path: Path) -> str:
     finally:
         for logger, previous_level in zip(_PYPDF_LOGGERS, previous_levels, strict=True):
             logger.setLevel(previous_level)
-    return "\n\n".join(page for page in pages if page).strip()
+    # Page headers let answers cite a page ("[course text.pdf, p. 87]").
+    numbered = [f"[Page {number}]\n{page}" for number, page in enumerate(pages, 1) if page]
+    return "\n\n".join(numbered).strip()
 
 
 def write_pdf_text_sidecar(path: Path) -> Path | None:

@@ -76,7 +76,8 @@ only the sections that help.
 
 Style: short paragraphs, **bold** key terms, LaTeX math with \\( ... \\) inline and \\[ ... \\] \
 for display (units like \\text{kN}\\cdot\\text{m}, no Unicode symbols inside \\text{}), and \
-cite course files inline like [filename]. Be concise.\
+cite course files inline like [filename], with the page when a passage shows one: \
+[filename, p. 12]. Be concise.\
 """
 
 # One static prefix (cached by OpenAI after the first question): how to teach, then how to draw.

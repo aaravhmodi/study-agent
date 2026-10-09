@@ -20,7 +20,7 @@ def test_extract_pdf_text_joins_pages(monkeypatch, tmp_path: Path) -> None:
     pdf_path = tmp_path / "lecture.pdf"
     pdf_path.write_bytes(b"not a real PDF for this isolated parser test")
 
-    assert pdf_text.extract_pdf_text(pdf_path) == "first page\n\nsecond page"
+    assert pdf_text.extract_pdf_text(pdf_path) == "[Page 1]\nfirst page\n\n[Page 2]\nsecond page"
 
 
 def test_write_pdf_text_sidecar(monkeypatch, tmp_path: Path) -> None:
@@ -31,7 +31,7 @@ def test_write_pdf_text_sidecar(monkeypatch, tmp_path: Path) -> None:
     sidecar = pdf_text.write_pdf_text_sidecar(pdf_path)
 
     assert sidecar == tmp_path / "lecture.txt"
-    assert sidecar.read_text(encoding="utf-8") == "first page\n\nsecond page"
+    assert sidecar.read_text(encoding="utf-8") == "[Page 1]\nfirst page\n\n[Page 2]\nsecond page"
 
 
 def test_shear_stress_question_has_lecture_text_to_search(monkeypatch, tmp_path: Path) -> None:

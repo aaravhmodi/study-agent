@@ -15,7 +15,9 @@ EXPLAIN_SECTIONS = (
 )
 
 _HEADING = re.compile(r"^(#{2,3})\s+(.+?)\s*#*\s*$", flags=re.MULTILINE)
-_INLINE_CITATION = re.compile(r"\[[^\]\n]+\.(?:pdf|txt|docx?|pptx|md|html|tex)\]", re.IGNORECASE)
+_INLINE_CITATION = re.compile(
+    r"\[[^\]\n]+\.(?:pdf|txt|docx?|pptx|md|html|tex)(?:,\s*pp?\.\s*[\d\u2013-]+)?\]", re.IGNORECASE
+)
 _LEFTOVER_MARKER = re.compile(r"filecite|turn\d+file\d+|[\ue000-\uf8ff]")
 _DISPLAY_MATH = re.compile(r"\\\[[\s\S]+?\\\]|\$\$[\s\S]+?\$\$")
 _INLINE_MATH = re.compile(r"\\\([\s\S]+?\\\)")
