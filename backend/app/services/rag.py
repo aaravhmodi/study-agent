@@ -22,7 +22,7 @@ from app.services.course_notes import NOTES_FILE, course_in_question, get_note
 from app.services.figure_guide import FIGURE_GUIDE
 from app.services.figures import extract_figures
 from app.services.learn_links import viewer_url
-from app.services.lecture_scope import matching_resource_ids
+from app.services.lecture_scope import lecture_refs, matching_resource_ids
 from app.services.retrieval import (
     Passage,
     cited_files,
@@ -30,6 +30,7 @@ from app.services.retrieval import (
     from_search,
     select_passages,
 )
+from app.services.textbook_toc import Chapter, chapters, describe, parse_contents
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,8 @@ If the question looks like a graded assignment or lab problem, do not solve it: 
 the concepts and give the first step as a hint. For other questions, answer directly with \
 only the sections that help. Instructor notes, when given, set exam scope and format: \
 say whether the topic is in scope, and write Check yourself questions in that format \
-(for multiple choice: four options, one correct).
+(for multiple choice: four options, one correct). Work out every answer and calculation \
+before writing it, so answer keys never need a correction.
 
 Style: short paragraphs, **bold** key terms, LaTeX math with \\( ... \\) inline and \\[ ... \\] \
 for display (units like \\text{kN}\\cdot\\text{m}, no Unicode symbols inside \\text{}), and \
@@ -183,6 +185,8 @@ class RagService:
                 # Unchanged file: keep its LEARN title and link current without re-uploading.
                 existing["title"] = resource.title
                 existing["source_url"] = resource.url
+                if "chapters" not in existing:
+                    existing["chapters"] = _chapters_of(Path(resource.local_path))
                 skipped += 1
                 continue
             path = Path(resource.local_path)
@@ -235,6 +239,7 @@ class RagService:
                 "title": resource.title,
                 "chunking": CHUNKING,
                 "upload_hash": upload_hash,
+                "chapters": _chapters_of(path),
             }
             indexed += 1
         return indexed, skipped, failed
@@ -277,6 +282,12 @@ class RagService:
             context.append(f"Course: {normalized_course_code}")
         if note:
             context.append(f"Instructor notes for {note_course} (added by the student):\n{note}")
+        named_chapters = _chapter_numbers(question)
+        outline = _chapter_outline(
+            files, note_course, named_chapters | _chapter_numbers(note or "")
+        )
+        if outline:
+            context.append(outline)
         if lecture_ids:
             names = ", ".join(
                 display_filename(str(files[resource_id].get("filename", "")))
@@ -295,6 +306,8 @@ class RagService:
             context.append(f"Question: {question}")
         # A short follow-up ("why?") is searched together with the question it follows.
         search_text = f"{earlier[-1].question}\n{question}" if earlier else question
+        # "Chapter 3" means nothing to semantic search; its title and sections do.
+        search_text += _chapter_search_terms(files, note_course, named_chapters)
         passages = self._passages(
             search_text, str(vector_store_id), normalized_course_code, lecture_ids
         )
@@ -448,6 +461,57 @@ def _file_filters(course_code: str | None, resource_ids: list[str]) -> dict[str,
     if len(resource_ids) == 1:
         lectures = lectures["filters"][0]
     return {"type": "and", "filters": [course, lectures]} if course else lectures
+
+
+def _chapters_of(path: Path) -> list[dict[str, Any]]:
+    """Chapters from a document's table of contents, if it has one."""
+
+    text_path = _local_text_path(path)
+    if text_path.suffix.lower() not in {".txt", ".md"}:
+        return []
+    try:
+        text = text_path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return []
+    return [chapter.model_dump() for chapter in chapters(parse_contents(text))]
+
+
+def _chapter_numbers(text: str) -> set[int]:
+    return {number for family, number in lecture_refs(text) if family == "chapter"}
+
+
+def _course_chapters(
+    files: dict[str, Any], course_code: str | None, wanted: set[int]
+) -> list[tuple[str, Chapter]]:
+    """(book title, chapter) for the wanted chapters of the course's textbooks."""
+
+    found: list[tuple[str, Chapter]] = []
+    for entry in files.values():
+        if course_code and str(entry.get("course_code", "")).upper() != course_code:
+            continue
+        book = str(entry.get("title") or display_filename(str(entry.get("filename", ""))))
+        for raw in entry.get("chapters") or []:
+            chapter = Chapter.model_validate(raw)
+            if chapter.number in wanted:
+                found.append((book, chapter))
+    return found[:12]
+
+
+def _chapter_outline(files: dict[str, Any], course_code: str | None, wanted: set[int]) -> str:
+    found = _course_chapters(files, course_code, wanted)
+    if not found:
+        return ""
+    lines = [f"[{book}] {describe(chapter)}" for book, chapter in found]
+    return "Textbook chapters named here (from the book's table of contents):\n" + "\n".join(lines)
+
+
+def _chapter_search_terms(files: dict[str, Any], course_code: str | None, wanted: set[int]) -> str:
+    found = _course_chapters(files, course_code, wanted)
+    return "".join(
+        f"\n{chapter.title}: "
+        + ", ".join(section.split(" ", 1)[-1] for section in chapter.sections)
+        for _book, chapter in found[:3]
+    )
 
 
 def _upload_hash(local_path: str | None) -> str | None:

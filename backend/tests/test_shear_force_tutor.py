@@ -132,7 +132,7 @@ def test_instructions_ask_for_concept_by_concept_chapter_explanations() -> None:
     assert "### heading per concept" in TUTOR_INSTRUCTIONS
     # The teaching guide stays short; the figure guide is separate and both are a
     # static, cacheable prefix, so they cost little after the first question.
-    assert len(TUTOR_GUIDE.split()) < 340
+    assert len(TUTOR_GUIDE.split()) < 360
     assert len(FIGURE_GUIDE.split()) < 500
     assert TUTOR_INSTRUCTIONS.startswith(TUTOR_GUIDE) and TUTOR_INSTRUCTIONS.endswith(FIGURE_GUIDE)
 
@@ -477,3 +477,61 @@ def test_follow_ups_are_never_cached(tmp_path: Path) -> None:
     service.ask("Why?", SHEAR_COURSE)  # a fresh question with the same text
 
     assert len(responses.calls) == 3
+
+
+BOOK_CHAPTERS = [
+    {
+        "number": 3,
+        "title": "Descriptive Statistics",
+        "first_page": 21,
+        "last_page": 58,
+        "sections": ["3.3 Numerical Measures", "3.4 Boxplots"],
+    },
+    {
+        "number": 4,
+        "title": "Probability",
+        "first_page": 59,
+        "last_page": 96,
+        "sections": ["4.5 Bayes' Theorem"],
+    },
+]
+
+
+def _service_with_book(tmp_path: Path, responses: FakeResponses) -> RagService:
+    service = _service(tmp_path, responses)
+    files = {
+        "r1": {"course_code": SHEAR_COURSE},
+        "book": {"course_code": SHEAR_COURSE, "title": "Course text", "chapters": BOOK_CHAPTERS},
+    }
+    service.manifest_path.write_text(
+        json.dumps({"vector_store_id": "vs-test", "files": files}), encoding="utf-8"
+    )
+    return service
+
+
+def test_named_chapters_are_outlined_and_searched_by_their_titles(tmp_path: Path) -> None:
+    responses = FakeResponses()
+    service = _service_with_book(tmp_path, responses)
+
+    service.ask("Give me practice questions on chapter 3.", SHEAR_COURSE)
+
+    sent = responses.calls[0]["input"]
+    assert "[Course text] Chapter 3: Descriptive Statistics (pp. 21-58): 3.3 Numerical" in sent
+    assert "Chapter 4" not in sent
+    query = service.client.vector_stores.calls[0]["query"]  # type: ignore[attr-defined]
+    assert query.endswith("\nDescriptive Statistics: Numerical Measures, Boxplots")
+
+
+def test_chapters_in_course_notes_are_outlined_too(tmp_path: Path) -> None:
+    from app.services.course_notes import save_note
+
+    responses = FakeResponses()
+    service = _service_with_book(tmp_path, responses)
+    save_note(service.notes_path, SHEAR_COURSE, "Midterm: chapters 3-4.")
+
+    service.ask("What is on the midterm?", SHEAR_COURSE)
+
+    sent = responses.calls[0]["input"]
+    assert "Chapter 3: Descriptive Statistics" in sent and "Chapter 4: Probability" in sent
+    # Only chapters the question itself names change the search.
+    assert service.client.vector_stores.calls[0]["query"] == "What is on the midterm?"  # type: ignore[attr-defined]

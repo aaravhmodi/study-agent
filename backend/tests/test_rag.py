@@ -275,3 +275,26 @@ def test_changed_extracted_text_is_reindexed(tmp_path) -> None:
     Path(resource[0].local_path or "").write_text("[Page 12]\nlecture notes", encoding="utf-8")
     assert service.index_resources([resource])[1:3] == (1, 0)
     assert "f-1" in client.deleted
+
+
+def test_textbook_chapters_are_recorded_when_indexing(tmp_path) -> None:
+    client = FakeIndexClient()
+    service = RagService(Settings(openai_api_key="test-key"), client=cast(Any, client))
+    service.manifest_path = tmp_path / "manifest.json"
+    service.manifest_path.write_text(json.dumps({"vector_store_id": "vs-test"}), encoding="utf-8")
+    book = _resource(tmp_path, "r-book", "book.txt")
+    Path(book[0].local_path or "").write_text(
+        "Contents\n1 Introduction 1\n2 Gathering Data 7\n3 Descriptive Statistics 21\n"
+        "3.1 Introduction . . . . 23\n",
+        encoding="utf-8",
+    )
+
+    service.index_resources([book])
+
+    entry = json.loads(service.manifest_path.read_text(encoding="utf-8"))["files"]["r-book"]
+    assert [chapter["title"] for chapter in entry["chapters"]] == [
+        "Introduction",
+        "Gathering Data",
+        "Descriptive Statistics",
+    ]
+    assert entry["chapters"][2]["sections"] == ["3.1 Introduction"]
