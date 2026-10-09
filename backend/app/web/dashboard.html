@@ -45,7 +45,7 @@ header{display:flex;align-items:baseline;justify-content:space-between;gap:24px;
 .label{margin:0;font:600 11.5px/1.4 var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
 h2{margin:2px 0 0;font:500 24px/1.2 var(--serif);letter-spacing:-.2px}
 .section{padding:28px 0;border-bottom:1px solid var(--rule)}
-.section-head{display:flex;justify-content:space-between;align-items:baseline;gap:16px;margin-bottom:14px}
+.section-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px 16px;margin-bottom:14px;flex-wrap:wrap}
 
 .ask-box{display:grid;gap:10px}
 textarea,select{border:1px solid var(--rule-2);border-radius:3px;background:var(--sheet);padding:12px 14px;outline:none}
@@ -146,6 +146,7 @@ button.row:hover b{text-decoration:underline;text-decoration-color:var(--pencil)
 .detail .resource .sub{color:var(--ink-2);font-size:13.5px;margin-top:2px}
 .detail ul{padding-left:20px}
 .detail li{margin:5px 0}
+.detail .type{font:12px var(--mono);color:var(--ink-3);margin-left:4px}
 .detail .stat{margin:6px 0 0;color:var(--ink-2)}
 .detail .actions{display:flex;gap:10px;flex-wrap:wrap}
 
@@ -156,7 +157,7 @@ button.row:hover b{text-decoration:underline;text-decoration-color:var(--pencil)
 .layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:56px}
 aside .section-head h2{font-size:19px}
 
-@media (max-width:860px){.layout{grid-template-columns:1fr;gap:0}.shell{padding:0 16px 72px}.hint{display:none}.table .hide-sm{display:none}.table .hide-lg{display:inline}}
+@media (max-width:860px){.layout{grid-template-columns:1fr;gap:0}.detail{padding:18px;margin-top:16px}.detail .section-head{flex-direction:column}.section-head .label{display:none}.detail .section-head .label{display:block}.shell{padding:0 16px 72px}.hint{display:none}.table .hide-sm{display:none}.table .hide-lg{display:inline}}
 </style>
 </head>
 <body>
@@ -382,7 +383,7 @@ async function openCourse(id, name, row) {
       <div class="section-head"><div><p class="label">${esc(c.term || 'Course')}</p><h2>${esc(c.code || c.name)}: ${esc(c.name)}</h2></div><button class="secondary-button" data-close>Close</button></div>
       <p class="stat"><b>${c.completed_assessments}</b> of <b>${c.assessments.length}</b> assessments completed · <b>${c.resources.length}</b> collected resources</p>
       <h3>Assessments</h3><div>${c.assessments.length ? c.assessments.map(a => `<button class="row" data-assessment="${esc(a.id)}" data-name="${esc(a.title)}"><span><b>${esc(a.title)}</b><span class="sub">${esc(a.type)} · ${esc(date(a.due_at))}</span></span><span class="side">${statusPill(a.status, a.due_at)}</span></button>`).join('') : '<div class="empty">No assessments found.</div>'}</div>
-      <h3>Coursework you have</h3><div>${c.resources.length ? c.resources.map(r => `<div class="resource"><b>${resourceLink(r)}</b> <span class="muted">${esc(r.type)}</span>${r.description ? `<div class="sub">${esc(r.description)}</div>` : ''}</div>`).join('') : '<div class="empty">No resources found.</div>'}</div>
+      <h3>Coursework you have</h3><div>${c.resources.length ? c.resources.map(r => `<div class="resource"><b>${resourceLink(r)}</b> <span class="type">${esc(String(r.type || '').toLowerCase())}</span>${r.description ? `<div class="sub">${esc(r.description)}</div>` : ''}</div>`).join('') : '<div class="empty">No resources found.</div>'}</div>
       <h3>Announcements</h3><div>${c.announcements.length ? c.announcements.slice(0, 10).map(a => `<div class="resource"><b>${esc(a.title)}</b><div class="sub">${esc(a.body || '')}</div></div>`).join('') : '<div class="empty">No announcements stored.</div>'}</div>
     </div>`);
   });
@@ -398,7 +399,7 @@ async function openAssessment(id, name, row) {
     showDetail(`<div>
       <div class="section-head"><div><p class="label">${esc(a.course)} · ${esc(a.type)}</p><h2>${esc(a.title)}</h2><p class="stat"><span class="mono">Due ${esc(date(a.due_at))} (${esc(until(a.due_at))})</span> · ${statusPill(a.status, a.due_at)}${a.weight_percent == null ? '' : ` · ${esc(a.weight_percent)}% of grade`}</p></div><div class="actions">${action}<button class="secondary-button" data-close>Close</button></div></div>
       ${a.description ? `<p class="stat">${esc(a.description)}</p>` : ''}
-      <h3>Relevant coursework</h3><div>${a.coursework.length ? a.coursework.map(r => `<div class="resource"><b>${resourceLink(r)}</b> <span class="muted">${esc(r.type)}</span><div class="sub">${esc(r.match_reason)}</div>${r.description ? `<div class="sub">${esc(r.description)}</div>` : ''}</div>`).join('') : '<div class="empty">No matching course resources yet. Run sync after the instructor posts material.</div>'}</div>
+      <h3>Relevant coursework</h3><div>${a.coursework.length ? a.coursework.map(r => `<div class="resource"><b>${resourceLink(r)}</b> <span class="type">${esc(String(r.type || '').toLowerCase())}</span><div class="sub">${esc(r.match_reason)}</div>${r.description ? `<div class="sub">${esc(r.description)}</div>` : ''}</div>`).join('') : '<div class="empty">No matching course resources yet. Run sync after the instructor posts material.</div>'}</div>
       <h3>How to study for it</h3><ul>${a.study_guidance.map(step => `<li>${esc(step)}</li>`).join('')}</ul>
     </div>`);
   });
