@@ -309,7 +309,7 @@ function renderAnswer(text, citations = []) {
   const tagged = html
     .replace(/\s?\(online\)/g, ' <span class="online" title="From the web, not your course files">online</span>')
     // Inline [file.pdf] citations become quiet references instead of bracketed noise.
-    .replace(/\[([^\]<>\n]+?\.(?:pdf|txt|docx?|pptx|md|html|tex))(?:,\s*(pp?\.\s*[\d\u2013-]+))?\]/gi, (_, name, page) => citeLink(name, citations, page));
+    .replace(/\[([^\]<>\n]+?\.(?:pdf|txt|docx?|pptx|md|html|tex))(?:,\s*((?:pp?\.|\u00a7\u00a7?)\s*[\d.\u2013-]+))?\]/gi, (_, name, page) => citeLink(name, citations, page));
   return `<div class="answer">${tagged.replace(/%%MATH(\d+)%%/g, (_, index) => math[Number(index)])}</div>`;
 }
 
