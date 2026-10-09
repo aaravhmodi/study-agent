@@ -26,7 +26,7 @@ console = Console()
 def _browser_client() -> BrowserUseClient | MockBrowserClient:
     settings = get_settings()
     if settings.browser_mode == "mock":
-        return MockBrowserClient()
+        return MockBrowserClient.demo(settings.timezone)
     return BrowserUseClient(settings)
 
 
@@ -35,7 +35,7 @@ def setup() -> None:
     """Create local directories, initialize the database, and report prerequisites."""
     configure_logging()
     settings = get_settings()
-    settings.data_dir.joinpath("downloads").mkdir(parents=True, exist_ok=True)
+    settings.downloads_dir.mkdir(parents=True, exist_ok=True)
     ensure_schema()
     console.print("[green][OK][/green] Local directories ready")
     console.print("[green][OK][/green] SQLite database initialized")

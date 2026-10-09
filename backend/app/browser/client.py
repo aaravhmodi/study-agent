@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import logging
 import shutil
@@ -8,6 +9,7 @@ from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
+from app.browser.demo_learn import demo_pages
 from app.config import Settings
 from app.schemas.browser import BrowserDownloadedResource, BrowserPageSnapshot
 from app.schemas.sync import BrowserTestResult
@@ -47,8 +49,17 @@ class BrowserClient(ABC):
 
 
 class MockBrowserClient(BrowserClient):
-    def __init__(self, payload: dict[str, Any] | None = None) -> None:
+    """Stand-in browser. Tests pass one payload; mock mode serves a demo site by URL."""
+
+    def __init__(
+        self, payload: dict[str, Any] | None = None, site: dict[str, Any] | None = None
+    ) -> None:
         self.payload = payload or {}
+        self.site = site
+
+    @classmethod
+    def demo(cls, timezone: str = "America/Toronto") -> "MockBrowserClient":
+        return cls(site=demo_pages(timezone=timezone))
 
     async def run_task(
         self, objective: str, output_schema: type[ModelT] | None = None
@@ -68,16 +79,33 @@ class MockBrowserClient(BrowserClient):
     async def inspect_page(
         self, url: str | None = None, wait_seconds: int = 0
     ) -> BrowserPageSnapshot:
-        del url, wait_seconds
-        return BrowserPageSnapshot.model_validate(self.payload)
+        del wait_seconds
+        if self.site is None:
+            return BrowserPageSnapshot.model_validate(self.payload)
+        # Pages the demo does not define come back blank, like an empty LEARN tool.
+        page = self.site["pages"].get(url) or {"url": url or "https://learn.uwaterloo.ca"}
+        return BrowserPageSnapshot.model_validate(page)
 
     async def inspect_content(self, url: str, wait_seconds: int = 0) -> list[BrowserPageSnapshot]:
-        del url, wait_seconds
-        pages = self.payload.get("content_pages", [])
+        del wait_seconds
+        pages = (
+            self.payload.get("content_pages", [])
+            if self.site is None
+            else self.site["content_modules"].get(url, [])
+        )
         return [BrowserPageSnapshot.model_validate(page) for page in pages]
 
     async def download_resource(self, url: str) -> BrowserDownloadedResource:
-        del url
+        if self.site is not None:
+            file = self.site["downloads"].get(url)
+            if file is None:
+                raise BrowserClientError("Mock site has no file at this URL")
+            return BrowserDownloadedResource(
+                url=url,
+                filename=file["filename"],
+                content_type="text/plain; charset=utf-8",
+                content_base64=base64.b64encode(file["text"].encode("utf-8")).decode("ascii"),
+            )
         payload = self.payload.get("download")
         if not isinstance(payload, dict):
             raise BrowserClientError("Mock browser payload has no download resource")

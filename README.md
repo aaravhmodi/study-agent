@@ -44,6 +44,18 @@ uv run study-agent submissions
 
 `sync` uses the authenticated Chrome session to discover active LEARN course shells, inspect each course, traverse every visible Content module and its discovered Content items, collect PDF/document/slide/page resources, save readable resources locally through authenticated GET requests, capture read-only Dropbox/submission notes from HTML pages, open recent LEARN announcement details, check its Outline page, and persist the extracted records in SQLite. Outline rows without dates (for example, a final listed as `TBD`) are retained as `UNKNOWN`; announced dates are merged with calendar and Outline records when they describe the same assessment. It never clicks Submit or changes LMS data. Authentication remains browser-managed; complete any sign-in or Duo prompt in Chrome.
 
+## Try it without LEARN
+
+Mock mode syncs a made-up copy of the six Fall 2026 courses: dated assignments and tests relative to today, short lecture notes, and announcements. Use it to work on the app without Chrome:
+
+```powershell
+$env:BROWSER_MODE = "mock"
+uv run study-agent sync
+uv run uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
+```
+
+Demo data goes to `data/demo.db` and `data/demo-downloads/`, never to your real `data/study_agent.db`, even if `.env` names that database. Remove the variable (`Remove-Item Env:BROWSER_MODE`) to go back to your real courses.
+
 ## Course-material chatbot
 
 After a sync, build/update the persistent OpenAI vector store:
