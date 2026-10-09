@@ -10,6 +10,8 @@ class ChatRequest(BaseModel):
     course_code: str | None = Field(default=None, max_length=100)
     # Skip the saved answer and ask the model again.
     fresh: bool = False
+    # Continue this conversation; without it a new one is started.
+    session_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
 
 
 class ChatCitation(BaseModel):
@@ -103,3 +105,5 @@ class ChatResponse(BaseModel):
     usage: ChatUsage | None = None
     # True when this is a saved answer to the same question; it cost no tokens.
     cached: bool = False
+    # The conversation this answer belongs to; send it back to ask a follow-up.
+    session_id: str | None = None

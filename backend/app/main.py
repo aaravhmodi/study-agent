@@ -12,7 +12,9 @@ from app.config import get_settings
 from app.db.database import SessionLocal, ensure_schema
 from app.models import Assessment, ChangeEvent, Course, Resource, SyncRun
 from app.schemas.chat import ChatRequest, ChatResponse
+from app.schemas.chat_session import ChatSession, ChatSessionSummary
 from app.schemas.course_note import CourseNoteRequest
+from app.services.chat_sessions import SESSIONS_FILE, ChatSessionStore
 from app.services.course_notes import (
     NOTES_FILE,
     CourseNoteError,
@@ -30,13 +32,50 @@ _DASHBOARD_PAGE = Path(__file__).parent / "web" / "dashboard.html"
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest) -> ChatResponse:
-    """Answer a student question using the indexed course materials."""
+    """Answer a question, as a follow-up when it names an earlier session."""
+    store = ChatSessionStore(_sessions_path())
+    session = store.get(request.session_id) if request.session_id else None
+    if request.session_id and session is None:
+        raise HTTPException(status_code=404, detail="Chat session not found")
     try:
-        return RagService(get_settings()).ask(
-            request.question, request.course_code, fresh=request.fresh
+        response = RagService(get_settings()).ask(
+            request.question,
+            request.course_code,
+            fresh=request.fresh,
+            history=session.turns if session else None,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    # A session is only created once there is an answer to keep.
+    if session is None:
+        session = store.create(request.question, request.course_code)
+    store.add_turn(session.id, request.question, request.course_code, response)
+    return response.model_copy(update={"session_id": session.id})
+
+
+@app.get("/chat/sessions", response_model=list[ChatSessionSummary])
+def chat_sessions() -> list[ChatSessionSummary]:
+    """Recent conversations, newest first."""
+    return ChatSessionStore(_sessions_path()).list()
+
+
+@app.get("/chat/sessions/{session_id}", response_model=ChatSession)
+def chat_session(session_id: str) -> ChatSession:
+    session = ChatSessionStore(_sessions_path()).get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    return session
+
+
+@app.delete("/chat/sessions/{session_id}")
+def delete_chat_session(session_id: str) -> dict[str, bool]:
+    if not ChatSessionStore(_sessions_path()).delete(session_id):
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    return {"deleted": True}
+
+
+def _sessions_path() -> Path:
+    return get_settings().data_dir / SESSIONS_FILE
 
 
 @app.put("/courses/{course_id}/note")
