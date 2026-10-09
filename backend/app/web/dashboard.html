@@ -102,6 +102,8 @@ textarea:focus,select:focus{border-color:var(--ink);outline:none;box-shadow:inse
 .answer summary::-webkit-details-marker{display:none}
 .answer details[open] .show,.answer details:not([open]) .hide{display:none}
 .answer .cite{font:12px var(--mono);color:var(--ink-3);white-space:nowrap}
+.answer a.cite{text-decoration:underline;text-decoration-color:var(--rule-2);text-underline-offset:3px}
+.answer a.cite:hover{color:var(--ink);text-decoration-color:var(--pencil)}
 .answer .cite::before{content:"↳ "}
 .answer .online{font:11px var(--mono);color:var(--pencil);border:1px solid currentColor;border-radius:2px;padding:0 3px;margin-left:2px;vertical-align:1px}
 .sources{margin:28px 0 0;padding-top:12px;border-top:1px solid var(--rule);font-size:13.5px;max-width:70ch}
@@ -276,7 +278,7 @@ function setBusy(button, label) {
 // Math is rendered by KaTeX before Markdown parsing so Markdown cannot eat
 // LaTeX backslashes/underscores; placeholders are swapped back after
 // DOMPurify sanitizes the Markdown HTML.
-function renderAnswer(text) {
+function renderAnswer(text, citations = []) {
   if (!window.marked || !window.DOMPurify || !window.katex) return `<div class="answer plain">${esc(text)}</div>`;
   const math = [], hidden = [];
   const keep = (tex, display) => { math.push(katex.renderToString(tex.trim(), {displayMode: display, throwOnError: false})); return `%%MATH${math.length - 1}%%` };
@@ -297,7 +299,7 @@ function renderAnswer(text) {
   const tagged = html
     .replace(/\s?\(online\)/g, ' <span class="online" title="From the web, not your course files">online</span>')
     // Inline [file.pdf] citations become quiet references instead of bracketed noise.
-    .replace(/\[([^\]<>\n]+?\.(?:pdf|txt|docx?|pptx|md|html|tex))\]/gi, (_, name) => `<span class="cite" title="Course file">${name.replace(/[_-]+/g, ' ').replace(/\.\w+$/, '')}</span>`);
+    .replace(/\[([^\]<>\n]+?\.(?:pdf|txt|docx?|pptx|md|html|tex))\]/gi, (_, name) => citeLink(name, citations));
   return `<div class="answer">${tagged.replace(/%%MATH(\d+)%%/g, (_, index) => math[Number(index)])}</div>`;
 }
 
@@ -482,14 +484,37 @@ function tokenNote(usage) {
 }
 
 // Course files first, then web pages; web entries are links labelled with their site.
+const safeUrl = url => /^https?:\/\//.test(url || '') ? url : '';
+// Where a link opens, in words: LEARN, the course outline, or the site's name.
+function whereLabel(url) {
+  const host = new URL(url).hostname.replace(/^www\./, '');
+  return ({'learn.uwaterloo.ca': 'LEARN', 'outline.uwaterloo.ca': 'course outline'})[host] || host;
+}
+const openLink = (url, text, extra = '') => `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer"${extra}>${text}</a>`;
+
+// An inline [file.pdf] citation, linked to the file's LEARN page when the answer cites it.
+function citeLink(name, citations) {
+  const key = value => String(value || '').toLowerCase().replace(/\.\w+$/, '');
+  const source = citations.find(c => c.kind !== 'web' && key(c.filename) === key(name));
+  const label = name.replace(/[_-]+/g, ' ').replace(/\.\w+$/, '');
+  const url = safeUrl(source?.url);
+  if (!url) return `<span class="cite" title="Course file">${label}</span>`;
+  return openLink(url, label, ` class="cite" title="Open ${esc(source.title || name)} on ${esc(whereLabel(url))}"`);
+}
+
+// Course files first (linked to LEARN), then web pages; each says where it opens.
 function renderSources(citations) {
-  const web = citations.filter(c => /^https?:\/\//.test(c.url || ''));
-  const files = citations.filter(c => !web.includes(c));
-  if (!files.length && !web.length) return '';
-  const site = url => new URL(url).hostname.replace(/^www\./, '');
-  const items = files.map(c => `<li>${esc(c.filename)}<span class="where">course file</span></li>`)
-    .concat(web.map(c => `<li><a href="${esc(c.url)}" target="_blank" rel="noopener noreferrer">${esc(c.filename)}</a><span class="where">${esc(site(c.url))}</span></li>`));
-  return `<div class="sources"><p class="label">Sources</p><ol>${items.join('')}</ol></div>`;
+  if (!citations.length) return '';
+  const files = citations.filter(c => c.kind !== 'web');
+  const web = citations.filter(c => c.kind === 'web' && safeUrl(c.url));
+  const item = c => {
+    const url = safeUrl(c.url);
+    const name = esc(c.title || c.filename);
+    if (!url) return `<li>${name}<span class="where">course file</span></li>`;
+    const file = c.kind !== 'web' && c.title && c.title !== c.filename ? ` title="${esc(c.filename)}"` : '';
+    return `<li>${openLink(url, name, file)}<span class="where">${esc(whereLabel(url))}</span></li>`;
+  };
+  return `<div class="sources"><p class="label">Sources</p><ol>${files.concat(web).map(item).join('')}</ol></div>`;
 }
 
 // Suggestions come from the student's own work, e.g. the next test on the calendar.
@@ -519,7 +544,7 @@ async function askChat(fresh = false) {
     const seconds = Math.round(progress.elapsed() / 1000);
     output.innerHTML = `<div class="answer-wrap">
       <p class="answer-meta">${course ? `${esc(course)} · ` : ''}${result.cached ? `saved answer, no tokens used · <button type="button" class="quiet-button" data-fresh>ask fresh</button>` : `answered in ${seconds} s${tokenNote(result.usage)}`}</p>
-      ${renderAnswer(result.answer)}
+      ${renderAnswer(result.answer, result.citations || [])}
       ${renderSources(result.citations || [])}
     </div>`;
     drawFigures(output.querySelector('.answer'), result.figures || []);

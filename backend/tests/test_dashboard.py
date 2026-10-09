@@ -10,3 +10,4 @@ def test_dashboard_page_is_served() -> None:
     assert 'id="chat-ask"' in response.text
     assert "function renderAnswer" in response.text
     assert "function drawFigures" in response.text
+    assert "function citeLink" in response.text
