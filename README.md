@@ -207,6 +207,10 @@ bash scripts/server-sync.sh
 
 It stops the server's dashboard, brings its database back, runs `sync` and `rag-index` here, sends the database, the changed course files and the index to the server, and starts the dashboard again. Saved files are found by name in `data/downloads`, so the paths this computer wrote into the database also work there.
 
+### Deploy on push
+
+Make the server's folder a git clone of this repository and have cron run a small script every minute that fetches `main`, and when it has moved, checks it out, runs `docker compose up -d --build` and waits for `/health`. A commit that fails to build or come up is rolled back to the one before it. Your `.env` and `data/` are untracked, so a deploy never touches them. The page on Vercel is separate: after changing `dashboard.html`, also run `bash scripts/deploy-frontend.sh`.
+
 ### Open it from anywhere, with the page on Vercel
 
 To reach it without Tailscale, give the server a public https address and put the page on Vercel:
