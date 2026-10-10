@@ -17,3 +17,5 @@ data/rag_eval.json
 data/answer_cache.json
 data/course_notes.json
 data/chat_sessions.json
+data/.sent-to-server
+data/.sending

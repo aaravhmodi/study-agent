@@ -1,0 +1,5 @@
+# Read by Linux tools on the server, whatever this computer's line endings are.
+*.sh text eol=lf
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+compose.yaml text eol=lf

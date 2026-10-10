@@ -129,6 +129,17 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
         )
         session.add(
             Resource(
+                id="moved",
+                course_id=course.id,
+                title="Problem Set 2",
+                resource_type="DOCUMENT",
+                # Saved on a Windows machine, then served from a copy of its data.
+                local_path=rf"C:\Users\someone\agent\data\downloads\{SAVED_NAME}",
+                first_seen_at=datetime.now(UTC),
+            )
+        )
+        session.add(
+            Resource(
                 id="outside",
                 course_id=course.id,
                 title="Elsewhere",
@@ -153,6 +164,12 @@ def test_a_question_is_served_as_an_image_of_its_part_of_the_page(client: TestCl
     assert page.status_code == question.status_code == 200
     assert page.headers["content-type"] == question.headers["content-type"] == "image/png"
     assert page.content.startswith(b"\x89PNG") and len(question.content) < len(page.content)
+
+
+def test_a_database_from_another_machine_still_finds_its_saved_files(client: TestClient) -> None:
+    page = client.get("/course-resources/moved/pages/1")
+
+    assert page.status_code == 200 and page.content.startswith(b"\x89PNG")
 
 
 def test_only_real_pages_of_saved_course_pdfs_are_served(client: TestClient) -> None:

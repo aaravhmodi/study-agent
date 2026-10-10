@@ -1,7 +1,7 @@
 # ruff: noqa: E501
 
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Response
@@ -252,8 +252,11 @@ def course_resource_page(
         )
         if resource is None or not resource.local_path:
             raise HTTPException(status_code=404, detail="Course page not found")
-        path = Path(resource.local_path).resolve()
+        # Saved files sit directly in the downloads folder. Going by the file's name
+        # keeps a database written on another machine working, whatever its paths.
+        name = PureWindowsPath(resource.local_path).name
     download_root = get_settings().downloads_dir.resolve()
+    path = (download_root / name).resolve()
     if (
         path.suffix.lower() != ".pdf"
         or not path.is_relative_to(download_root)

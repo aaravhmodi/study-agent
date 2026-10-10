@@ -1,0 +1,13 @@
+# Runs the dashboard and tutor on a home server, reachable only over Tailscale.
+# Set TAILSCALE_IP in .env (e.g. TAILSCALE_IP=100.76.57.23) and keep data/ beside this file.
+services:
+  dashboard:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    # The server's own user, so the files in data/ stay yours to copy and replace.
+    user: "${SERVER_USER:-1000:1000}"
+    volumes:
+      - ./data:/app/data
+    ports:
+      - "${TAILSCALE_IP}:8000:8000"
