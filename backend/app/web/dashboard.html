@@ -47,8 +47,18 @@ header{display:flex;align-items:baseline;justify-content:space-between;gap:24px;
 .refresh-line{margin:2px 0 0;font:13px/1.5 var(--mono);color:var(--ink-2)}
 .refresh-line .quiet-button{font:inherit}
 .refresh-line .quiet-button:disabled{opacity:.5;cursor:default;text-decoration:none}
-.job-status{margin-left:6px}
-.job-status.failed{color:var(--pencil)}
+.job-panel{margin:12px 0 0;padding:12px 14px;border:1px solid var(--rule-2);border-radius:3px;background:var(--sheet)}
+.job-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.job-head b{font-weight:600}
+.job-head .mono{color:var(--ink-3)}
+.job-head .quiet-button{margin-left:auto;font-size:13px}
+.job-panel.done .job-head b{color:var(--ok)}
+.job-panel.failed .job-head b{color:var(--pencil)}
+.job-result{margin:6px 0 0}
+.job-log{max-height:230px;overflow:auto;margin:10px 0 0;padding:8px 0 0;border-top:1px solid var(--rule);list-style:none;font:12.5px/1.65 var(--mono);color:var(--ink-2)}
+.job-log time{color:var(--ink-3);margin-right:10px}
+.job-log .warning{color:var(--warn)}
+.job-log:empty{display:none}
 
 .label{margin:0;font:600 11.5px/1.4 var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
 h2{margin:2px 0 0;font:500 24px/1.2 var(--serif);letter-spacing:-.2px}
@@ -233,8 +243,12 @@ button.row:hover b{text-decoration:underline;text-decoration-color:var(--pencil)
     <span aria-hidden="true"> · </span>
     <button type="button" class="quiet-button" id="job-index" title="Bring the tutor's index in line with the saved course files">Re-index files</button>
     <span class="hidden" id="job-signin-wrap"><span aria-hidden="true"> · </span><a id="job-signin" target="_blank" rel="noreferrer" title="The server's browser, where you sign in to LEARN. Opens on your Tailscale devices.">LEARN sign-in window</a></span>
-    <span class="job-status" id="job-status" role="status" aria-live="polite"></span>
   </p>
+  <section class="job-panel hidden" id="job-panel" aria-label="Sync and index progress">
+    <div class="job-head"><b id="job-title" role="status" aria-live="polite"></b><span class="mono" id="job-time"></span><button type="button" class="quiet-button hidden" id="job-hide">Hide</button></div>
+    <p class="job-result hidden" id="job-result"></p>
+    <ol class="job-log" id="job-log" aria-label="Steps so far"></ol>
+  </section>
 
   <nav class="screen-nav" id="screen-nav" aria-label="Dashboard screens">
     <button type="button" data-screen="ask">Ask</button>
@@ -403,27 +417,75 @@ $('#sign-out').addEventListener('click', async () => {
   location.reload();
 });
 
-// A sync or an index runs on the server for minutes: start it, then ask how it is going.
-const JOB_NAMES = {sync: 'Syncing LEARN', index: 'Indexing files'};
-let jobTimer;
+// A sync or an index runs on the server for minutes: start it, then keep asking how
+// it is going, and show each step as it is reported and how it ended.
+const JOBS = {
+  sync: {running: 'Syncing LEARN', done: 'Sync completed successfully', failed: 'Sync failed'},
+  index: {running: 'Re-indexing files', done: 'Re-index completed successfully', failed: 'Re-index failed'},
+};
+const clock = value => new Date(value).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit', second: '2-digit'});
+const took = (from, to) => {
+  const seconds = Math.max(0, Math.round((new Date(to) - new Date(from)) / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+};
+let jobTimer, jobClock, shownLines = 0, shownJob = '';
 function showJob(job) {
   const running = job.state === 'running';
   $('#job-sync').disabled = $('#job-index').disabled = running;
   $('#job-signin-wrap').classList.toggle('hidden', !job.signin_url);
   if (job.signin_url) $('#job-signin').href = job.signin_url;
-  const status = $('#job-status');
-  status.classList.toggle('failed', job.state === 'failed');
-  if (running) status.textContent = `${JOB_NAMES[job.name] || job.name}… ${job.lines.at(-1) || ''}`;
-  else if (job.state === 'idle') status.textContent = '';
-  else status.textContent = `${job.state === 'failed' ? 'Failed: ' : ''}${job.message} (${ago(job.finished_at)})`;
+
+  const panel = $('#job-panel');
+  let hidden = '';
+  try { hidden = sessionStorage.getItem('job-hidden') || '' } catch (_) {}
+  // A finished task stays up until it is hidden; one from before this visit is old news.
+  const stale = !running && job.finished_at && Date.now() - new Date(job.finished_at) > 15 * 60000 && shownJob !== job.started_at;
+  if (job.state === 'idle' || stale || (!running && hidden === job.finished_at)) {
+    panel.classList.add('hidden');
+    return running;
+  }
+  const names = JOBS[job.name] || {running: job.name, done: `${job.name} completed`, failed: `${job.name} failed`};
+  panel.className = `job-panel ${job.state}`;
+  $('#job-title').textContent = running ? `${names.running}…` : `${job.state === 'done' ? '✓' : '✗'} ${names[job.state]}`;
+  clearInterval(jobClock);
+  const time = $('#job-time');
+  if (running) {
+    const tick = () => { time.textContent = `running ${took(job.started_at, new Date())}` };
+    tick();
+    jobClock = setInterval(tick, 1000);
+  } else {
+    time.textContent = `finished ${clock(job.finished_at)} · took ${took(job.started_at, job.finished_at)}`;
+  }
+  const result = $('#job-result');
+  result.classList.toggle('hidden', running || !job.message);
+  result.textContent = job.message;
+  $('#job-hide').classList.toggle('hidden', running);
+  $('#job-hide').dataset.finished = job.finished_at || '';
+
+  // Add only the steps that are new, and follow them unless the reader scrolled up.
+  const log = $('#job-log');
+  if (shownJob !== job.started_at || job.lines.length < shownLines) {
+    log.innerHTML = '';
+    shownLines = 0;
+    shownJob = job.started_at;
+  }
+  const following = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+  for (const line of job.lines.slice(shownLines)) {
+    const item = document.createElement('li');
+    if (line.text.startsWith('WARNING')) item.className = 'warning';
+    item.innerHTML = `<time>${esc(clock(line.at))}</time>${esc(line.text)}`;
+    log.append(item);
+  }
+  shownLines = job.lines.length;
+  if (following) log.scrollTop = log.scrollHeight;
   return running;
 }
 async function watchJob() {
   clearTimeout(jobTimer);
   let job;
-  try { job = await getJson('/jobs') } catch (_) { return }
+  try { job = await getJson('/jobs') } catch (_) { jobTimer = setTimeout(watchJob, 5000); return }
   const wasRunning = $('#job-sync').disabled;
-  if (showJob(job)) jobTimer = setTimeout(watchJob, 3000);
+  if (showJob(job)) jobTimer = setTimeout(watchJob, 1500);
   else if (wasRunning) load().catch(fail);  // show what the task changed
 }
 async function startJob(name) {
@@ -432,6 +494,10 @@ async function startJob(name) {
 }
 $('#job-sync').addEventListener('click', () => startJob('sync'));
 $('#job-index').addEventListener('click', () => startJob('index'));
+$('#job-hide').addEventListener('click', event => {
+  try { sessionStorage.setItem('job-hidden', event.target.dataset.finished) } catch (_) {}
+  $('#job-panel').classList.add('hidden');
+});
 
 let toastTimer;
 function toast(message, kind = '') {
