@@ -67,3 +67,18 @@ def test_stale_video_rows_are_skipped_by_title_or_url() -> None:
             resource_type="DOCUMENT",
         )
     )
+
+
+def test_a_page_is_read_only_after_it_has_finished_loading() -> None:
+    import ast
+
+    from app.browser.client import _SETTLE_SECONDS, _snapshot_script
+
+    script = _snapshot_script("https://learn.uwaterloo.ca/d2l/home", 3)
+
+    # The script is run as Python by the browser tool, so it has to parse.
+    ast.parse(script)
+    # It waits, within a limit, for "Loading..." to go and the text to stop growing,
+    # and only then reads the page.
+    assert f"for _ in range({_SETTLE_SECONDS}):" in script
+    assert script.index("includes('Loading...')") < script.index("raw = js(")

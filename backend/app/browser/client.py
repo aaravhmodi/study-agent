@@ -337,6 +337,10 @@ print('STUDY_AGENT_RESULT=' + json.dumps({{
 """
 
 
+# How long a page may take, after its fixed wait, to finish drawing before it is read.
+_SETTLE_SECONDS = 15
+
+
 def _snapshot_script(url: str | None, wait_seconds: int) -> str:
     encoded_url = json.dumps(url)
     expression = """JSON.stringify({
@@ -419,6 +423,21 @@ safe_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', ''))
 safe_title = ''.join(
     character for character in str(info.get('title') or '') if ord(character) < 128
 )
+# A slower machine can still be drawing the page after the fixed wait. Read it only
+# once it has stopped saying it is loading and its text has stopped growing.
+settled = None
+for _ in range({_SETTLE_SECONDS}):
+    try:
+        state = str(js(
+            "document.body.innerText.length + '|' + "
+            "document.body.innerText.includes('Loading...')"
+        ))
+    except Exception:
+        break
+    if state == settled and state.endswith('|false'):
+        break
+    settled = state
+    time.sleep(1)
 raw = js({json.dumps(expression)})
 payload = json.loads(raw) if isinstance(raw, str) else raw
 print('STUDY_AGENT_RESULT=' + json.dumps({{
