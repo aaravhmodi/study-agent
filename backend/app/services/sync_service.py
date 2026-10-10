@@ -89,6 +89,7 @@ class SyncService:
                         failures.append(f"{course.name}: {exc}")
                         logger.exception("Course scan failed for %s", course.name)
                         self.progress(f"WARNING {course.name}: scan failed; continuing")
+                    await self.browser.close_spare_tabs()
                 sync_run.courses_found = summary.courses_found
                 sync_run.assessments_found = summary.assessments_found
                 sync_run.resources_found = summary.resources_found

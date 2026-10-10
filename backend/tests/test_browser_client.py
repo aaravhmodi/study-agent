@@ -82,3 +82,34 @@ def test_a_page_is_read_only_after_it_has_finished_loading() -> None:
     # and only then reads the page.
     assert f"for _ in range({_SETTLE_SECONDS}):" in script
     assert script.index("includes('Loading...')") < script.index("raw = js(")
+
+
+@pytest.mark.asyncio
+async def test_spare_tabs_are_closed_only_in_a_browser_kept_for_the_sync(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import ast
+
+    from app.browser import client as browser_client
+
+    scripts: list[str] = []
+
+    def record(executable: str, script: str, timeout_seconds: int = 90) -> None:
+        scripts.append(script)
+
+    monkeypatch.setattr(browser_client, "_run_cli", record)
+    client = BrowserUseClient(Settings(_env_file=None), executable="python")
+
+    # Attached to your own Chrome: its tabs are yours, so nothing is run at all.
+    monkeypatch.delenv("BU_CDP_URL", raising=False)
+    await client.close_spare_tabs()
+    assert scripts == []
+
+    monkeypatch.setenv("BU_CDP_URL", "http://172.31.57.10:9223")
+    await client.close_spare_tabs()
+    (script,) = scripts
+    ast.parse(script)
+    assert "close_tab(tab)" in script and "if tab is keep:" in script
+
+    # The demo browser has no tabs to close.
+    await MockBrowserClient().close_spare_tabs()

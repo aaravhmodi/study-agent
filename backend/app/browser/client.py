@@ -48,6 +48,9 @@ class BrowserClient(ABC):
     async def download_resource(self, url: str) -> BrowserDownloadedResource:
         """Fetch one resource with the authenticated browser session using GET only."""
 
+    async def close_spare_tabs(self) -> None:  # noqa: B027 - optional, so not abstract
+        """Close tabs a sync left open, where the browser is the sync's own."""
+
 
 class MockBrowserClient(BrowserClient):
     """Stand-in browser. Tests pass one payload; mock mode serves a demo site by URL."""
@@ -219,6 +222,17 @@ class BrowserUseClient(BrowserClient):
         except Exception as exc:
             raise BrowserClientError(f"Browser Use returned invalid content data: {exc}") from exc
 
+    async def close_spare_tabs(self) -> None:
+        # Each page a sync reads opens a tab. In a browser kept for the sync (it is
+        # named by BU_CDP_URL) they pile up until it runs out of memory, so all but
+        # one are closed. Your own Chrome's tabs are yours and are never touched.
+        if not os.environ.get("BU_CDP_URL") or not self.is_installed():
+            return
+        try:
+            await asyncio.to_thread(_run_cli, self.executable, _CLOSE_SPARE_TABS_SCRIPT, 60)
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            logger.warning("Could not close spare browser tabs (%s)", type(exc).__name__)
+
     async def download_resource(self, url: str) -> BrowserDownloadedResource:
         if not self.is_installed():
             raise BrowserClientError(
@@ -233,7 +247,7 @@ class BrowserUseClient(BrowserClient):
                     _run_cli,
                     self.executable,
                     _download_script(url, fresh_tab=fresh_tab),
-                    30,
+                    _DOWNLOAD_SECONDS,
                 )
             except subprocess.TimeoutExpired as exc:
                 raise BrowserClientError("Browser Use resource download timed out") from exc
@@ -283,6 +297,30 @@ def _extract_result(stdout: str) -> dict[str, Any]:
                 raise BrowserClientError("Browser Use probe did not return an object")
             return value
     raise BrowserClientError("Browser Use probe did not return a structured result")
+
+
+# One download may take this long: a large PDF on a slow machine needs most of it.
+_DOWNLOAD_SECONDS = 60
+
+# Keeps the first LEARN tab (or the first tab of any kind) and closes the rest.
+_CLOSE_SPARE_TABS_SCRIPT = """import json
+
+tabs = [tab for tab in list_tabs(include_chrome=False)]
+keep = next((tab for tab in tabs if 'learn.uwaterloo.ca' in str(tab.get('url', ''))), None)
+keep = keep or (tabs[0] if tabs else None)
+closed = 0
+for tab in tabs:
+    if tab is keep:
+        continue
+    try:
+        close_tab(tab)
+        closed += 1
+    except Exception:
+        pass
+if keep is not None:
+    switch_tab(keep)
+print('STUDY_AGENT_RESULT=' + json.dumps({'closed': closed}))
+"""
 
 
 def _probe_script(learn_url: str) -> str:

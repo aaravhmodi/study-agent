@@ -27,7 +27,8 @@ services:
     build: browser
     restart: unless-stopped
     user: "${SERVER_USER:-1000:1000}"
-    mem_limit: 1500m
+    # Enough for a sync's tabs and large PDFs, without letting it starve the server.
+    mem_limit: 3g
     volumes:
       - ./browser-profile:/profile
     ports:
