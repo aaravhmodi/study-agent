@@ -118,16 +118,22 @@ def test_an_announcement_linked_two_ways_is_read_and_saved_once(
         course = Course(code="SYDE 286", name="SYDE 286", url="https://learn.example/286")
         session.add(course)
         session.flush()
-        # An earlier sync saved the same announcement under its ?ou= address too.
-        session.add(
-            Announcement(
-                course_id=course.id,
-                title="Midterm Details",
-                source_url=f"{page}?ou=1292394",
-                first_seen_at=NOW,
-                last_seen_at=NOW,
+        # Earlier syncs saved the same announcement three ways: under its ?ou= address,
+        # and under its plain address with the title the page itself gave.
+        for title, url in (
+            ("Midterm Details", f"{page}?ou=1292394"),
+            ("Reem Roufail posted", page),
+            ("Midterm Details", page),
+        ):
+            session.add(
+                Announcement(
+                    course_id=course.id,
+                    title=title,
+                    source_url=url,
+                    first_seen_at=NOW,
+                    last_seen_at=NOW,
+                )
             )
-        )
         session.flush()
 
         _persist_scan(
@@ -136,4 +142,5 @@ def test_an_announcement_linked_two_ways_is_read_and_saved_once(
         session.flush()
 
         saved = session.scalars(select(Announcement)).all()
-        assert [row.source_url for row in saved] == [page]
+        assert [(row.title, row.source_url) for row in saved] == [("Midterm Details", page)]
+        assert saved[0].body == "The midterm covers chapters 1 to 6."

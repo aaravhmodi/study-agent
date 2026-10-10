@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from typing import cast
 from urllib.parse import parse_qs, urlsplit
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.agents.course_agent import CourseAgent
@@ -172,17 +172,24 @@ def _persist_scan(session: Session, course: Course, scan: CourseScanResult) -> t
                 existing_assessment.status = "OVERDUE" if assessment.due_at < now else "UPCOMING"
 
     for announcement in scan.announcements:
-        existing_announcement = cast(
-            Announcement | None,
-            session.scalar(
-                select(Announcement).where(
-                    Announcement.course_id == course.id,
-                    Announcement.title == announcement.title,
-                    Announcement.source_url == str(announcement.source_url or ""),
-                )
-            ),
+        url = str(announcement.source_url) if announcement.source_url else None
+        # An announcement is its page. Rows saved for that page before, under another
+        # title or with ?ou= on the address, are the same announcement.
+        same = (
+            or_(Announcement.source_url == url, Announcement.source_url.like(f"{url}?%"))
+            if url
+            else and_(Announcement.source_url.is_(None), Announcement.title == announcement.title)
         )
-        if existing_announcement is None:
+        saved = session.scalars(
+            select(Announcement)
+            .where(Announcement.course_id == course.id, same)
+            .order_by(Announcement.first_seen_at)
+        ).all()
+        if saved:
+            existing_announcement = saved[0]
+            for copy in saved[1:]:
+                session.delete(copy)
+        else:
             existing_announcement = Announcement(
                 course_id=course.id,
                 title=announcement.title,
@@ -190,21 +197,11 @@ def _persist_scan(session: Session, course: Course, scan: CourseScanResult) -> t
                 last_seen_at=now,
             )
             session.add(existing_announcement)
+        existing_announcement.title = announcement.title
         existing_announcement.body = announcement.body
         existing_announcement.published_at = announcement.published_at
-        existing_announcement.source_url = (
-            str(announcement.source_url) if announcement.source_url else None
-        )
+        existing_announcement.source_url = url
         existing_announcement.last_seen_at = now
-        if existing_announcement.source_url:
-            # Earlier syncs also saved it under its address with ?ou= added.
-            for twin in session.scalars(
-                select(Announcement).where(
-                    Announcement.course_id == course.id,
-                    Announcement.source_url.like(f"{existing_announcement.source_url}?%"),
-                )
-            ):
-                session.delete(twin)
 
     for resource in scan.resources:
         extracted_url = str(resource.url) if resource.url else None
