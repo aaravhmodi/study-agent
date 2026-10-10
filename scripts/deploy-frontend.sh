@@ -36,5 +36,10 @@ cat > "$site/vercel.json" <<EOF
 }
 EOF
 
-[ -d "$site/.vercel" ] || vercel link --yes --project "${project:-study-agent}" --cwd "$site"
+if [ ! -d "$site/.vercel" ]; then
+  vercel link --yes --project "${project:-study-agent}" --cwd "$site"
+  # Linking inside this repo connects it to GitHub, and then every push would
+  # replace the site with the repo itself, which has no page at its root.
+  vercel git disconnect --yes --cwd "$site" || true
+fi
 vercel deploy --prod --yes --cwd "$site"
