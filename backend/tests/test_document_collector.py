@@ -118,3 +118,46 @@ async def test_each_file_is_announced_as_it_is_fetched(tmp_path: Path) -> None:
     await _collector(tmp_path).collect(session, course, steps.append)
 
     assert steps == ["SYDE 212: reading 1. Introduction"]
+
+
+@pytest.mark.asyncio
+async def test_an_unchanged_file_keeps_its_saved_copy_and_extracted_text(tmp_path: Path) -> None:
+    session, course, resource = _session_with_document(None)
+    collector = _collector(tmp_path)
+    await collector.collect(session, course)
+    pdf = Path(resource.local_path or "")
+    # A handwritten PDF's text is an OpenAI transcription, paid for once.
+    sidecar = pdf.with_suffix(".txt")
+    sidecar.write_text("[OpenAI visual transcription]\nnotes", encoding="utf-8")
+    before = (pdf.stat().st_mtime_ns, sidecar.read_text(encoding="utf-8"), resource.content_hash)
+
+    saved, failed = await collector.collect(session, course)
+
+    assert (saved, failed) == (1, 0)
+    after = (pdf.stat().st_mtime_ns, sidecar.read_text(encoding="utf-8"), resource.content_hash)
+    assert after == before
+
+
+@pytest.mark.asyncio
+async def test_a_changed_file_is_saved_again(tmp_path: Path) -> None:
+    session, course, resource = _session_with_document(None)
+    collector = _collector(tmp_path)
+    await collector.collect(session, course)
+    first_hash = resource.content_hash
+    pdf = Path(resource.local_path or "")
+    pdf.with_suffix(".txt").write_text("text of the old version", encoding="utf-8")
+
+    class NewerBrowser(FakeBrowser):
+        async def download_resource(self, url: str) -> BrowserDownloadedResource:
+            return BrowserDownloadedResource(
+                url=url,
+                filename="1. Introduction.pdf",
+                content_type="application/pdf",
+                content_base64=base64.b64encode(_PDF_BYTES + b"%revised\n").decode("ascii"),
+            )
+
+    collector.browser = cast(Any, NewerBrowser())
+    await collector.collect(session, course)
+
+    assert resource.content_hash != first_hash
+    assert pdf.read_bytes().endswith(b"%revised\n")

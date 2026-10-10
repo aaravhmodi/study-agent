@@ -103,7 +103,17 @@ class DocumentCollector:
                 )
                 path = self.download_dir / f"{resource.id}_{safe_name(resource.title)}{suffix}"
                 path.parent.mkdir(parents=True, exist_ok=True)
-                _remove_previous_file(saved_file(resource.local_path, self.download_dir), path)
+                content_hash = hashlib.sha256(content).hexdigest()
+                previous = saved_file(resource.local_path, self.download_dir)
+                if _unchanged(path, previous, content_hash, resource.content_hash):
+                    # The saved file and the text extracted from it are still right.
+                    # Writing them again would also throw away a handwritten PDF's
+                    # transcription and pay for a new one.
+                    resource.local_path = str(path)
+                    resource.processed = True
+                    saved += 1
+                    continue
+                _remove_previous_file(previous, path)
                 path.write_bytes(content)
                 if path.suffix.lower() == ".pdf":
                     # Keep extraction local. The PDF remains the canonical
@@ -120,7 +130,7 @@ class DocumentCollector:
                                 type(exc).__name__,
                             )
                 resource.local_path = str(path)
-                resource.content_hash = hashlib.sha256(content).hexdigest()
+                resource.content_hash = content_hash
                 resource.processed = True
                 saved += 1
             except (BrowserClientError, ValueError, OSError) as exc:
@@ -164,6 +174,16 @@ def _suffix(filename: str, content_type: str, resource_type: str) -> str:
             "PAGE": ".html",
         }.get(resource_type, ".bin"),
     )
+
+
+def _unchanged(path: Path, previous: Path | None, new_hash: str, old_hash: str | None) -> bool:
+    """Whether a download is the file already saved at ``path``, with its text beside it."""
+
+    if new_hash != old_hash or previous is None or not path.is_file():
+        return False
+    if previous.resolve() != path.resolve():
+        return False
+    return path.suffix.lower() != ".pdf" or path.with_suffix(".txt").is_file()
 
 
 def _remove_previous_file(previous: Path | None, current: Path) -> None:
