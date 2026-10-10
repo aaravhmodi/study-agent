@@ -298,3 +298,36 @@ def test_textbook_chapters_are_recorded_when_indexing(tmp_path) -> None:
         "Descriptive Statistics",
     ]
     assert entry["chapters"][2]["sections"] == ["3.1 Introduction"]
+
+
+def test_files_saved_on_another_machine_stay_in_the_index(tmp_path) -> None:
+    client = FakeIndexClient()
+    service = RagService(Settings(openai_api_key="test-key"), client=cast(Any, client))
+    service.manifest_path = tmp_path / "manifest.json"
+    service.downloads_dir = tmp_path
+    resource, course = _resource(tmp_path, "r-moved", "moved.txt")
+    # The database came from a Windows machine; the file itself is in this downloads folder.
+    resource.local_path = r"C:\Users\someone\agent\data\downloads\moved.txt"
+    service.manifest_path.write_text(
+        json.dumps(
+            {
+                "vector_store_id": "vs-test",
+                "files": {
+                    "r-moved": {
+                        "file_id": "f-1",
+                        "content_hash": "hash-r-moved",
+                        "chunking": CHUNKING,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    _, indexed, skipped, failed = service.index_resources([(resource, course)])
+
+    # Not re-uploaded, and above all not deleted from the vector store as missing.
+    assert (indexed, skipped, failed) == (0, 1, 0)
+    assert client.deleted == []
+    manifest = json.loads(service.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["files"]["r-moved"]["file_id"] == "f-1"

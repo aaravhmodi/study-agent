@@ -32,6 +32,7 @@ from app.services.retrieval import (
     from_search,
     select_passages,
 )
+from app.services.saved_files import saved_file
 from app.services.textbook_toc import Chapter, chapters, describe, parse_contents
 
 logger = logging.getLogger(__name__)
@@ -161,27 +162,33 @@ class RagService:
         skipped = 0
         failed = 0
         files = manifest.setdefault("files", {})
+        # Where each resource's file is on this machine, whichever machine saved it.
+        paths = {
+            resource.id: saved_file(resource.local_path, self.downloads_dir)
+            for resource, _course in rows
+        }
         eligible_ids = {
             resource.id
             for resource, _course in rows
-            if resource.local_path
-            and resource.content_hash
-            and Path(resource.local_path).is_file()
-            and Path(resource.local_path).suffix.lower() in _INDEXABLE_SUFFIXES
+            if resource.content_hash
+            and (path := paths[resource.id]) is not None
+            and path.is_file()
+            and path.suffix.lower() in _INDEXABLE_SUFFIXES
         }
         for resource_id in list(files):
             if resource_id not in eligible_ids:
                 self._delete_old_file(vector_store_id, files[resource_id].get("file_id"))
                 del files[resource_id]
         for resource, course in rows:
-            if not resource.local_path or not resource.content_hash:
+            path = paths[resource.id]
+            if path is None or not resource.content_hash:
                 skipped += 1
                 continue
             existing = files.get(resource.id)
-            if Path(resource.local_path).suffix.lower() == ".pdf":
+            if path.suffix.lower() == ".pdf":
                 # Text extracted before pages were labelled cannot be cited by page.
-                refresh_pdf_text_sidecar(Path(resource.local_path))
-            upload_hash = _upload_hash(resource.local_path)
+                refresh_pdf_text_sidecar(path)
+            upload_hash = _upload_hash(path)
             if (
                 existing
                 and existing.get("content_hash") == resource.content_hash
@@ -194,10 +201,9 @@ class RagService:
                 existing["title"] = resource.title
                 existing["source_url"] = resource.url
                 if "chapters" not in existing:
-                    existing["chapters"] = _chapters_of(Path(resource.local_path))
+                    existing["chapters"] = _chapters_of(path)
                 skipped += 1
                 continue
-            path = Path(resource.local_path)
             if not path.is_file() or path.suffix.lower() not in _INDEXABLE_SUFFIXES:
                 skipped += 1
                 continue
@@ -577,12 +583,12 @@ def _chapter_search_terms(files: dict[str, Any], course_code: str | None, wanted
     )
 
 
-def _upload_hash(local_path: str | None) -> str | None:
+def _upload_hash(path: Path) -> str | None:
     """Hash of the bytes rag-index uploads for a file (its text sidecar when it has one)."""
 
-    if not local_path or not Path(local_path).is_file():
+    if not path.is_file():
         return None
-    return hashlib.sha256(_local_text_path(Path(local_path)).read_bytes()).hexdigest()
+    return hashlib.sha256(_local_text_path(path).read_bytes()).hexdigest()
 
 
 def _brief(answer: str, limit: int = 800) -> str:

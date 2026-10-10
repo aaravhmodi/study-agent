@@ -15,6 +15,7 @@ from app.browser.client import BrowserClient, BrowserClientError
 from app.config import Settings
 from app.models import Course, Resource
 from app.services.pdf_text import write_pdf_text_sidecar
+from app.services.saved_files import saved_file
 from app.services.vision_pdf import VisionPdfTranscriber
 
 logger = logging.getLogger(__name__)
@@ -59,7 +60,8 @@ class DocumentCollector:
                     if downloaded.skipped:
                         resource.processed = True
                         # Keep a copy the student imported by hand (too large to fetch).
-                        if not (resource.local_path and Path(resource.local_path).is_file()):
+                        kept = saved_file(resource.local_path, self.download_dir)
+                        if kept is None or not kept.is_file():
                             resource.local_path = None
                             resource.content_hash = None
                         continue
@@ -91,7 +93,7 @@ class DocumentCollector:
                 )
                 path = self.download_dir / f"{resource.id}_{safe_name(resource.title)}{suffix}"
                 path.parent.mkdir(parents=True, exist_ok=True)
-                _remove_previous_file(resource.local_path, path)
+                _remove_previous_file(saved_file(resource.local_path, self.download_dir), path)
                 path.write_bytes(content)
                 if path.suffix.lower() == ".pdf":
                     # Keep extraction local. The PDF remains the canonical
@@ -152,18 +154,15 @@ def _suffix(filename: str, content_type: str, resource_type: str) -> str:
     )
 
 
-def _remove_previous_file(previous: str | None, current: Path) -> None:
+def _remove_previous_file(previous: Path | None, current: Path) -> None:
     """Delete a resource's earlier download when it is now saved elsewhere.
 
     A stale file can otherwise sit where the new file's text sidecar belongs
     (e.g. a PDF previously mislabelled as ``.txt``) and be indexed as text.
     """
 
-    if not previous:
-        return
-    previous_path = Path(previous)
-    if previous_path.resolve() != current.resolve():
-        previous_path.unlink(missing_ok=True)
+    if previous is not None and previous.resolve() != current.resolve():
+        previous.unlink(missing_ok=True)
 
 
 def safe_name(title: str) -> str:

@@ -3,7 +3,7 @@
 import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from pathlib import Path, PureWindowsPath
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
@@ -37,6 +37,7 @@ from app.services.course_notes import (
 from app.services.learn_links import viewer_url
 from app.services.pdf_pages import PdfError, render_pdf_page
 from app.services.rag import RagService
+from app.services.saved_files import saved_file
 from app.services.study_context import relevant_coursework, study_guidance
 
 app = FastAPI(title="StudyAgent", version="0.1.0")
@@ -309,13 +310,12 @@ def course_resource_page(
             .join(Course, Resource.course_id == Course.id)
             .where(Resource.id == resource_id, Course.active.is_(True))
         )
-        if resource is None or not resource.local_path:
-            raise HTTPException(status_code=404, detail="Course page not found")
-        # Saved files sit directly in the downloads folder. Going by the file's name
-        # keeps a database written on another machine working, whatever its paths.
-        name = PureWindowsPath(resource.local_path).name
+        local_path = resource.local_path if resource else None
     download_root = get_settings().downloads_dir.resolve()
-    path = (download_root / name).resolve()
+    saved = saved_file(local_path, download_root)
+    if saved is None:
+        raise HTTPException(status_code=404, detail="Course page not found")
+    path = saved.resolve()
     if (
         path.suffix.lower() != ".pdf"
         or not path.is_relative_to(download_root)
