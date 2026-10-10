@@ -8,6 +8,21 @@ rm -f /profile/chromium/Singleton*
 # The same for the virtual screen's lock, after a restart.
 rm -f /tmp/.X99-lock /tmp/.X11-unix/X99
 
+# Stay signed in to LEARN across restarts. Chromium throws away a site's session
+# cookies when it starts, unless it is set to reopen what was open last time.
+python3 - <<'EOF'
+import json
+import pathlib
+
+path = pathlib.Path("/profile/chromium/Default/Preferences")
+path.parent.mkdir(parents=True, exist_ok=True)
+prefs = json.loads(path.read_text()) if path.exists() else {}
+prefs.setdefault("session", {})["restore_on_startup"] = 1
+# A stop is not a crash: no "restore pages?" bubble over the sign-in page.
+prefs.setdefault("profile", {})["exit_type"] = "Normal"
+path.write_text(json.dumps(prefs))
+EOF
+
 Xvfb :99 -screen 0 1280x800x24 -nolisten tcp &
 sleep 1
 openbox &
@@ -21,5 +36,6 @@ socat TCP-LISTEN:9223,fork,reuseaddr TCP:127.0.0.1:9222 &
 
 exec chromium --no-sandbox --user-data-dir=/profile/chromium \
   --remote-debugging-port=9222 --no-first-run --no-default-browser-check \
-  --disable-dev-shm-usage --password-store=basic --window-position=0,0 \
+  --disable-dev-shm-usage --password-store=basic --hide-crash-restore-bubble \
+  --window-position=0,0 \
   --window-size=1280,800 "${LEARN_URL:-https://learn.uwaterloo.ca}"
