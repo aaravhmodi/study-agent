@@ -18,15 +18,19 @@ case "$api" in
   *) echo "Set STUDY_API_URL=https://... in .env first." >&2; exit 1 ;;
 esac
 
-# Every path the server answers on. The page itself is the only thing Vercel keeps.
-paths="api|chat|courses|assessments|course-resources|resources|changes|login|logout|health|docs|openapi.json"
+# Every path the server answers on; a test checks none is missing. The page itself
+# is the only thing Vercel keeps, at / and, as on the server, at /dashboard.
+paths="api|chat|courses|assessments|course-resources|resources|changes|jobs|login|logout|health|docs|openapi.json"
 site=.vercel-site
 mkdir -p "$site"
 cp backend/app/web/dashboard.html "$site/index.html"
 cat > "$site/vercel.json" <<EOF
 {
   "\$schema": "https://openapi.vercel.sh/vercel.json",
-  "rewrites": [{ "source": "/($paths)(.*)", "destination": "$api/\$1\$2" }],
+  "rewrites": [
+    { "source": "/($paths)(.*)", "destination": "$api/\$1\$2" },
+    { "source": "/dashboard", "destination": "/" }
+  ],
   "headers": [
     {
       "source": "/($paths)(.*)",
