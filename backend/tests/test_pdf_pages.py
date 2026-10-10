@@ -41,7 +41,7 @@ def test_a_numbered_item_is_found_not_a_later_mention_of_it() -> None:
     assert span is not None and span.bare
     # From just above item 21 to just above item 22, skipping the wrapped mention.
     assert 0.35 < span.top < 0.37
-    assert span.bottom is not None and 0.61 < span.bottom < 0.62
+    assert span.bottom is not None and 0.60 < span.bottom < 0.62
 
 
 def test_the_last_question_on_a_page_runs_to_its_end() -> None:
@@ -63,7 +63,7 @@ def test_a_heading_beats_a_solution_step_with_the_same_number() -> None:
 
     assert span is not None and not span.bare
     # It ends at the next heading, not at the numbered step inside it.
-    assert 0.48 < span.top < 0.50 and span.bottom is not None and span.bottom > 0.79
+    assert 0.48 < span.top < 0.50 and span.bottom is not None and span.bottom > 0.78
 
 
 def test_question_names_are_interchangeable_but_an_example_is_an_example() -> None:
@@ -88,7 +88,7 @@ def test_a_question_continues_to_the_next_pages_first_label() -> None:
     ]
 
     bottom = continuation(carried_over, bare=True)
-    assert bottom is not None and 0.39 < bottom < 0.40
+    assert bottom is not None and 0.38 < bottom < 0.40
     # Only a running header sits above the label, so nothing was carried over.
     assert continuation(starts_fresh, bare=False) is None
     assert continuation([TextLine("no labels here", 48, 0.3)], bare=True) is None

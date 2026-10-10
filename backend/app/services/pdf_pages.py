@@ -26,9 +26,9 @@ _NEARBY_PAGES = 3
 _TRIM_MARGIN = 24
 # Labels of one list start at the same indent; allow this much drift, in PDF points.
 _INDENT_TOLERANCE = 4.0
-# Space kept above a question's first line and above the next question, as page fractions.
-_PAD_ABOVE = 0.012
-_PAD_BELOW = 0.004
+# Space kept above a label's first line, as a fraction of the page height. A question
+# ends this far above the next label too, which clears a shaded heading bar.
+_PAD = 0.012
 # Running headers sit above this fraction of the page; text below it is the page's content.
 _HEADER_ZONE = 0.08
 
@@ -112,8 +112,8 @@ def question_span(lines: Sequence[TextLine], label: str) -> QuestionSpan | None:
     if chosen is None:
         return None
     following = _following(marks, chosen)
-    top = max(chosen.top - _PAD_ABOVE, 0.0)
-    bottom = max(following.top - _PAD_BELOW, top) if following else None
+    top = max(chosen.top - _PAD, 0.0)
+    bottom = max(following.top - _PAD, top) if following else None
     return QuestionSpan(top, bottom, bare=not chosen.kind)
 
 
@@ -128,9 +128,9 @@ def continuation(lines: Sequence[TextLine], bare: bool) -> float | None:
         return None
     indent = min(mark.left for mark in marks)
     first = next(mark for mark in marks if mark.left <= indent + _INDENT_TOLERANCE)
-    if not any(_HEADER_ZONE < line.top < first.top - _PAD_ABOVE for line in lines):
+    if not any(_HEADER_ZONE < line.top < first.top - _PAD for line in lines):
         return None
-    return first.top - _PAD_BELOW
+    return first.top - _PAD
 
 
 def find_question(path: Path, label: str, near_page: int | None = None) -> list[PageRegion]:
