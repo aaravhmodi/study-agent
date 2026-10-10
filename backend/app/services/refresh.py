@@ -45,7 +45,6 @@ def sync_learn(progress: Progress) -> str:
 def rebuild_index(progress: Progress) -> str:
     """Bring the tutor's index in line with the saved course files."""
 
-    progress("Comparing saved files with the index")
-    _store, indexed, skipped, failed = RagService(get_settings()).index_database()
+    _store, indexed, skipped, failed = RagService(get_settings()).index_database(progress)
     result = f"Indexed {indexed} new or changed files; {skipped} unchanged."
     return f"{result} {failed} could not be indexed." if failed else result

@@ -16,10 +16,17 @@ from app.logging import redact
 
 logger = logging.getLogger(__name__)
 
-MAX_LINES = 6
+MAX_LINES = 400
 
 # A task reports progress through the function it is given and returns its result.
 Work = Callable[[Callable[[str], None]], str]
+
+
+class JobLine(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    at: datetime
+    text: str
 
 
 class JobStatus(BaseModel):
@@ -29,8 +36,8 @@ class JobStatus(BaseModel):
     state: Literal["idle", "running", "done", "failed"] = "idle"
     # The result of a finished task, or why it failed.
     message: str = ""
-    # The latest progress lines of the task.
-    lines: list[str] = []
+    # What the task has reported so far, oldest first (the latest MAX_LINES).
+    lines: list[JobLine] = []
     started_at: datetime | None = None
     finished_at: datetime | None = None
 
@@ -67,4 +74,5 @@ class JobRunner:
 
     def _progress(self, line: str) -> None:
         with self._lock:
-            self._status.lines = [*self._status.lines, redact(line)][-MAX_LINES:]
+            entry = JobLine(at=datetime.now(UTC), text=redact(line))
+            self._status.lines = [*self._status.lines, entry][-MAX_LINES:]

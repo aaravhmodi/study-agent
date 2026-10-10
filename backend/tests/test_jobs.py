@@ -31,9 +31,10 @@ def test_a_task_reports_its_progress_and_result() -> None:
 
     status = runner.status()
     assert (status.name, status.state, status.message) == ("index", "done", "All done.")
-    # Only the latest lines are kept.
-    assert status.lines[-1] == f"step {MAX_LINES + 2}" and len(status.lines) == MAX_LINES
     assert status.started_at is not None and status.finished_at is not None
+    # Only the latest lines are kept, each with the time it was reported.
+    assert status.lines[-1].text == f"step {MAX_LINES + 2}" and len(status.lines) == MAX_LINES
+    assert status.started_at <= status.lines[0].at <= status.lines[-1].at <= status.finished_at
 
 
 def test_only_one_task_runs_at_a_time() -> None:
@@ -95,7 +96,8 @@ def test_the_dashboard_starts_tasks_and_reports_them(monkeypatch: pytest.MonkeyP
 
     done = client.get("/jobs").json()
     assert (done["name"], done["state"], done["message"]) == ("sync", "done", "Synced 6 courses.")
-    assert done["lines"] == ["Scanning SYDE 212..."]
+    assert [line["text"] for line in done["lines"]] == ["Scanning SYDE 212..."]
+    assert done["lines"][0]["at"] and done["started_at"] and done["finished_at"]
     # The page links to the server's sign-in window when there is one.
     assert done["signin_url"] == "http://server:6080/vnc.html"
 

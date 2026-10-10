@@ -331,3 +331,27 @@ def test_files_saved_on_another_machine_stay_in_the_index(tmp_path) -> None:
     assert client.deleted == []
     manifest = json.loads(service.manifest_path.read_text(encoding="utf-8"))
     assert manifest["files"]["r-moved"]["file_id"] == "f-1"
+
+
+def test_indexing_says_what_it_is_doing_as_it_goes(tmp_path) -> None:
+    client = FakeIndexClient()
+    service = RagService(Settings(openai_api_key="test-key"), client=cast(Any, client))
+    service.manifest_path = tmp_path / "manifest.json"
+    service.manifest_path.write_text(
+        json.dumps(
+            {
+                "vector_store_id": "vs-test",
+                "files": {"r-gone": {"file_id": "f-9", "title": "Old tutorial"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    steps: list[str] = []
+
+    service.index_resources([_resource(tmp_path, "r-new", "new.txt")], steps.append)
+
+    assert steps == [
+        "Checking 1 course items against the index",
+        "Removing Old tutorial: no longer saved",
+        "Indexing SYDE 212: new.txt",
+    ]

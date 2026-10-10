@@ -68,7 +68,7 @@ class SyncService:
                         counts = _persist_scan(session, course, scan)
                         downloaded, failed_downloads = await DocumentCollector(
                             self.settings, self.browser
-                        ).collect(session, course)
+                        ).collect(session, course, self.progress)
                         summary.assessments_found += counts[0]
                         summary.resources_found += counts[1]
                         self.progress(

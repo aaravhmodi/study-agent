@@ -108,3 +108,13 @@ async def test_too_large_item_keeps_a_hand_imported_copy(tmp_path: Path) -> None
     imported.unlink()
     await collector.collect(session, course)
     assert (resource.local_path, resource.content_hash) == (None, None)
+
+
+@pytest.mark.asyncio
+async def test_each_file_is_announced_as_it_is_fetched(tmp_path: Path) -> None:
+    session, course, _resource = _session_with_document(None)
+    steps: list[str] = []
+
+    await _collector(tmp_path).collect(session, course, steps.append)
+
+    assert steps == ["SYDE 212: reading 1. Introduction"]

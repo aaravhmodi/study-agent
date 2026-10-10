@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
@@ -113,7 +114,9 @@ class RagService:
         self.manifest_path = settings.data_dir / "rag_manifest.json"
         self.downloads_dir = settings.downloads_dir
 
-    def index_database(self) -> tuple[str, int, int, int]:
+    def index_database(
+        self, progress: Callable[[str], None] | None = None
+    ) -> tuple[str, int, int, int]:
         ensure_schema()
         with SessionLocal() as session:
             rows = session.execute(
@@ -122,15 +125,24 @@ class RagService:
                 .where(Course.active.is_(True))
                 .order_by(Course.code, Resource.title)
             ).all()
-            return self.index_resources([(resource, course) for resource, course in rows])
+            return self.index_resources([(resource, course) for resource, course in rows], progress)
 
-    def index_resources(self, rows: list[tuple[Resource, Course]]) -> tuple[str, int, int, int]:
-        """Sync saved resources into the vector store; return (id, indexed, skipped, failed)."""
+    def index_resources(
+        self,
+        rows: list[tuple[Resource, Course]],
+        progress: Callable[[str], None] | None = None,
+    ) -> tuple[str, int, int, int]:
+        """Sync saved resources into the vector store; return (id, indexed, skipped, failed).
+
+        ``progress`` is told each step as it happens, for whoever is watching.
+        """
         manifest = self._load_manifest()
         vector_store_id = str(manifest.get("vector_store_id") or self._create_vector_store())
         manifest["vector_store_id"] = vector_store_id
         try:
-            indexed, skipped, failed = self._index_into(manifest, vector_store_id, rows)
+            indexed, skipped, failed = self._index_into(
+                manifest, vector_store_id, rows, progress or (lambda line: None)
+            )
         finally:
             # Persist deletions and uploads even when a run aborts, so the
             # next run does not repeat them or orphan hosted files.
@@ -157,11 +169,13 @@ class RagService:
         manifest: dict[str, Any],
         vector_store_id: str,
         rows: list[tuple[Resource, Course]],
+        progress: Callable[[str], None],
     ) -> tuple[int, int, int]:
         indexed = 0
         skipped = 0
         failed = 0
         files = manifest.setdefault("files", {})
+        progress(f"Checking {len(rows)} course items against the index")
         # Where each resource's file is on this machine, whichever machine saved it.
         paths = {
             resource.id: saved_file(resource.local_path, self.downloads_dir)
@@ -177,6 +191,7 @@ class RagService:
         }
         for resource_id in list(files):
             if resource_id not in eligible_ids:
+                progress(f"Removing {files[resource_id].get('title') or 'a file'}: no longer saved")
                 self._delete_old_file(vector_store_id, files[resource_id].get("file_id"))
                 del files[resource_id]
         for resource, course in rows:
@@ -211,6 +226,7 @@ class RagService:
                 self._delete_old_file(vector_store_id, existing.get("file_id"))
                 del files[resource.id]
             upload_path = _local_text_path(path)
+            progress(f"Indexing {course.code or course.name}: {resource.title}")
             with upload_path.open("rb") as handle:
                 uploaded = self.client.files.create(file=handle, purpose="assistants")
             try:
@@ -235,6 +251,7 @@ class RagService:
             except (VectorFileError, BadRequestError) as exc:
                 # One unprocessable document should not abort the whole index.
                 failed += 1
+                progress(f"WARNING could not index {resource.title}")
                 logger.warning(
                     "Could not index %s %r (%s): %s",
                     course.code or course.name,

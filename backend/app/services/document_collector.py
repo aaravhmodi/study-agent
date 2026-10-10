@@ -4,7 +4,7 @@ import base64
 import hashlib
 import logging
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -28,8 +28,16 @@ class DocumentCollector:
         self.download_dir = settings.downloads_dir
         self.vision_pdf = VisionPdfTranscriber(settings) if settings.openai_api_key else None
 
-    async def collect(self, session: Session, course: Course) -> tuple[int, int]:
-        """Download visible course resources; return (saved, failed)."""
+    async def collect(
+        self,
+        session: Session,
+        course: Course,
+        progress: Callable[[str], None] | None = None,
+    ) -> tuple[int, int]:
+        """Download visible course resources; return (saved, failed).
+
+        ``progress`` is told each file as it is fetched, for whoever is watching.
+        """
         saved = 0
         failed = 0
         # _persist_scan may have removed legacy wrapper rows from the
@@ -56,6 +64,8 @@ class DocumentCollector:
                     content_type = "text/plain; charset=utf-8"
                     saved_as_text = True
                 else:
+                    if progress:
+                        progress(f"{course.code or course.name}: reading {resource.title}")
                     downloaded = await self.browser.download_resource(resource.url)
                     if downloaded.skipped:
                         resource.processed = True
@@ -120,6 +130,8 @@ class DocumentCollector:
                 session.info.setdefault("document_warnings", []).append(
                     f"{resource.title}: {type(exc).__name__}"
                 )
+                if progress:
+                    progress(f"WARNING could not save {resource.title}")
                 logger.warning(
                     "Could not save course resource %r (%s)",
                     resource.title,
