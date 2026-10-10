@@ -358,15 +358,20 @@ const statusPill = (status, due) => {
 const resourceLink = r => r.url ? `<a target="_blank" rel="noreferrer" href="${esc(r.url)}">${esc(r.title)}</a>` : esc(r.title);
 const loading = what => `<p class="loading">${esc(what)}…</p>`;
 
-// Served from Vercel, a request now and then fails because Vercel could not look up
-// the server's address. A header says so, and the request never reached the server,
-// so sending it again is safe whatever it was.
+// Served from Vercel, a request now and then gets a 502 on the way to the server:
+// Vercel could not look up or reach its address, or the server was restarting.
+// Reading something is always safe to repeat. Anything else is repeated only when
+// Vercel's header says the request never reached the server.
+const NEVER_ARRIVED = /^(DNS_|ROUTER_EXTERNAL_TARGET_(CONNECTION|HANDSHAKE)_ERROR)/;
 async function fetchAgainIfLost(path, options) {
+  const reading = !options?.method || options.method === 'GET';
   let response;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 4; attempt++) {
     response = await fetch(path, options);
-    if (!(response.headers.get('x-vercel-error') || '').startsWith('DNS_')) break;
-    await new Promise(resolve => setTimeout(resolve, 400 * (attempt + 1)));
+    const lost = NEVER_ARRIVED.test(response.headers.get('x-vercel-error') || '')
+      || (reading && [502, 503, 504].includes(response.status));
+    if (!lost) break;
+    await new Promise(resolve => setTimeout(resolve, 500 * 2 ** attempt));
   }
   return response;
 }
