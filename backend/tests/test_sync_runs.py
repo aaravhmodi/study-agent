@@ -88,3 +88,52 @@ async def test_a_sync_cut_off_by_a_restart_is_no_longer_called_running(
     assert (earlier.status, earlier.error) == ("INTERRUPTED", "Stopped before it finished.")
     assert earlier.finished_at is not None
     assert latest.status == "FAILED"
+
+
+def test_an_announcement_linked_two_ways_is_read_and_saved_once(
+    sessions: sessionmaker[Session],
+) -> None:
+    from app.agents.course_agent import _extract_announcements
+    from app.models import Announcement, Course
+    from app.schemas.browser import BrowserPageSnapshot, PageLink
+    from app.schemas.extraction import CourseScanResult
+    from app.services.sync_service import _persist_scan
+
+    page = "https://learn.uwaterloo.ca/d2l/le/news/1292394/1146084/view"
+    listing = BrowserPageSnapshot(
+        url="https://learn.uwaterloo.ca/d2l/lms/news/main.d2l",
+        links=[PageLink(text="Midterm Details", href=f"{page}?ou=1292394")],
+    )
+    home = BrowserPageSnapshot(
+        url="https://learn.uwaterloo.ca/d2l/home/1292394",
+        links=[PageLink(text="Midterm Details", href=page)],
+    )
+    detail = BrowserPageSnapshot(url=page, text="The midterm covers chapters 1 to 6.")
+
+    (announcement,) = _extract_announcements([listing, home, detail])
+    assert str(announcement.source_url) == page
+    assert announcement.body == "The midterm covers chapters 1 to 6."
+
+    with sessions() as session:
+        course = Course(code="SYDE 286", name="SYDE 286", url="https://learn.example/286")
+        session.add(course)
+        session.flush()
+        # An earlier sync saved the same announcement under its ?ou= address too.
+        session.add(
+            Announcement(
+                course_id=course.id,
+                title="Midterm Details",
+                source_url=f"{page}?ou=1292394",
+                first_seen_at=NOW,
+                last_seen_at=NOW,
+            )
+        )
+        session.flush()
+
+        _persist_scan(
+            session, course, CourseScanResult(course_name="x", announcements=[announcement])
+        )
+        session.flush()
+
+        saved = session.scalars(select(Announcement)).all()
+        assert [row.source_url for row in saved] == [page]

@@ -1,6 +1,6 @@
 import re
 from datetime import datetime
-from urllib.parse import parse_qs, quote, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 from pydantic import AnyHttpUrl, TypeAdapter
@@ -112,7 +112,7 @@ class CourseAgent:
         # read-only detail pages too: due dates are often announced there
         # before they appear in the LEARN calendar.
         announcement_urls = {
-            link.href
+            _news_detail_url(link.href)
             for snapshot in snapshots
             for link in snapshot.links
             if _is_news_detail_url(link.href)
@@ -567,6 +567,17 @@ def _is_news_detail_url(href: str) -> bool:
     return "/d2l/le/news/" in href and "/view" in href
 
 
+def _news_detail_url(href: str) -> str:
+    """An announcement's address without the ?ou= some links to it carry.
+
+    LEARN links to one announcement both ways, and it is one page: read it once and
+    save it once.
+    """
+
+    parts = urlsplit(href)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
+
 def _extract_announced_assessments(
     snapshots: list[BrowserPageSnapshot], timezone_name: str
 ) -> list[AssessmentExtraction]:
@@ -638,7 +649,9 @@ def _clean_announced_title(line: str, fallback: str) -> str:
 def _extract_announcements(snapshots: list[BrowserPageSnapshot]) -> list[AnnouncementExtraction]:
     unique: dict[str, AnnouncementExtraction] = {}
     details = {
-        snapshot.url: snapshot for snapshot in snapshots if _is_news_detail_url(snapshot.url)
+        _news_detail_url(snapshot.url): snapshot
+        for snapshot in snapshots
+        if _is_news_detail_url(snapshot.url)
     }
     for snapshot in snapshots:
         for link in snapshot.links:
@@ -646,11 +659,12 @@ def _extract_announcements(snapshots: list[BrowserPageSnapshot]) -> list[Announc
                 continue
             title = " ".join(link.text.split())
             if title:
-                detail = details.get(link.href)
-                unique[link.href] = AnnouncementExtraction(
+                url = _news_detail_url(link.href)
+                detail = details.get(url)
+                unique[url] = AnnouncementExtraction(
                     title=title[:255],
                     body=(detail.text[:8000] if detail and detail.text else None),
-                    source_url=_HTTP_URL.validate_python(link.href),
+                    source_url=_HTTP_URL.validate_python(url),
                 )
     for url, detail in details.items():
         if url in unique:

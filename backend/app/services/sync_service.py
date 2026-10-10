@@ -196,6 +196,15 @@ def _persist_scan(session: Session, course: Course, scan: CourseScanResult) -> t
             str(announcement.source_url) if announcement.source_url else None
         )
         existing_announcement.last_seen_at = now
+        if existing_announcement.source_url:
+            # Earlier syncs also saved it under its address with ?ou= added.
+            for twin in session.scalars(
+                select(Announcement).where(
+                    Announcement.course_id == course.id,
+                    Announcement.source_url.like(f"{existing_announcement.source_url}?%"),
+                )
+            ):
+                session.delete(twin)
 
     for resource in scan.resources:
         extracted_url = str(resource.url) if resource.url else None
