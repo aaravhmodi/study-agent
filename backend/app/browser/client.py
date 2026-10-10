@@ -401,6 +401,7 @@ def _snapshot_script(url: str | None, wait_seconds: int) -> str:
   }).slice(0, 1000)
 })"""
     return f"""import json
+import os
 import time
 from urllib.parse import parse_qs, urlsplit, urlunsplit
 
@@ -418,7 +419,11 @@ if target_url:
             current.query
         ).get('ou', []):
             matching.append(tab)
-        elif target_ou and current.path.endswith('/' + target_ou):
+        elif (
+            target_ou
+            and target.path.endswith('/ouHome/home.d2l')
+            and current.path == '/d2l/home/' + target_ou
+        ):
             matching.append(tab)
         elif target.path in ('', '/') and current.path == '/d2l/home':
             matching.append(tab)
@@ -441,6 +446,14 @@ if target_url:
         new_tab(target_url)
     try:
         wait_for_load()
+    except Exception:
+        pass
+# Outline and a course's home only finish loading in the tab that is showing. In a
+# browser kept for the sync (named by BU_CDP_URL) the tab is brought to the front;
+# your own Chrome is left on whatever you are looking at.
+if os.environ.get('BU_CDP_URL'):
+    try:
+        activate_tab(current_tab())
     except Exception:
         pass
 time.sleep({max(0, min(wait_seconds, 15))})
