@@ -11,7 +11,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-setting() { grep -m1 "^$1=" .env 2>/dev/null | cut -d= -f2- | tr -d '\r'; }
+setting() { grep -m1 "^$1=" .env 2>/dev/null | cut -d= -f2- | tr -d '\r' || true; }
 server="${STUDY_SERVER:-$(setting STUDY_SERVER)}"
 remote="${STUDY_SERVER_DIR:-$(setting STUDY_SERVER_DIR)}"
 remote="${remote:-projects/study-agent}"
@@ -29,12 +29,12 @@ uv run study-agent sync
 uv run study-agent rag-index
 
 # Course files are large, so only the ones changed since the last run are sent.
-sent=data/.sent-to-server
+cd data
 newer=()
-[ -f "$sent" ] && newer=(-newer "$sent")
-touch data/.sending
-(cd data && find downloads -type f "${newer[@]}" -print0 |
-  tar --null -cf - study_agent.db rag_manifest.json -T -) |
+[ -f .sent-to-server ] && newer=(-newer .sent-to-server)
+touch .sending
+find downloads -type f "${newer[@]}" -print0 |
+  tar --null -cf - study_agent.db rag_manifest.json -T - |
   ssh -o BatchMode=yes "$server" "tar -xf - -C '$remote/data'"
-mv data/.sending "$sent"
+mv .sending .sent-to-server
 echo "Sent to $server. The dashboard is starting again."
