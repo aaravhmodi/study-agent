@@ -136,6 +136,11 @@ textarea:focus,select:focus{border-color:var(--ink);outline:none;box-shadow:inse
 .figure .sketch{overflow-x:auto}
 .figure .sketch svg{display:block;margin:0 auto;width:100%;max-width:520px;height:auto;max-height:420px}
 .figure .figure-error{font:12.5px var(--mono);color:var(--ink-3);margin:0}
+.original-pages{max-width:70ch;margin:18px 0 24px}
+.original-pages h3{font:600 11.5px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.original-page{margin:10px 0;padding:10px;background:var(--sheet);border:1px solid var(--rule)}
+.original-page figcaption{font:13px var(--mono);color:var(--ink-2);margin-bottom:8px}
+.original-page img{display:block;width:100%;height:auto}
 .notice{margin-top:18px;padding:10px 14px;border-left:3px solid var(--pencil);background:var(--pencil-wash);font-size:14px}
 
 .index{list-style:none;margin:0;padding:0}
@@ -180,7 +185,7 @@ button.row:hover b{text-decoration:underline;text-decoration-color:var(--pencil)
 .detail ul{padding-left:20px}
 .detail .note-help{color:var(--ink-2);font-size:13.5px;margin:0 0 8px}
 .detail .note-actions{margin-top:8px;display:flex;gap:10px;flex-wrap:wrap}
-.detail .note-text{white-space:pre-wrap}
+.detail .note-text{white-space:pre-wrap;overflow-wrap:anywhere}
 #course-notes{margin-bottom:10px}
 .detail li{margin:5px 0}
 .detail .type{font:12px var(--mono);color:var(--ink-3);margin-left:4px}
@@ -191,10 +196,12 @@ button.row:hover b{text-decoration:underline;text-decoration-color:var(--pencil)
 .toast.show{display:block}
 .toast.error{background:var(--pencil)}
 
-.layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:56px}
-aside .section-head h2{font-size:19px}
+.screen-nav{display:flex;gap:8px 20px;flex-wrap:wrap;padding:16px 0 2px;border-bottom:1px solid var(--rule)}
+.screen-nav button{border:0;background:none;padding:5px 0;color:var(--ink-2);font-size:14px}
+.screen-nav button[aria-current="page"]{color:var(--ink);font-weight:600;text-decoration:underline;text-decoration-color:var(--pencil);text-underline-offset:5px}
+.screen{min-height:55vh}
 
-@media (max-width:860px){.layout{grid-template-columns:1fr;gap:0}.detail{padding:18px;margin-top:16px}.detail .section-head{flex-direction:column}.section-head .label{display:none}.detail .section-head .label{display:block}.shell{padding:0 16px 72px}.hint{display:none}.table .hide-sm{display:none}.table .hide-lg{display:inline}}
+@media (max-width:860px){.detail{padding:18px;margin-top:16px}.detail .section-head{flex-direction:column}.section-head .label{display:none}.detail .section-head .label{display:block}.shell{padding:0 16px 72px}.hint{display:none}.table .hide-sm{display:none}.table .hide-lg{display:inline}}
 </style>
 </head>
 <body>
@@ -205,8 +212,15 @@ aside .section-head h2{font-size:19px}
   </header>
   <p class="status-line" id="status-line">Loading your courses…</p>
 
-  <div class="layout">
-    <main>
+  <nav class="screen-nav" id="screen-nav" aria-label="Dashboard screens">
+    <button type="button" data-screen="ask">Ask</button>
+    <button type="button" data-screen="upcoming">Coming up</button>
+    <button type="button" data-screen="courses">Courses</button>
+    <button type="button" data-screen="chats">Recent chats</button>
+    <button type="button" data-screen="activity">Activity</button>
+  </nav>
+  <main>
+    <div id="screen-ask" class="screen">
       <section class="section" aria-labelledby="ask-title">
         <div class="section-head"><h2 id="ask-title">Ask about a lecture or topic</h2><button type="button" class="quiet-button hidden" id="chat-new">New chat</button></div>
         <div class="ask-box">
@@ -221,36 +235,56 @@ aside .section-head h2{font-size:19px}
         <p class="thread-tools hidden" id="thread-tools"><button type="button" class="quiet-button" data-collapse-all>Collapse all</button><span aria-hidden="true"> · </span><button type="button" class="quiet-button" data-expand-all>Expand all</button></p>
         <div id="chat-thread" aria-live="polite"></div>
       </section>
-
       <section id="detail" class="detail hidden" aria-live="polite"><div id="detail-content"></div></section>
-
+    </div>
+    <div id="screen-upcoming" class="screen hidden">
       <section class="section" aria-labelledby="due-title">
         <div class="section-head"><h2 id="due-title">Coming up</h2><span class="label">Open one for what to study</span></div>
         <div id="assessments"><p class="loading">Loading…</p></div>
       </section>
-    </main>
-
-    <aside>
-      <section class="section" aria-labelledby="chats-title">
-        <div class="section-head"><h2 id="chats-title">Recent chats</h2></div>
-        <div id="chats" class="index"><p class="loading">Loading…</p></div>
-      </section>
+      <section id="upcoming-detail" class="detail hidden" aria-live="polite"><div id="upcoming-detail-content"></div></section>
+    </div>
+    <div id="screen-courses" class="screen hidden">
       <section class="section" aria-labelledby="courses-title">
         <div class="section-head"><h2 id="courses-title">Courses</h2></div>
         <div id="courses" class="index"><p class="loading">Loading…</p></div>
       </section>
+      <section id="courses-detail" class="detail hidden" aria-live="polite"><div id="courses-detail-content"></div></section>
+    </div>
+    <div id="screen-chats" class="screen hidden">
+      <section class="section" aria-labelledby="chats-title">
+        <div class="section-head"><h2 id="chats-title">Recent chats</h2></div>
+        <div id="chats" class="index"><p class="loading">Loading…</p></div>
+      </section>
+    </div>
+    <div id="screen-activity" class="screen hidden">
       <section class="section" aria-labelledby="changes-title">
         <div class="section-head"><h2 id="changes-title">Since last sync</h2></div>
         <div id="changes" class="index"><p class="loading">Loading…</p></div>
       </section>
-    </aside>
-  </div>
+    </div>
+  </main>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const $ = selector => document.querySelector(selector);
+const screenNames = new Set(['ask', 'upcoming', 'courses', 'chats', 'activity']);
+function showScreen(name) {
+  const selected = screenNames.has(name) ? name : 'ask';
+  document.querySelectorAll('.screen').forEach(screen => screen.classList.toggle('hidden', screen.id !== `screen-${selected}`));
+  document.querySelectorAll('#screen-nav [data-screen]').forEach(button => {
+    if (button.dataset.screen === selected) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
+}
+$('#screen-nav').addEventListener('click', event => {
+  const button = event.target.closest('[data-screen]');
+  if (button) location.hash = button.dataset.screen;
+});
+window.addEventListener('hashchange', () => showScreen(location.hash.slice(1)));
+showScreen(location.hash.slice(1));
 const date = value => value ? new Date(value).toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}) : 'No date';
 const DAY = 86400000;
 // "in 3 days", "tomorrow", "2 days ago": how far away a due date is reads faster than the date.
@@ -556,6 +590,15 @@ function renderSources(citations) {
   return `<div class="sources"><p class="label">Sources</p><ol>${files.concat(web).map(item).join('')}</ol></div>`;
 }
 
+function renderOriginalPages(question, pages) {
+  if (!/\b(?:practice|practise|problem|question)\b/i.test(question) || !pages?.length) return '';
+  const images = pages.filter(page => /^\/course-resources\/[\w-]+\/pages\/\d+$/.test(page.image_url));
+  if (!images.length) return '';
+  return `<section class="original-pages" aria-label="Original course question pages"><h3>Original question from your course files</h3>${images.map(page =>
+    `<figure class="original-page"><figcaption>${esc(page.title)} · PDF page ${esc(page.pdf_page)}${/\b(?:lecture|slides?|presentation|deck)\b/i.test(`${page.title} ${page.filename}`) ? ` · slide ${esc(page.printed_page || page.pdf_page)}` : ''}${page.printed_page && page.printed_page !== page.pdf_page ? ` · printed p. ${esc(page.printed_page)}` : ''}</figcaption><img src="${esc(page.image_url)}" loading="lazy" alt="Original page ${esc(page.pdf_page)} from ${esc(page.title)}"></figure>`
+  ).join('')}</section>`;
+}
+
 // Suggestions come from the student's own work, e.g. the next test on the calendar.
 function renderSuggestions(data) {
   const nextTest = data.assessments.find(a => a.status !== 'COMPLETED' && a.status !== 'OVERDUE' && /test|midterm|exam|quiz/i.test(`${a.type} ${a.title}`));
@@ -611,6 +654,7 @@ function appendTurn(question, result, meta) {
     <div class="turn-body">
       <div class="answer-wrap">
         <p class="answer-meta">${meta}</p>
+        ${renderOriginalPages(question, result.source_pages || [])}
         ${renderAnswer(result.answer, result.citations || [])}
         ${renderSources(result.citations || [])}
       </div>
@@ -708,14 +752,22 @@ async function loadChats() {
 }
 
 function showDetail(html) {
-  const detail = $('#detail');
-  $('#detail-content').innerHTML = html;
+  const screen = location.hash.slice(1) || 'ask';
+  const targetId = screen === 'upcoming' ? 'upcoming-detail' : screen === 'courses' ? 'courses-detail' : 'detail';
+  const detail = $(`#${targetId}`);
+  $(`#${targetId}-content`).innerHTML = html;
   detail.classList.remove('hidden');
 }
-function closeDetail() { $('#detail').classList.add('hidden') }
+function closeDetail() {
+  const screen = location.hash.slice(1) || 'ask';
+  const id = screen === 'upcoming' ? 'upcoming-detail' : screen === 'courses' ? 'courses-detail' : 'detail';
+  $(`#${id}`).classList.add('hidden');
+}
 function openingDetail(what) {
   showDetail(loading(`Opening ${what}`));
-  $('#detail').scrollIntoView({behavior: 'smooth', block: 'start'});
+  const screen = location.hash.slice(1) || 'ask';
+  const id = screen === 'upcoming' ? 'upcoming-detail' : screen === 'courses' ? 'courses-detail' : 'detail';
+  $(`#${id}`).scrollIntoView({behavior: 'smooth', block: 'start'});
 }
 
 async function withRowBusy(row, work) {
@@ -733,7 +785,7 @@ async function openCourse(id, name, row) {
       <h3>Your notes for this course</h3>
       <p class="sub note-help">What your instructor said that isn't on LEARN, like what a midterm covers. The tutor reads these with every question about ${esc(c.code || c.name)}.</p>
       <div id="course-notes">${notesList(c.notes || [], c.id)}</div>
-      <textarea id="course-note" maxlength="4000" placeholder="e.g. The midterm covers chapters 1-4; two R coding questions; 40 multiple choice."></textarea>
+      <textarea id="course-note" aria-label="New note" maxlength="4000" placeholder="e.g. The midterm covers chapters 1-4; two R coding questions; 40 multiple choice."></textarea>
       <div class="note-actions"><select id="note-about" aria-label="About"><option value="">About the whole course</option>${c.assessments.map(a => `<option value="${esc(a.title)}">About: ${esc(a.title)}</option>`).join('')}</select><button class="secondary-button" data-save-note="${esc(c.id)}">Add note</button></div>
       <h3>Assessments</h3><div>${c.assessments.length ? c.assessments.map(a => `<button class="row" data-assessment="${esc(a.id)}" data-name="${esc(a.title)}"><span><b>${esc(a.title)}</b><span class="sub">${esc(a.type)} · ${esc(date(a.due_at))}</span></span><span class="side">${statusPill(a.status, a.due_at)}</span></button>`).join('') : '<div class="empty">No assessments found.</div>'}</div>
       <h3>Coursework you have</h3><div>${c.resources.length ? c.resources.map(r => `<div class="resource"><b>${resourceLink(r)}</b> <span class="type">${esc(String(r.type || '').toLowerCase())}</span>${r.description ? `<div class="sub">${esc(r.description)}</div>` : ''}</div>`).join('') : '<div class="empty">No resources found.</div>'}</div>
@@ -752,6 +804,12 @@ async function openAssessment(id, name, row) {
     showDetail(`<div>
       <div class="section-head"><div><p class="label">${esc(a.course)} · ${esc(a.type)}</p><h2>${esc(a.title)}</h2><p class="stat"><span class="mono">Due ${esc(date(a.due_at))} (${esc(until(a.due_at))})</span> · ${statusPill(a.status, a.due_at)}${a.weight_percent == null ? '' : ` · ${esc(a.weight_percent)}% of grade`}</p></div><div class="actions">${action}<button class="secondary-button" data-ask="${esc(`What should I review for the ${a.course} ${a.title}?`)}" data-course="${esc(a.course)}">Ask how to study for this</button><button class="secondary-button" data-close>Close</button></div></div>
       ${a.description ? `<p class="stat">${esc(a.description)}</p>` : ''}
+      <h3>Your notes for this assessment</h3>
+      <p class="sub note-help">Add what your instructor said about ${esc(a.title)}. The tutor reads these with questions about ${esc(a.course)}.</p>
+      <div id="course-notes" data-assessment-id="${esc(a.id)}">${notesList(a.notes || [], a.course_id)}</div>
+      <textarea id="course-note" aria-label="New note" maxlength="4000" placeholder="e.g. Focus on chapters 1-4; bring a calculator."></textarea>
+      <input id="note-about" type="hidden" value="${esc(a.title)}">
+      <div class="note-actions"><button class="secondary-button" data-save-note="${esc(a.course_id)}">Add note</button></div>
       <h3>Relevant coursework</h3><div>${a.coursework.length ? a.coursework.map(r => `<div class="resource"><b>${resourceLink(r)}</b> <span class="type">${esc(String(r.type || '').toLowerCase())}</span><div class="sub">${esc(r.match_reason)}</div>${r.description ? `<div class="sub">${esc(r.description)}</div>` : ''}</div>`).join('') : '<div class="empty">No matching course resources yet. Run sync after the instructor posts material.</div>'}</div>
       <h3>How to study for it</h3><ul>${a.study_guidance.map(step => `<li>${esc(step)}</li>`).join('')}</ul>
     </div>`);
@@ -812,9 +870,13 @@ $('#thread-tools').addEventListener('click', event => {
 });
 $('#chats').addEventListener('click', event => {
   const row = event.target.closest('[data-session]');
-  if (row) openChat(row.dataset.session, row).catch(fail);
+  if (row) {
+    location.hash = 'ask';
+    openChat(row.dataset.session, row).catch(fail);
+  }
 });
 function fillQuestion(question, course) {
+  location.hash = 'ask';
   // A suggested question starts its own conversation.
   if (currentSession) newChat();
   $('#chat-question').value = question;
@@ -843,7 +905,7 @@ $('#assessments').addEventListener('click', event => {
   const row = event.target.closest('[data-assessment]');
   if (row) openAssessment(row.dataset.assessment, row.dataset.name, row).catch(fail);
 });
-$('#detail').addEventListener('click', event => {
+document.querySelector('main').addEventListener('click', event => {
   const target = event.target.closest('button');
   if (!target) return;
   if (target.hasAttribute('data-close')) { closeDetail(); return }
@@ -852,7 +914,7 @@ $('#detail').addEventListener('click', event => {
   if (target.dataset.complete) { changeStatus(target.dataset.complete, 'complete', target); return }
   if (target.dataset.reopen) { changeStatus(target.dataset.reopen, 'reopen', target); return }
   if (target.dataset.saveNote) { saveCourseNote(target.dataset.saveNote, target); return }
-  if (target.dataset.deleteNote) deleteCourseNote(target.dataset.courseId, target.dataset.deleteNote);
+  if (target.dataset.deleteNote) deleteCourseNote(target.dataset.courseId, target.dataset.deleteNote, target);
 });
 function notesList(notes, courseId) {
   if (!notes.length) return '<div class="empty">No notes yet.</div>';
@@ -862,13 +924,16 @@ function notesList(notes, courseId) {
 }
 
 async function saveCourseNote(id, button) {
-  const text = $('#course-note').value.trim();
-  if (!text) { $('#course-note').focus(); toast('Type the note first.'); return }
+  const panel = button.closest('.detail');
+  const input = panel.querySelector('#course-note');
+  const list = panel.querySelector('#course-notes');
+  const text = input.value.trim();
+  if (!text) { input.focus(); toast('Type the note first.'); return }
   const done = setBusy(button, 'Saving');
   try {
     await getJson(`/courses/${encodeURIComponent(id)}/notes`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text, about: $('#note-about').value || null})});
-    $('#course-note').value = '';
-    $('#course-notes').innerHTML = notesList(await getJson(`/courses/${encodeURIComponent(id)}/notes`), id);
+    if (input.value.trim() === text) input.value = '';
+    await refreshNotes(list, id);
     toast('Note saved. The tutor will use it for this course.');
   } catch (error) {
     toast(error.message || String(error), 'error');
@@ -877,10 +942,19 @@ async function saveCourseNote(id, button) {
   }
 }
 
-async function deleteCourseNote(courseId, noteId) {
+async function refreshNotes(list, courseId) {
+  const assessmentId = list.dataset.assessmentId;
+  const notes = assessmentId
+    ? (await getJson(`/assessments/${encodeURIComponent(assessmentId)}`)).notes
+    : await getJson(`/courses/${encodeURIComponent(courseId)}/notes`);
+  if (list.isConnected) list.innerHTML = notesList(notes || [], courseId);
+}
+
+async function deleteCourseNote(courseId, noteId, button) {
+  const list = button.closest('.detail').querySelector('#course-notes');
   try {
     await getJson(`/courses/${encodeURIComponent(courseId)}/notes/${encodeURIComponent(noteId)}`, {method: 'DELETE'});
-    $('#course-notes').innerHTML = notesList(await getJson(`/courses/${encodeURIComponent(courseId)}/notes`), courseId);
+    await refreshNotes(list, courseId);
     toast('Note deleted');
   } catch (error) {
     toast(error.message || String(error), 'error');

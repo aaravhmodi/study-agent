@@ -103,13 +103,22 @@ Answers cite course files inline, with the page for PDFs (`[course text.pdf, p. 
 
 ### Course notes
 
-Some things the instructor says never reach LEARN, or not where sync reads them, such as what a midterm covers. Add them once per course, in the course's panel on the dashboard or from the terminal:
+Some things the instructor says never reach LEARN, or not where sync reads them, such as what a midterm covers. Keep several dated notes per course. In the dashboard, open a course to list, add or delete notes; use **About** to attach one to an assessment. An assessment's panel shows its own notes and has an add box that attaches notes to that assessment automatically.
+
+From the terminal:
 
 ```powershell
-uv run study-agent course-note "SYDE 212" --file midterm.txt   # or --text "...", --clear
+uv run study-agent course-note "SYDE 212"                          # list notes and IDs
+uv run study-agent course-note "SYDE 212" --text "Office hours are Friday."
+uv run study-agent course-note "SYDE 212" --text "Chapters 1-4." --about "Midterm"
+uv run study-agent course-note "SYDE 212" --file midterm.txt --about "Midterm"
+uv run study-agent course-note "SYDE 212" --delete <id>             # delete one note
+uv run study-agent course-note "SYDE 212" --clear                   # delete all course notes
 ```
 
-The tutor reads a course's notes with every question about it. It says whether a topic is in scope, and writes practice questions in the exam's format (for example multiple choice).
+Use the assessment's title for `--about` to show the note in its panel. Notes are saved locally in `data/course_notes.json`; existing notes from the single-note version are preserved. Each note can contain up to 4,000 characters, with up to 50 notes per course.
+
+The tutor reads notes newest first, labelled with what each is about, within a 4,000-character context limit. It uses them with questions about that course to identify scope and write practice questions in the exam's format (for example multiple choice).
 
 ### Files too large to sync
 
