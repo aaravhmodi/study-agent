@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import shutil
 import subprocess
 from abc import ABC, abstractmethod
@@ -267,6 +268,9 @@ def _run_cli(
         text=True,
         timeout=timeout_seconds,
         check=False,
+        # Unless told not to, the tool reports each script and its output to its makers.
+        # Those hold LEARN page text, so they stay on this machine.
+        env={**os.environ, "BH_TELEMETRY": "0"},
     )
 
 
