@@ -64,6 +64,23 @@ class SourceDocument(BaseModel):
     chapters: list[Chapter] = Field(default_factory=list)
 
 
+class SourceResolver:
+    """Resolves one answer's source blocks, showing each question's screenshot once."""
+
+    def __init__(self, documents: list[SourceDocument]) -> None:
+        self.documents = documents
+        self._shown: set[tuple[str, ...]] = set()
+
+    def __call__(self, block: str) -> SourceFigure:
+        figure = parse_source(block, self.documents)
+        images = tuple(figure.images)
+        if images in self._shown:
+            # Parts (a) and (b) of one question: the second reference needs no picture.
+            return figure.model_copy(update={"images": [], "whole_page": False})
+        self._shown.add(images)
+        return figure
+
+
 def parse_source(text: str, documents: list[SourceDocument]) -> SourceFigure:
     """Resolve a source block against the files in hand, or raise FigureError."""
 
@@ -80,6 +97,9 @@ def parse_source(text: str, documents: list[SourceDocument]) -> SourceFigure:
     regions, whole_page = _regions(document, label, spec.page)
     part = spec.part.strip("() ")
     printed = regions[0].printed_page if regions else None
+    if label.isdigit():
+        # An item of a numbered list reads better with a name: "Question 21".
+        label = f"Question {label}"
     # Without a PDF to check, the tutor's page is all there is to go on.
     unchecked = f"p. {spec.page}" if spec.page and not document.pdf else ""
     return SourceFigure(

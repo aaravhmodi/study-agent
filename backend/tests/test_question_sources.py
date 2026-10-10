@@ -3,7 +3,12 @@ from pathlib import Path
 
 import pytest
 from app.services.figures import FigureError, extract_figures
-from app.services.question_sources import SOURCE_GUIDE, SourceDocument, parse_source
+from app.services.question_sources import (
+    SOURCE_GUIDE,
+    SourceDocument,
+    SourceResolver,
+    parse_source,
+)
 from app.services.textbook_toc import Chapter
 
 from tests.pdf_fixture import Line, write_pdf
@@ -84,7 +89,7 @@ def test_a_file_without_a_pdf_is_still_referenced() -> None:
 
     figure = parse_source(_block(file="Tutorial-4.pptx", page=3, question=7), [slides])
 
-    assert (figure.question, figure.location, figure.images) == ("7", "p. 3", [])
+    assert (figure.question, figure.location, figure.images) == ("Question 7", "p. 3", [])
 
 
 def test_a_book_gives_printed_and_pdf_pages_and_the_chapter(tmp_path: Path) -> None:
@@ -122,3 +127,15 @@ def test_the_guide_example_is_a_valid_source_block(tmp_path: Path) -> None:
     assert "```figure\n0\n```" in answer and "```source" not in answer
     # Part of the static instruction prefix, so it stays short.
     assert len(SOURCE_GUIDE.split()) < 180
+
+
+def test_parts_of_one_question_show_its_screenshot_once(tmp_path: Path) -> None:
+    resolve = SourceResolver([_problem_set(tmp_path)])
+
+    first = resolve(_block(file="Problem Set 2", page=1, question="Problem 2.6", part="a"))
+    second = resolve(_block(file="Problem Set 2", page=1, question="Problem 2.6", part="b"))
+    other = resolve(_block(file="Problem Set 2", page=1, question="Problem 2.7"))
+
+    assert len(first.images) == 1 and len(other.images) == 1
+    # The second part is still referenced, by question, file and page.
+    assert (second.question, second.location, second.images) == ("Problem 2.6 (b)", "p. 1", [])

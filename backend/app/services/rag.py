@@ -24,7 +24,7 @@ from app.services.figures import extract_figures
 from app.services.learn_links import viewer_url
 from app.services.lecture_scope import lecture_refs, matching_resource_ids
 from app.services.pdf_text import passage_pages, refresh_pdf_text_sidecar
-from app.services.question_sources import SOURCE_GUIDE, SourceDocument, parse_source
+from app.services.question_sources import SOURCE_GUIDE, SourceDocument, SourceResolver
 from app.services.retrieval import (
     Passage,
     cited_files,
@@ -347,7 +347,7 @@ class RagService:
             answer += "\n\n_Answer cut short by the length limit; ask about one concept at a time._"
         # Files named only in a source block count as cited, so look before blocks are swapped.
         course_files = [_with_learn_link(item, files) for item in cited_files(answer, passages)]
-        answer, figures = extract_figures(answer, lambda block: parse_source(block, documents))
+        answer, figures = extract_figures(answer, SourceResolver(documents))
         citations = clean_citations(course_files + _citations(response))
         result = ChatResponse(
             answer=answer,
