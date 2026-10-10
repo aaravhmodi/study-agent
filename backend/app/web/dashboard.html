@@ -330,8 +330,28 @@ const statusPill = (status, due) => {
 const resourceLink = r => r.url ? `<a target="_blank" rel="noreferrer" href="${esc(r.url)}">${esc(r.title)}</a>` : esc(r.title);
 const loading = what => `<p class="loading">${esc(what)}…</p>`;
 
+// Served from Vercel, a request now and then fails because Vercel could not look up
+// the server's address. A header says so, and the request never reached the server,
+// so sending it again is safe whatever it was.
+async function fetchAgainIfLost(path, options) {
+  let response;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    response = await fetch(path, options);
+    if (!(response.headers.get('x-vercel-error') || '').startsWith('DNS_')) break;
+    await new Promise(resolve => setTimeout(resolve, 400 * (attempt + 1)));
+  }
+  return response;
+}
+// A question screenshot lost the same way gets one more try.
+document.addEventListener('error', event => {
+  const img = event.target;
+  if (img.tagName !== 'IMG' || !img.closest('.source-page') || img.dataset.retried) return;
+  img.dataset.retried = '1';
+  setTimeout(() => { img.src = img.src }, 800);
+}, true);
+
 async function getJson(path, options) {
-  const response = await fetch(path, options);
+  const response = await fetchAgainIfLost(path, options);
   if (response.status === 401 && path !== '/login') askToSignIn();
   if (!response.ok) {
     let message = await response.text();
