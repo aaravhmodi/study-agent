@@ -9,3 +9,5 @@
 .ruff_cache/
 .env
 data/
+browser-profile/
+browser/

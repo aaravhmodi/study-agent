@@ -6,6 +6,11 @@ services:
     build: .
     restart: unless-stopped
     env_file: .env
+    environment:
+      # The browser below. Chromium only answers debugging requests made to an
+      # address, never to a name, so it has a fixed one.
+      BU_CDP_URL: http://172.31.57.10:9223
+      LEARN_SIGNIN_URL: http://${TAILSCALE_IP}:6080/vnc.html?autoconnect=1&resize=scale
     # The server's own user, so the files in data/ stay yours to copy and replace.
     user: "${SERVER_USER:-1000:1000}"
     volumes:
@@ -13,3 +18,27 @@ services:
     ports:
       - "${TAILSCALE_IP}:8000:8000"
       - "127.0.0.1:8000:8000"
+    networks: [default, learn]
+
+  # The browser the sync reads LEARN with. Sign in to LEARN in it at
+  # http://<TAILSCALE_IP>:6080/vnc.html; the session is kept in browser-profile/.
+  # Create that folder yourself first, so it is yours and not root's.
+  browser:
+    build: browser
+    restart: unless-stopped
+    user: "${SERVER_USER:-1000:1000}"
+    mem_limit: 1500m
+    volumes:
+      - ./browser-profile:/profile
+    ports:
+      # Tailscale only: whoever opens this page is using your LEARN session.
+      - "${TAILSCALE_IP}:6080:6080"
+    networks:
+      learn:
+        ipv4_address: 172.31.57.10
+
+networks:
+  learn:
+    ipam:
+      config:
+        - subnet: 172.31.57.0/24

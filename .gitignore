@@ -20,3 +20,4 @@ data/chat_sessions.json
 data/.sent-to-server
 data/.sending
 .vercel-site/
+browser-profile/

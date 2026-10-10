@@ -187,9 +187,9 @@ uv run study-agent submissions
 
 ## Run it on a home server
 
-The dashboard and tutor can run on an always-on machine with Docker, so they are there from any of your devices. LEARN syncing stays on this computer, because it reads LEARN through the Chrome you are signed in to.
+The dashboard and tutor can run on an always-on machine with Docker, so they are there from any of your devices. The server can sync LEARN too, with a browser of its own that you sign in to.
 
-On the server, put the code in a folder with a `.env` holding `OPENAI_API_KEY`, the server's Tailscale address as `TAILSCALE_IP` and a `DASHBOARD_PASSWORD` of 12 characters or more, copy `data/` beside it, and start it:
+On the server, put the code in a folder with a `.env` holding `OPENAI_API_KEY`, the server's Tailscale address as `TAILSCALE_IP` and a `DASHBOARD_PASSWORD` of 12 characters or more. Copy `data/` beside it, create an empty `browser-profile/` folder there, and start it:
 
 ```bash
 docker compose up -d --build
@@ -199,13 +199,17 @@ The dashboard is then at `http://<TAILSCALE_IP>:8000/dashboard` for devices sign
 
 With a password set, the page asks for it once per device and the server answers nothing else until then. The session lasts 30 days, and changing the password signs every device out. Eight wrong passwords pause sign-in for 15 minutes. The dashboard refuses to listen beyond its own computer without a password.
 
-The server's `data/` is the live copy: it holds your chats, your notes and the assessments you marked done. Stop the dashboard on this computer once the server runs, and add course notes from the dashboard, not with `course-note`. To refresh from LEARN, set `STUDY_SERVER=user@host` in this computer's `.env` and run, from Git Bash with Chrome signed in:
+The server's `data/` is the live copy: it holds your chats, your notes, the course files and the assessments you marked done. Stop the dashboard on this computer once the server runs, and add course notes from the dashboard, not with `course-note`.
 
-```bash
-bash scripts/server-sync.sh
-```
+### Sync LEARN on the server
 
-It stops the server's dashboard, brings its database back, runs `sync` and `rag-index` here, sends the database, the changed course files and the index to the server, and starts the dashboard again. Saved files are found by name in `data/downloads`, so the paths this computer wrote into the database also work there.
+`compose.yaml` also runs a Chromium for the sync to read LEARN with. Open its window at `http://<TAILSCALE_IP>:6080/vnc.html` from one of your Tailscale devices and sign in to LEARN there, with your password and Duo, as you would in any browser. The session is kept in `browser-profile/`, so it survives restarts until Waterloo asks you to sign in again.
+
+Then use the two buttons under the dashboard's status line. **Sync LEARN** reads your courses again and indexes what is new; **Re-index files** only brings the tutor's index in line with the saved files. They run on the server one at a time and show their progress. A sync that meets LEARN's sign-in page stops and says so: sign in through the window and sync again.
+
+The sign-in window has no password of its own and whoever opens it is using your LEARN session, so it is published on the Tailscale address only. Never put it behind Funnel or any public address.
+
+You can still sync from this computer instead, with the Chrome you are signed in to: set `STUDY_SERVER=user@host` in this computer's `.env` and run `bash scripts/server-sync.sh` from Git Bash. It stops the server's dashboard, brings its database back, runs `sync` and `rag-index` here, sends the database, the changed course files and the index to the server, and starts the dashboard again. Saved files are found by name in `data/downloads`, so the paths either machine wrote into the database work on the other.
 
 ### Deploy on push
 
