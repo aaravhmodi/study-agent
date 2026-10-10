@@ -114,7 +114,7 @@ def test_instructions_are_static_and_input_holds_only_the_question(tmp_path: Pat
     # An identical instruction prefix on every call lets OpenAI cache it.
     assert first["instructions"] == second["instructions"] == TUTOR_INSTRUCTIONS
     assert first["input"].startswith(
-        "Course: SYDE 286\nQuestion: Explain shear force.\n\nCourse passages (cite by file name):"
+        "Course: SYDE 286\nQuestion: Explain shear force.\n\nCourse passages (cite by file name;"
     )
     assert f"[{LECTURE_7}]\nShear force V is the internal transverse force." in first["input"]
 

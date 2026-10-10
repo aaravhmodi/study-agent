@@ -2,9 +2,10 @@ import json
 from typing import Any
 
 import pytest
-from app.schemas.chat import SketchFigure
+from app.schemas.chat import SketchFigure, SourceFigure
 from app.services.figures import (
     MAX_FIGURES,
+    MAX_SOURCES,
     SAMPLES,
     FigureError,
     extract_figures,
@@ -198,6 +199,32 @@ def test_only_the_first_figures_are_kept() -> None:
 
     assert len(figures) == MAX_FIGURES
     assert text.count("```figure") == MAX_FIGURES
+
+
+def test_source_blocks_are_resolved_by_the_caller_and_counted_apart() -> None:
+    def resolve(block: str) -> SourceFigure:
+        spec = json.loads(block)
+        if spec["file"] == "unknown.pdf":
+            raise FigureError("not a file among the passages")
+        return SourceFigure(title="Problem Set 2", filename=spec["file"], question=spec["question"])
+
+    sources = [
+        _block("source", json.dumps({"file": "set.pdf", "question": f"Problem {n}"}))
+        for n in range(MAX_SOURCES + 2)
+    ]
+    unknown = _block("source", json.dumps({"file": "unknown.pdf", "question": "Problem 1"}))
+    drawing = _block("mermaid", "flowchart LR\n  a --> b")
+
+    text, figures = extract_figures("\n\n".join([unknown, *sources, drawing]), resolve)
+
+    # Sources have their own limit, so a practice set still gets its drawings.
+    assert [figure.kind for figure in figures] == ["source"] * MAX_SOURCES + ["diagram"]
+    assert isinstance(figures[0], SourceFigure) and figures[0].question == "Problem 0"
+    assert text.count("```figure") == MAX_SOURCES + 1 and "```source" not in text
+
+    # Without files to check against, a source block is dropped like any broken figure.
+    text, figures = extract_figures(sources[0] + "\n\nAfter")
+    assert (text, figures) == ("After", [])
 
 
 def test_svg_sketches_are_sanitized_and_titled() -> None:

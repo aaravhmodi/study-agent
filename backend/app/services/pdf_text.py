@@ -2,7 +2,9 @@
 
 import logging
 import re
+from bisect import bisect_right
 from collections import Counter
+from functools import lru_cache
 from pathlib import Path
 
 from pypdf import PdfReader
@@ -85,3 +87,67 @@ def write_pdf_text_sidecar(path: Path) -> Path | None:
     sidecar = path.with_suffix(".txt")
     sidecar.write_text(text, encoding="utf-8")
     return sidecar
+
+
+def refresh_pdf_text_sidecar(path: Path) -> bool:
+    """Re-extract a PDF whose sidecar predates page labels; True when it was rewritten.
+
+    Every sidecar written since starts with a bracketed line: a page label, or the
+    marker of a visual transcription, which must not be replaced by plain extraction.
+    """
+
+    sidecar = path.with_suffix(".txt")
+    try:
+        with sidecar.open(encoding="utf-8", errors="ignore") as handle:
+            start = handle.read(200).lstrip()
+    except OSError:
+        return False
+    if not start or start.startswith("["):
+        return False
+    text = extract_pdf_text(path)
+    if not text:
+        return False
+    sidecar.write_text(text, encoding="utf-8")
+    return True
+
+
+_PAGE_LABEL = re.compile(r"\[Page (\d+)\]")
+# Enough of a passage to find it once in a whole book.
+_PROBE_CHARS = 120
+
+
+def passage_pages(sidecar: Path, passage: str) -> list[int]:
+    """Printed pages a retrieved passage covers, found by locating it in the sidecar.
+
+    Search returns a slice of the uploaded text, and a slice that starts mid-page
+    carries no label for the page it starts on.
+    """
+
+    try:
+        text, positions, numbers = _labelled_text(str(sidecar), sidecar.stat().st_mtime_ns)
+    except OSError:
+        return []
+    wanted = " ".join(passage.split())
+    if not wanted or not positions:
+        return []
+    start = text.find(wanted)
+    if start < 0:
+        # The sidecar may have gained labels since it was indexed; a short probe still matches.
+        start = text.find(wanted[:_PROBE_CHARS])
+    if start < 0:
+        tail = text.find(wanted[-_PROBE_CHARS:])
+        if tail < 0:
+            return []
+        start = max(tail + _PROBE_CHARS - len(wanted), 0)
+    first = bisect_right(positions, start) - 1
+    last = bisect_right(positions, start + len(wanted) - 1) - 1
+    return sorted(set(numbers[max(first, 0) : last + 1])) if last >= 0 else []
+
+
+@lru_cache(maxsize=16)
+def _labelled_text(sidecar: str, _modified: int) -> tuple[str, list[int], list[int]]:
+    """A sidecar's text on one line, with where each page label sits and its number."""
+
+    text = " ".join(Path(sidecar).read_text(encoding="utf-8", errors="ignore").split())
+    labels = list(_PAGE_LABEL.finditer(text))
+    return text, [label.start() for label in labels], [int(label.group(1)) for label in labels]

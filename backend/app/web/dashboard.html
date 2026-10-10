@@ -136,11 +136,11 @@ textarea:focus,select:focus{border-color:var(--ink);outline:none;box-shadow:inse
 .figure .sketch{overflow-x:auto}
 .figure .sketch svg{display:block;margin:0 auto;width:100%;max-width:520px;height:auto;max-height:420px}
 .figure .figure-error{font:12.5px var(--mono);color:var(--ink-3);margin:0}
-.original-pages{max-width:70ch;margin:18px 0 24px}
-.original-pages h3{font:600 11.5px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
-.original-page{margin:10px 0;padding:10px;background:var(--sheet);border:1px solid var(--rule)}
-.original-page figcaption{font:13px var(--mono);color:var(--ink-2);margin-bottom:8px}
-.original-page img{display:block;width:100%;height:auto}
+.figure.source figcaption .label{display:block;margin-bottom:3px}
+.figure.source .source-where{display:block;font:12.5px/1.5 var(--mono);color:var(--ink-2);margin-top:3px;overflow-wrap:anywhere}
+.figure.source .source-page{display:block;margin-top:8px;border:1px solid var(--rule);background:#fff}
+.figure.source .source-page img{display:block;width:100%;height:auto}
+.figure.source .source-note{font:12.5px var(--mono);color:var(--ink-3);margin:8px 0 0}
 .notice{margin-top:18px;padding:10px 14px;border-left:3px solid var(--pencil);background:var(--pencil-wash);font-size:14px}
 
 .index{list-style:none;margin:0;padding:0}
@@ -506,6 +506,20 @@ function drawSketch(holder, figure) {
   holder.innerHTML = `${figure.title ? `<figcaption>${esc(figure.title)}</figcaption>` : ''}<div class="sketch">${svg}</div>`;
 }
 
+// A course question as printed in the student's own file: which question, which file,
+// where in it, and a screenshot of it cut from the saved PDF.
+const PAGE_IMAGE = /^\/course-resources\/[\w-]+\/pages\/\d+(?:\?top=[\d.]+&bottom=[\d.]+)?$/;
+function drawSource(holder, figure) {
+  holder.classList.add('source');
+  const url = safeUrl(figure.url);
+  const title = esc(figure.title || figure.filename);
+  const file = url ? openLink(url, title, ` title="Open on ${esc(whereLabel(url))}"`) : title;
+  const where = [figure.location, figure.chapter, figure.filename !== figure.title ? figure.filename : ''].filter(Boolean).map(esc).join(' · ');
+  const pages = (figure.images || []).filter(src => PAGE_IMAGE.test(src)).map((src, index) =>
+    openLink(src.split('?')[0], `<img src="${esc(src)}" loading="lazy" alt="${esc(figure.question || 'Course page')} in ${title}${index ? ', continued' : ''}">`, ' class="source-page" title="Open the whole page"'));
+  holder.innerHTML = `<figcaption><span class="label">From your course files</span>${figure.question ? `<b>${esc(figure.question)}</b> in ` : ''}${file}${where ? `<span class="source-where">${where}</span>` : ''}</figcaption>${pages.join('')}${figure.whole_page ? '<p class="source-note">This label was not found on the page, so the whole page is shown.</p>' : ''}`;
+}
+
 // The answer marks each figure's place with a ```figure block holding its index.
 async function drawFigures(answer, figures) {
   if (!answer || !figures.length) return;
@@ -522,6 +536,7 @@ async function drawFigures(answer, figures) {
     try {
       if (figure.kind === 'plot') await drawPlot(holder, figure);
       else if (figure.kind === 'sketch') drawSketch(holder, figure);
+      else if (figure.kind === 'source') drawSource(holder, figure);
       else await drawDiagram(holder, figure);
     } catch (error) {
       holder.innerHTML = `<p class="figure-error">This figure could not be drawn (${esc(error.message || error)}).</p>`;
@@ -590,15 +605,6 @@ function renderSources(citations) {
   return `<div class="sources"><p class="label">Sources</p><ol>${files.concat(web).map(item).join('')}</ol></div>`;
 }
 
-function renderOriginalPages(question, pages) {
-  if (!/\b(?:practice|practise|problem|question)\b/i.test(question) || !pages?.length) return '';
-  const images = pages.filter(page => /^\/course-resources\/[\w-]+\/pages\/\d+$/.test(page.image_url));
-  if (!images.length) return '';
-  return `<section class="original-pages" aria-label="Original course question pages"><h3>Original question from your course files</h3>${images.map(page =>
-    `<figure class="original-page"><figcaption>${esc(page.title)} · PDF page ${esc(page.pdf_page)}${/\b(?:lecture|slides?|presentation|deck)\b/i.test(`${page.title} ${page.filename}`) ? ` · slide ${esc(page.printed_page || page.pdf_page)}` : ''}${page.printed_page && page.printed_page !== page.pdf_page ? ` · printed p. ${esc(page.printed_page)}` : ''}</figcaption><img src="${esc(page.image_url)}" loading="lazy" alt="Original page ${esc(page.pdf_page)} from ${esc(page.title)}"></figure>`
-  ).join('')}</section>`;
-}
-
 // Suggestions come from the student's own work, e.g. the next test on the calendar.
 function renderSuggestions(data) {
   const nextTest = data.assessments.find(a => a.status !== 'COMPLETED' && a.status !== 'OVERDUE' && /test|midterm|exam|quiz/i.test(`${a.type} ${a.title}`));
@@ -654,7 +660,6 @@ function appendTurn(question, result, meta) {
     <div class="turn-body">
       <div class="answer-wrap">
         <p class="answer-meta">${meta}</p>
-        ${renderOriginalPages(question, result.source_pages || [])}
         ${renderAnswer(result.answer, result.citations || [])}
         ${renderSources(result.citations || [])}
       </div>

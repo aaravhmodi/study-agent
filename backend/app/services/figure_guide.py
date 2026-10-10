@@ -48,6 +48,12 @@ How ideas connect (a process, cause and effect, a proof outline): a short mermai
 flowchart. Anything else worth drawing (a molecule, a geometric construction, a cell, a \
 timeline): a small svg block with a viewBox, a <title>, and plain shapes and text.
 
+A visual practice problem gets two figures: a "Problem setup" right after the complete \
+question, showing the givens, geometry and reference directions, and a "Solution" after the \
+worked steps, showing the result (reactions on a beam, a labelled circuit, a shaded \
+density). Both agree with every value in the question; leave unlabelled what the material \
+does not determine.
+
 Never draw with ASCII art or text blocks. Labels are plain text, not LaTeX. Draw only values \
 the materials or your example support.\
 """

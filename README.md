@@ -101,6 +101,19 @@ Every question starts a chat that is saved locally (`data/chat_sessions.json`). 
 
 Answers cite course files inline, with the page for PDFs (`[course text.pdf, p. 87]`). Every cited file links to its LEARN page, and the Sources list names it by its LEARN title.
 
+### Course questions, shown from your files
+
+When the tutor gives an example or practice question from your course materials, the answer shows where it is from, right above the question:
+
+- which question ("Problem 2.6 (a)", "Example 4.3", or item 21 of a numbered exercise list),
+- which file, by its LEARN name and saved filename, linked to its LEARN page,
+- where in it: the printed page and the PDF page when a book numbers them differently ("p. 10 (PDF page 18)"), the slide for a slide deck, and the chapter when the book has a table of contents,
+- a screenshot of the question, cut from your saved PDF. A question that runs over a page break gets both parts. Click a screenshot to open the whole page.
+
+The tutor only names the file, page and label; the server does the rest. It accepts only files whose passages were sent with the question, finds the label in the local PDF near the cited page (a label that starts a line at the list's indent, so a later "see Question 21" is not mistaken for it), and reports the page the question is really on. If the label is not on the cited page, the whole page is shown and the answer says so. Files without a PDF (slides saved as `.pptx`, handwritten notes read by vision) get the reference without a screenshot. A question the tutor writes itself is called a new question and gets no screenshot.
+
+Page numbers come from labels in each PDF's extracted text. `rag-index` re-extracts any PDF whose text predates those labels and uploads it again, so run it once after updating. Screenshots are rendered on request by `GET /course-resources/{resource_id}/pages/{page}` (optionally `?top=0.2&bottom=0.6`, fractions of the page height) and nothing is stored.
+
 ### Course notes
 
 Some things the instructor says never reach LEARN, or not where sync reads them, such as what a midterm covers. Keep several dated notes per course. In the dashboard, open a course to list, add or delete notes; use **About** to attach one to an assessment. An assessment's panel shows its own notes and has an add box that attaches notes to that assessment automatically.

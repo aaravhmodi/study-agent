@@ -73,7 +73,10 @@ def test_one_passage_is_always_sent_even_if_over_budget() -> None:
 def test_passages_are_formatted_for_citation() -> None:
     text = format_passages([_passage("V = dM/dx", 0.8, filename="Lecture-7.pdf")])
 
-    assert text == "Course passages (cite by file name):\n\n[Lecture-7.pdf]\nV = dM/dx"
+    assert text == (
+        "Course passages (cite by file name; text follows the [Page N] marker of its page):"
+        "\n\n[Lecture-7.pdf]\nV = dM/dx"
+    )
     assert "none matched" in format_passages([])
 
 

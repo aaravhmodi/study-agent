@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -97,3 +98,19 @@ def test_sessions_from_the_same_clock_tick_list_newest_created_first(tmp_path: P
     third = store.create("third", None, now=NOW)
 
     assert [item.id for item in store.list()] == [third.id, second.id, first.id]
+
+
+def test_conversations_saved_with_page_previews_still_open(tmp_path: Path) -> None:
+    store = ChatSessionStore(tmp_path / "sessions.json")
+    session = store.create("Give me a practice problem", "SYDE 286", now=NOW)
+    store.add_turn(session.id, "Give me a practice problem", "SYDE 286", _answer(), now=NOW)
+    # An earlier version saved whole source pages beside each answer.
+    saved = json.loads(store.path.read_text(encoding="utf-8"))
+    saved[session.id]["turns"][0]["response"]["source_pages"] = [
+        {"title": "Lecture 1", "filename": "l1.pdf", "pdf_page": 3, "image_url": "/x/pages/3"}
+    ]
+    store.path.write_text(json.dumps(saved), encoding="utf-8")
+
+    loaded = store.get(session.id)
+
+    assert loaded is not None and len(loaded.turns) == 1

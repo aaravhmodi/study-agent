@@ -1,6 +1,6 @@
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ChatRequest(BaseModel):
@@ -82,7 +82,32 @@ class SketchFigure(BaseModel):
     svg: str
 
 
-ChatFigure = Annotated[PlotFigure | DiagramFigure | SketchFigure, Field(discriminator="kind")]
+class SourceFigure(BaseModel):
+    """A course question as it appears in the student's own file, and where to find it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["source"] = "source"
+    # The document's name on LEARN, and the saved file's name.
+    title: str
+    filename: str
+    # The question's label, with its part: "Problem 2.6 (a)".
+    question: str = ""
+    # "p. 10 (PDF page 18)" or "slide 13"; empty when the page is not known.
+    location: str = ""
+    # "Chapter 2: Gathering Data", for a book with a table of contents.
+    chapter: str = ""
+    # The file's page on LEARN.
+    url: str | None = None
+    # Screenshots of the question from the local PDF, in reading order.
+    images: list[str] = Field(default_factory=list)
+    # The label was not found on the cited page, so the whole page is shown.
+    whole_page: bool = False
+
+
+ChatFigure = Annotated[
+    PlotFigure | DiagramFigure | SketchFigure | SourceFigure, Field(discriminator="kind")
+]
 
 
 class ChatUsage(BaseModel):
@@ -107,3 +132,12 @@ class ChatResponse(BaseModel):
     cached: bool = False
     # The conversation this answer belongs to; send it back to ask a follow-up.
     session_id: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_retired_fields(cls, value: object) -> object:
+        # Saved conversations may hold "source_pages" (whole pages shown above an
+        # answer); source figures replaced it.
+        if isinstance(value, dict) and "source_pages" in value:
+            return {key: item for key, item in value.items() if key != "source_pages"}
+        return value

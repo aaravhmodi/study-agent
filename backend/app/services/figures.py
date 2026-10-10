@@ -319,30 +319,39 @@ _PARSERS: dict[str, Callable[[str], ChatFigure]] = {
 }
 
 MAX_FIGURES = 4
+# Course questions shown from the student's files; a practice set cites several.
+MAX_SOURCES = 6
 _FIGURE_BLOCK = re.compile(
-    rf"^[ \t]*```[ \t]*({'|'.join(_PARSERS)})[ \t]*\r?\n(.*?)\r?\n[ \t]*```[ \t]*$",
+    rf"^[ \t]*```[ \t]*({'|'.join(_PARSERS)}|source)[ \t]*\r?\n(.*?)\r?\n[ \t]*```[ \t]*$",
     flags=re.MULTILINE | re.DOTALL,
 )
 
 
-def extract_figures(answer: str) -> tuple[str, list[ChatFigure]]:
+def extract_figures(
+    answer: str, source: Callable[[str], ChatFigure] | None = None
+) -> tuple[str, list[ChatFigure]]:
     """Swap each valid figure block (```plot, ```mermaid, ```svg) for a ```figure placeholder.
 
     The placeholder holds the figure's index in the returned list. Blocks that
-    cannot be drawn are removed so the student never sees raw JSON.
+    cannot be drawn are removed so the student never sees raw JSON. A ```source
+    block is resolved by ``source``, which knows the course files the answer may cite.
     """
 
     figures: list[ChatFigure] = []
+    counts = {"source": 0, "drawn": 0}
 
     def replace(match: re.Match[str]) -> str:
-        if len(figures) >= MAX_FIGURES:
-            return ""
         kind, body = match.group(1), match.group(2)
+        group, limit = ("source", MAX_SOURCES) if kind == "source" else ("drawn", MAX_FIGURES)
+        parser = source if kind == "source" else _PARSERS[kind]
+        if parser is None or counts[group] >= limit:
+            return ""
         try:
-            figure = _PARSERS[kind](body)
+            figure = parser(body)
         except FigureError as exc:
             logger.warning("Left a %s out of the answer: %s", kind, exc)
             return ""
+        counts[group] += 1
         figures.append(figure)
         return f"```figure\n{len(figures) - 1}\n```"
 

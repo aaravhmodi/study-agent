@@ -10,7 +10,7 @@ import re
 from collections.abc import Iterable
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.services.answer_format import display_filename
 
@@ -26,6 +26,9 @@ class Passage(BaseModel):
     file_id: str
     text: str
     score: float
+    resource_id: str | None = None
+    # Printed pages the passage covers, once it has been found in its document.
+    pages: list[int] = Field(default_factory=list)
 
     @property
     def tokens(self) -> int:
@@ -47,12 +50,15 @@ def from_search(results: Iterable[Any]) -> list[Passage]:
     for result in results:
         text = tidy(" ".join(getattr(part, "text", "") for part in result.content))
         if text:
+            attributes = getattr(result, "attributes", None) or {}
+            resource_id = attributes.get("resource_id") if isinstance(attributes, dict) else None
             passages.append(
                 Passage(
                     filename=display_filename(str(result.filename)),
                     file_id=str(result.file_id),
                     text=text,
                     score=float(result.score),
+                    resource_id=str(resource_id) if resource_id else None,
                 )
             )
     return passages
@@ -99,7 +105,10 @@ def format_passages(passages: list[Passage]) -> str:
     if not passages:
         return "Course passages: none matched this question."
     blocks = [f"[{passage.filename}]\n{passage.text}" for passage in passages]
-    return "Course passages (cite by file name):\n\n" + "\n\n".join(blocks)
+    return (
+        "Course passages (cite by file name; text follows the [Page N] marker of its page):\n\n"
+        + "\n\n".join(blocks)
+    )
 
 
 def cited_files(answer: str, passages: list[Passage]) -> list[dict[str, str | None]]:

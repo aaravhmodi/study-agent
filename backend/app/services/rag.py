@@ -23,6 +23,8 @@ from app.services.figure_guide import FIGURE_GUIDE
 from app.services.figures import extract_figures
 from app.services.learn_links import viewer_url
 from app.services.lecture_scope import lecture_refs, matching_resource_ids
+from app.services.pdf_text import passage_pages, refresh_pdf_text_sidecar
+from app.services.question_sources import SOURCE_GUIDE, SourceDocument, parse_source
 from app.services.retrieval import (
     Passage,
     cited_files,
@@ -77,20 +79,22 @@ One or two sentences.
 Three to five prioritized bullets, including when to revisit (tomorrow, next week).
 
 If the question looks like a graded assignment or lab problem, do not solve it: explain \
-the concepts and give the first step as a hint. For other questions, answer directly with \
-only the sections that help. Instructor notes, when given, set exam scope and format: \
+the concepts and give the first step as a hint. Solve practice and self-study problems \
+fully: setup figure, steps, then solution figure. For other questions, answer directly \
+with only the sections that help. Instructor notes, when given, set exam scope and format: \
 say whether the topic is in scope, and write Check yourself questions in that format \
 (for multiple choice: four options, one correct). Work out every answer and calculation \
 before writing it, so answer keys never need a correction.
 
 Style: short paragraphs, **bold** key terms, LaTeX math with \\( ... \\) inline and \\[ ... \\] \
 for display (units like \\text{kN}\\cdot\\text{m}, no Unicode symbols inside \\text{}), and \
-cite course files inline like [filename], with the page when a passage shows one: \
-[filename, p. 12], one file per bracket. Be concise.\
+cite course files inline by exact filename and page, one file per bracket: \
+[Textbook.pdf, p. 12]. Be concise.\
 """
 
-# One static prefix (cached by OpenAI after the first question): how to teach, then how to draw.
-TUTOR_INSTRUCTIONS = TUTOR_GUIDE + "\n\n" + FIGURE_GUIDE
+# One static prefix (cached by OpenAI after the first question): how to teach, how to
+# cite course questions, then how to draw.
+TUTOR_INSTRUCTIONS = TUTOR_GUIDE + "\n\n" + SOURCE_GUIDE + "\n\n" + FIGURE_GUIDE
 
 
 class VectorFileError(RuntimeError):
@@ -106,6 +110,7 @@ class RagService:
         # backoff (0.5s doubling to 8s) rides those out with a few more tries.
         self.client = client or OpenAI(api_key=settings.openai_api_key, max_retries=6)
         self.manifest_path = settings.data_dir / "rag_manifest.json"
+        self.downloads_dir = settings.downloads_dir
 
     def index_database(self) -> tuple[str, int, int, int]:
         ensure_schema()
@@ -173,6 +178,9 @@ class RagService:
                 skipped += 1
                 continue
             existing = files.get(resource.id)
+            if Path(resource.local_path).suffix.lower() == ".pdf":
+                # Text extracted before pages were labelled cannot be cited by page.
+                refresh_pdf_text_sidecar(Path(resource.local_path))
             upload_hash = _upload_hash(resource.local_path)
             if (
                 existing
@@ -311,8 +319,9 @@ class RagService:
         search_text = f"{earlier[-1].question}\n{question}" if earlier else question
         # "Chapter 3" means nothing to semantic search; its title and sections do.
         search_text += _chapter_search_terms(files, note_course, named_chapters)
-        passages = self._passages(
-            search_text, str(vector_store_id), normalized_course_code, lecture_ids
+        passages, documents = self._located(
+            self._passages(search_text, str(vector_store_id), normalized_course_code, lecture_ids),
+            files,
         )
         context.append("")
         context.append(format_passages(passages))
@@ -336,8 +345,9 @@ class RagService:
             raise RuntimeError("OpenAI returned an empty answer")
         if _hit_output_limit(response):
             answer += "\n\n_Answer cut short by the length limit; ask about one concept at a time._"
-        answer, figures = extract_figures(answer)
+        # Files named only in a source block count as cited, so look before blocks are swapped.
         course_files = [_with_learn_link(item, files) for item in cited_files(answer, passages)]
+        answer, figures = extract_figures(answer, lambda block: parse_source(block, documents))
         citations = clean_citations(course_files + _citations(response))
         result = ChatResponse(
             answer=answer,
@@ -348,6 +358,55 @@ class RagService:
         if not earlier:
             cache.put(key, result)
         return result
+
+    def _located(
+        self, passages: list[Passage], files: dict[str, Any]
+    ) -> tuple[list[Passage], list[SourceDocument]]:
+        """Name each passage by its course file and page, and list the files in hand.
+
+        Search results carry the uploaded text file's name and no page for a passage
+        that starts mid-page; the saved file and its extracted text supply both.
+        """
+
+        resource_ids = {
+            str(entry.get("file_id")): str(resource_id)
+            for resource_id, entry in files.items()
+            if entry.get("file_id")
+        }
+        root = self.downloads_dir.resolve()
+        located: list[Passage] = []
+        documents: dict[str, SourceDocument] = {}
+        for passage in passages:
+            resource_id = passage.resource_id or resource_ids.get(passage.file_id)
+            entry = files.get(resource_id) if resource_id else None
+            if not resource_id or not entry or not entry.get("filename"):
+                located.append(passage)
+                continue
+            saved = (root / str(entry["filename"])).resolve()
+            is_pdf = (
+                saved.suffix.lower() == ".pdf" and saved.is_relative_to(root) and saved.is_file()
+            )
+            pages = passage_pages(saved.with_suffix(".txt"), passage.text) if is_pdf else []
+            text = passage.text
+            if pages and not text.startswith("[Page "):
+                text = f"[Page {pages[0]}]\n{text}"
+            filename = display_filename(str(entry["filename"]))
+            located.append(
+                passage.model_copy(update={"filename": filename, "text": text, "pages": pages})
+            )
+            document = documents.setdefault(
+                resource_id,
+                SourceDocument(
+                    resource_id=resource_id,
+                    filename=filename,
+                    title=str(entry.get("title") or "").strip() or filename,
+                    url=viewer_url(entry.get("source_url")),
+                    pdf=saved if is_pdf else None,
+                    chapters=[Chapter.model_validate(raw) for raw in entry.get("chapters") or []],
+                ),
+            )
+            document.pages += [page for page in pages if page not in document.pages]
+        return located, list(documents.values())
 
     @property
     def notes_path(self) -> Path:
@@ -367,8 +426,9 @@ class RagService:
             "prompt": hashlib.sha256(TUTOR_INSTRUCTIONS.encode("utf-8")).hexdigest()[:16],
             "index": index_fingerprint(files),
             "note": hashlib.sha256((note or "").encode("utf-8")).hexdigest()[:16],
-            # Bump when the saved response format changes (2: LEARN links on sources).
-            "format": 2,
+            # Bump when the saved response format changes (4: course questions shown
+            # from the student's files).
+            "format": 4,
         }
 
     def _passages(

@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 
@@ -24,6 +24,7 @@ from app.services.course_notes import (
     list_notes,
 )
 from app.services.learn_links import viewer_url
+from app.services.pdf_pages import PdfError, render_pdf_page
 from app.services.rag import RagService
 from app.services.study_context import relevant_coursework, study_guidance
 
@@ -226,6 +227,50 @@ def resources() -> list[dict[str, Any]]:
             }
             for resource, course in rows
         ]
+
+
+@app.get("/course-resources/{resource_id}/pages/{page_number}", response_class=Response)
+def course_resource_page(
+    resource_id: str,
+    page_number: int,
+    top: float = Query(default=0.0, ge=0, le=1),
+    bottom: float = Query(default=1.0, ge=0, le=1),
+) -> Response:
+    """Render a page of an active course's saved PDF, or the band of it holding a question.
+
+    ``top`` and ``bottom`` are fractions of the page height, measured from its top.
+    """
+
+    if page_number < 1 or top >= bottom:
+        raise HTTPException(status_code=404, detail="Course page not found")
+    ensure_schema()
+    with SessionLocal() as session:
+        resource = session.scalar(
+            select(Resource)
+            .join(Course, Resource.course_id == Course.id)
+            .where(Resource.id == resource_id, Course.active.is_(True))
+        )
+        if resource is None or not resource.local_path:
+            raise HTTPException(status_code=404, detail="Course page not found")
+        path = Path(resource.local_path).resolve()
+    download_root = get_settings().downloads_dir.resolve()
+    if (
+        path.suffix.lower() != ".pdf"
+        or not path.is_relative_to(download_root)
+        or not path.is_file()
+    ):
+        raise HTTPException(status_code=404, detail="Course page not found")
+    try:
+        image = render_pdf_page(path, page_number, top, bottom)
+    except (PdfError, OSError) as exc:
+        raise HTTPException(status_code=422, detail="Could not render this course page") from exc
+    if image is None:
+        raise HTTPException(status_code=404, detail="Course page not found")
+    return Response(
+        content=image,
+        media_type="image/png",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
 
 
 @app.get("/changes")
