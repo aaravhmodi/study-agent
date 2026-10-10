@@ -44,6 +44,11 @@ header{display:flex;align-items:baseline;justify-content:space-between;gap:24px;
 .header-links{display:flex;gap:18px;font-size:13px}
 .status-line{margin:10px 0 0;font:13px/1.5 var(--mono);color:var(--ink-2)}
 .status-line b{color:var(--ink);font-weight:500}
+.refresh-line{margin:2px 0 0;font:13px/1.5 var(--mono);color:var(--ink-2)}
+.refresh-line .quiet-button{font:inherit}
+.refresh-line .quiet-button:disabled{opacity:.5;cursor:default;text-decoration:none}
+.job-status{margin-left:6px}
+.job-status.failed{color:var(--pencil)}
 
 .label{margin:0;font:600 11.5px/1.4 var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
 h2{margin:2px 0 0;font:500 24px/1.2 var(--serif);letter-spacing:-.2px}
@@ -223,6 +228,13 @@ button.row:hover b{text-decoration:underline;text-decoration-color:var(--pencil)
     <nav class="header-links"><a href="/docs">API docs</a><button type="button" class="link-button" id="sign-out" hidden>Sign out</button></nav>
   </header>
   <p class="status-line" id="status-line">Loading your courses…</p>
+  <p class="refresh-line">
+    <button type="button" class="quiet-button" id="job-sync" title="Read LEARN again, then index what is new">Sync LEARN</button>
+    <span aria-hidden="true"> · </span>
+    <button type="button" class="quiet-button" id="job-index" title="Bring the tutor's index in line with the saved course files">Re-index files</button>
+    <span class="hidden" id="job-signin-wrap"><span aria-hidden="true"> · </span><a id="job-signin" target="_blank" rel="noreferrer" title="The server's browser, where you sign in to LEARN. Opens on your Tailscale devices.">LEARN sign-in window</a></span>
+    <span class="job-status" id="job-status" role="status" aria-live="polite"></span>
+  </p>
 
   <nav class="screen-nav" id="screen-nav" aria-label="Dashboard screens">
     <button type="button" data-screen="ask">Ask</button>
@@ -390,6 +402,36 @@ $('#sign-out').addEventListener('click', async () => {
   await fetch('/logout', {method: 'POST'});
   location.reload();
 });
+
+// A sync or an index runs on the server for minutes: start it, then ask how it is going.
+const JOB_NAMES = {sync: 'Syncing LEARN', index: 'Indexing files'};
+let jobTimer;
+function showJob(job) {
+  const running = job.state === 'running';
+  $('#job-sync').disabled = $('#job-index').disabled = running;
+  $('#job-signin-wrap').classList.toggle('hidden', !job.signin_url);
+  if (job.signin_url) $('#job-signin').href = job.signin_url;
+  const status = $('#job-status');
+  status.classList.toggle('failed', job.state === 'failed');
+  if (running) status.textContent = `${JOB_NAMES[job.name] || job.name}… ${job.lines.at(-1) || ''}`;
+  else if (job.state === 'idle') status.textContent = '';
+  else status.textContent = `${job.state === 'failed' ? 'Failed: ' : ''}${job.message} (${ago(job.finished_at)})`;
+  return running;
+}
+async function watchJob() {
+  clearTimeout(jobTimer);
+  let job;
+  try { job = await getJson('/jobs') } catch (_) { return }
+  const wasRunning = $('#job-sync').disabled;
+  if (showJob(job)) jobTimer = setTimeout(watchJob, 3000);
+  else if (wasRunning) load().catch(fail);  // show what the task changed
+}
+async function startJob(name) {
+  try { await getJson(`/jobs/${name}`, {method: 'POST'}) } catch (error) { fail(error) }
+  watchJob();
+}
+$('#job-sync').addEventListener('click', () => startJob('sync'));
+$('#job-index').addEventListener('click', () => startJob('index'));
 
 let toastTimer;
 function toast(message, kind = '') {
@@ -922,7 +964,7 @@ async function load() {
   const sync = data.last_sync;
   const open = data.assessments.filter(a => a.status !== 'COMPLETED').length;
   $('#status-line').innerHTML = `<b>${data.courses.length}</b> courses · <b>${open}</b> assessments open · <b>${sync?.resources_found ?? 0}</b> files · `
-    + (sync?.finished_at ? `synced ${esc(ago(sync.finished_at))} <span class="muted">(${esc(date(sync.finished_at))})</span>` : 'not synced yet: run <code>study-agent sync</code>');
+    + (sync?.finished_at ? `synced ${esc(ago(sync.finished_at))} <span class="muted">(${esc(date(sync.finished_at))})</span>` : 'not synced yet');
 
   renderSuggestions(data);
 
@@ -1038,6 +1080,7 @@ async function deleteCourseNote(courseId, noteId, button) {
 }
 
 loadChats();
+watchJob();
 load().catch(error => {
   $('#status-line').textContent = 'Could not load your courses.';
   fail(error);

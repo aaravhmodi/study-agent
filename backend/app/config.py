@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     timezone: str = "America/Toronto"
     # Needed to serve the dashboard beyond this computer; every request then needs it.
     dashboard_password: str | None = Field(default=None, min_length=12)
+    # Where to sign in to LEARN when the browser runs on a server: the address of its
+    # sign-in window. The dashboard links to it beside the sync button.
+    learn_signin_url: str | None = None
 
     @field_validator("dashboard_password", mode="before")
     @classmethod

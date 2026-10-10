@@ -34,9 +34,11 @@ from app.services.course_notes import (
     delete_note,
     list_notes,
 )
+from app.services.jobs import JobRunner, JobStatus
 from app.services.learn_links import viewer_url
 from app.services.pdf_pages import PdfError, render_pdf_page
 from app.services.rag import RagService
+from app.services.refresh import rebuild_index, sync_learn
 from app.services.saved_files import saved_file
 from app.services.study_context import relevant_coursework, study_guidance
 
@@ -45,6 +47,7 @@ _DASHBOARD_PAGE = Path(__file__).parent / "web" / "dashboard.html"
 # The page itself holds no data; everything it loads needs the session cookie.
 _OPEN_PATHS = {"/dashboard", "/health", "/login", "/logout"}
 _login_attempts = LoginAttempts()
+_jobs = JobRunner()
 
 
 @app.middleware("http")
@@ -173,6 +176,32 @@ def _course_code(course_id: str) -> str:
 
 def _notes_path() -> Path:
     return get_settings().data_dir / NOTES_FILE
+
+
+@app.get("/jobs")
+def job_status() -> dict[str, Any]:
+    """The background task last started from the dashboard, and where to sign in to LEARN."""
+
+    return {
+        **_jobs.status().model_dump(mode="json"),
+        "signin_url": get_settings().learn_signin_url,
+    }
+
+
+@app.post("/jobs/sync", response_model=JobStatus)
+def start_sync() -> JobStatus:
+    return _start_job("sync", sync_learn)
+
+
+@app.post("/jobs/index", response_model=JobStatus)
+def start_index() -> JobStatus:
+    return _start_job("index", rebuild_index)
+
+
+def _start_job(name: str, work: Callable[[Callable[[str], None]], str]) -> JobStatus:
+    if not _jobs.start(name, work):
+        raise HTTPException(status_code=409, detail="Another task is still running.")
+    return _jobs.status()
 
 
 @app.get("/health")
