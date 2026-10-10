@@ -19,3 +19,4 @@ data/course_notes.json
 data/chat_sessions.json
 data/.sent-to-server
 data/.sending
+.vercel-site/

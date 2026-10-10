@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
 <title>StudyAgent</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -194,6 +195,15 @@ button.row:hover b{text-decoration:underline;text-decoration-color:var(--pencil)
 
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);display:none;background:var(--ink);color:var(--paper);border-radius:3px;padding:10px 16px;font-size:14px;z-index:10;max-width:min(560px,calc(100vw - 32px))}
 .toast.show{display:block}
+.sign-in{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;padding:16px;background:var(--paper)}
+.sign-in[hidden]{display:none}
+.sign-in-card{width:min(340px,100%);display:grid;gap:12px}
+.sign-in-card label{font:13px var(--mono);color:var(--ink-2);margin-top:14px}
+.sign-in-card input{width:100%;padding:10px 12px;border:1px solid var(--rule-2);border-radius:3px;background:var(--sheet);font-size:16px}
+.sign-in-card input:focus{outline:2px solid var(--ink);outline-offset:1px}
+.sign-in-card button{justify-content:center}
+.sign-in-error{margin:0;min-height:1.5em;font-size:13.5px;color:var(--pencil)}
+#sign-out{font-weight:400;text-decoration:underline;text-decoration-color:var(--rule-2);text-underline-offset:3px}
 .toast.error{background:var(--pencil)}
 
 .screen-nav{display:flex;gap:8px 20px;flex-wrap:wrap;padding:16px 0 2px;border-bottom:1px solid var(--rule)}
@@ -208,7 +218,7 @@ button.row:hover b{text-decoration:underline;text-decoration-color:var(--pencil)
 <div class="shell">
   <header>
     <div class="wordmark">Study<em>Agent</em></div>
-    <nav class="header-links"><a href="/docs">API docs</a></nav>
+    <nav class="header-links"><a href="/docs">API docs</a><button type="button" class="link-button" id="sign-out" hidden>Sign out</button></nav>
   </header>
   <p class="status-line" id="status-line">Loading your courses…</p>
 
@@ -266,6 +276,15 @@ button.row:hover b{text-decoration:underline;text-decoration-color:var(--pencil)
   </main>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<form class="sign-in" id="sign-in" hidden>
+  <div class="sign-in-card">
+    <div class="wordmark">Study<em>Agent</em></div>
+    <label for="sign-in-password">Password</label>
+    <input id="sign-in-password" type="password" autocomplete="current-password" required>
+    <p class="sign-in-error" id="sign-in-error" role="alert"></p>
+    <button class="primary-button" type="submit">Sign in</button>
+  </div>
+</form>
 
 <script>
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -313,6 +332,7 @@ const loading = what => `<p class="loading">${esc(what)}…</p>`;
 
 async function getJson(path, options) {
   const response = await fetch(path, options);
+  if (response.status === 401 && path !== '/login') askToSignIn();
   if (!response.ok) {
     let message = await response.text();
     try { message = JSON.parse(message).detail || message } catch (_) {}
@@ -320,6 +340,34 @@ async function getJson(path, options) {
   }
   return response.json();
 }
+
+// A server with a password answers 401 until this device has signed in.
+function askToSignIn() {
+  if (!$('#sign-in').hidden) return;
+  $('#sign-in').hidden = false;
+  $('#sign-in-password').focus();
+}
+$('#sign-in').addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = event.target.querySelector('button');
+  button.disabled = true;
+  $('#sign-in-error').textContent = '';
+  try {
+    await getJson('/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({password: $('#sign-in-password').value}),
+    });
+    location.reload();
+  } catch (error) {
+    $('#sign-in-error').textContent = error.message || String(error);
+    button.disabled = false;
+  }
+});
+$('#sign-out').addEventListener('click', async () => {
+  await fetch('/logout', {method: 'POST'});
+  location.reload();
+});
 
 let toastTimer;
 function toast(message, kind = '') {
@@ -848,6 +896,7 @@ async function changeStatus(id, action, button) {
 
 async function load() {
   const data = await getJson('/api/dashboard');
+  $('#sign-out').hidden = !data.sign_in;
   const sync = data.last_sync;
   const open = data.assessments.filter(a => a.status !== 'COMPLETED').length;
   $('#status-line').innerHTML = `<b>${data.courses.length}</b> courses · <b>${open}</b> assessments open · <b>${sync?.resources_found ?? 0}</b> files · `

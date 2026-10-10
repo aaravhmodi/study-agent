@@ -1,5 +1,6 @@
-# Runs the dashboard and tutor on a home server, reachable only over Tailscale.
-# Set TAILSCALE_IP in .env (e.g. TAILSCALE_IP=100.76.57.23) and keep data/ beside this file.
+# Runs the dashboard and tutor on a home server, published on its Tailscale address and
+# on the server itself (for Tailscale Funnel). Set TAILSCALE_IP and DASHBOARD_PASSWORD
+# in .env and keep data/ beside this file.
 services:
   dashboard:
     build: .
@@ -11,3 +12,4 @@ services:
       - ./data:/app/data
     ports:
       - "${TAILSCALE_IP}:8000:8000"
+      - "127.0.0.1:8000:8000"

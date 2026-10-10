@@ -225,6 +225,12 @@ def dashboard(
 
     from app.main import app as web_app
 
+    if host not in {"127.0.0.1", "localhost", "::1"} and not get_settings().dashboard_password:
+        console.print(
+            "[red][FAIL][/red] Set DASHBOARD_PASSWORD in .env before serving the dashboard "
+            "beyond this computer."
+        )
+        raise typer.Exit(code=1)
     configure_logging()
     ensure_schema()
     url = f"http://127.0.0.1:{port}/dashboard"

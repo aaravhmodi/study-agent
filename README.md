@@ -189,13 +189,15 @@ uv run study-agent submissions
 
 The dashboard and tutor can run on an always-on machine with Docker, so they are there from any of your devices. LEARN syncing stays on this computer, because it reads LEARN through the Chrome you are signed in to.
 
-On the server, put the code in a folder with a `.env` holding `OPENAI_API_KEY` and the server's Tailscale address as `TAILSCALE_IP`, copy `data/` beside it, and start it:
+On the server, put the code in a folder with a `.env` holding `OPENAI_API_KEY`, the server's Tailscale address as `TAILSCALE_IP` and a `DASHBOARD_PASSWORD` of 12 characters or more, copy `data/` beside it, and start it:
 
 ```bash
 docker compose up -d --build
 ```
 
-The dashboard is then at `http://<TAILSCALE_IP>:8000/dashboard`, and `/health` answers for an uptime monitor. It is published on the Tailscale address only, so only devices signed in to your Tailscale can open it. It has no sign-in of its own: never publish it on a public address.
+The dashboard is then at `http://<TAILSCALE_IP>:8000/dashboard` for devices signed in to your Tailscale, and `/health` answers for an uptime monitor.
+
+With a password set, the page asks for it once per device and the server answers nothing else until then. The session lasts 30 days, and changing the password signs every device out. Eight wrong passwords pause sign-in for 15 minutes. The dashboard refuses to listen beyond its own computer without a password.
 
 The server's `data/` is the live copy: it holds your chats, your notes and the assessments you marked done. Stop the dashboard on this computer once the server runs, and add course notes from the dashboard, not with `course-note`. To refresh from LEARN, set `STUDY_SERVER=user@host` in this computer's `.env` and run, from Git Bash with Chrome signed in:
 
@@ -204,6 +206,15 @@ bash scripts/server-sync.sh
 ```
 
 It stops the server's dashboard, brings its database back, runs `sync` and `rag-index` here, sends the database, the changed course files and the index to the server, and starts the dashboard again. Saved files are found by name in `data/downloads`, so the paths this computer wrote into the database also work there.
+
+### Open it from anywhere, with the page on Vercel
+
+To reach it without Tailscale, give the server a public https address and put the page on Vercel:
+
+1. On the server, turn on [Tailscale Funnel](https://tailscale.com/kb/1223/funnel) for the dashboard's port: `sudo tailscale funnel --bg 8000`. The first run links to the Tailscale admin page that enables Funnel and HTTPS for your tailnet. It prints the address, `https://<server>.<tailnet>.ts.net`.
+2. On this computer, set `STUDY_API_URL` in `.env` to that address and run `bash scripts/deploy-frontend.sh` from Git Bash, signed in to the Vercel CLI.
+
+Vercel then serves only the page, which holds no data, and forwards everything the page loads to the server, which checks the password itself. Vercel gives up on a forwarded request after 120 seconds, so an unusually slow answer shows an error there even though it is saved; reload and it is in Recent chats.
 
 ## Daily workflow
 

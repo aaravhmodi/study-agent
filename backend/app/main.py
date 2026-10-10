@@ -1,11 +1,13 @@
 # ruff: noqa: E501
 
+import time
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, Response
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import select
 
 from app.config import get_settings
@@ -14,6 +16,15 @@ from app.models import Assessment, ChangeEvent, Course, Resource, SyncRun
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.schemas.chat_session import ChatSession, ChatSessionSummary
 from app.schemas.course_note import CourseNoteRequest
+from app.schemas.sign_in import SignInRequest
+from app.services.access import (
+    SESSION_COOKIE,
+    SESSION_SECONDS,
+    LoginAttempts,
+    password_matches,
+    session_token,
+    valid_session,
+)
 from app.services.chat_sessions import SESSIONS_FILE, ChatSessionStore
 from app.services.course_notes import (
     NOTES_FILE,
@@ -30,6 +41,54 @@ from app.services.study_context import relevant_coursework, study_guidance
 
 app = FastAPI(title="StudyAgent", version="0.1.0")
 _DASHBOARD_PAGE = Path(__file__).parent / "web" / "dashboard.html"
+# The page itself holds no data; everything it loads needs the session cookie.
+_OPEN_PATHS = {"/dashboard", "/health", "/login", "/logout"}
+_login_attempts = LoginAttempts()
+
+
+@app.middleware("http")
+async def require_sign_in(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    """With DASHBOARD_PASSWORD set, answer only signed-in requests."""
+
+    password = get_settings().dashboard_password
+    if (
+        password
+        and request.url.path not in _OPEN_PATHS
+        and not valid_session(request.cookies.get(SESSION_COOKIE), password, time.time())
+    ):
+        return JSONResponse({"detail": "Sign in to continue."}, status_code=401)
+    return await call_next(request)
+
+
+@app.post("/login")
+def login(sign_in: SignInRequest, request: Request, response: Response) -> dict[str, bool]:
+    password = get_settings().dashboard_password
+    if not password:
+        return {"signed_in": True}
+    now = time.time()
+    if not _login_attempts.allowed(now):
+        raise HTTPException(status_code=429, detail="Too many wrong passwords. Try again later.")
+    if not password_matches(sign_in.password, password):
+        _login_attempts.failed(now)
+        raise HTTPException(status_code=401, detail="Wrong password.")
+    response.set_cookie(
+        SESSION_COOKIE,
+        session_token(password, now),
+        max_age=SESSION_SECONDS,
+        httponly=True,
+        samesite="strict",
+        # Plain http only happens on the private network; anything public is https.
+        secure=request.headers.get("x-forwarded-proto", request.url.scheme) == "https",
+    )
+    return {"signed_in": True}
+
+
+@app.post("/logout")
+def logout(response: Response) -> dict[str, bool]:
+    response.delete_cookie(SESSION_COOKIE)
+    return {"signed_in": False}
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -402,6 +461,8 @@ def dashboard_data() -> dict[str, Any]:
             select(ChangeEvent).order_by(ChangeEvent.detected_at.desc()).limit(10)
         ).all()
         return {
+            # Whether this server asks for a password, so the page can offer to sign out.
+            "sign_in": bool(get_settings().dashboard_password),
             "last_sync": {
                 "started_at": _iso(last_sync.started_at),
                 "finished_at": _iso(last_sync.finished_at),

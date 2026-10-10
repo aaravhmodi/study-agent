@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _REAL_DATABASE_URL = "sqlite:///./data/study_agent.db"
@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     browser_use_api_key: str | None = None
     browser_use_executable: str = "browser-use"
     timezone: str = "America/Toronto"
+    # Needed to serve the dashboard beyond this computer; every request then needs it.
+    dashboard_password: str | None = Field(default=None, min_length=12)
+
+    @field_validator("dashboard_password", mode="before")
+    @classmethod
+    def _blank_is_no_password(cls, value: object) -> object:
+        return None if isinstance(value, str) and not value.strip() else value
 
     @model_validator(mode="after")
     def _keep_demo_data_separate(self) -> "Settings":
