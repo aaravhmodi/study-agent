@@ -37,6 +37,11 @@ class SyncService:
         started_at = datetime.now(UTC)
         sync_run = SyncRun(started_at=started_at, status="RUNNING")
         with SessionLocal() as session:
+            # Only one sync runs at a time, so any still marked running was cut off.
+            for cut_off in session.scalars(select(SyncRun).where(SyncRun.status == "RUNNING")):
+                cut_off.status = "INTERRUPTED"
+                cut_off.finished_at = started_at
+                cut_off.error = "Stopped before it finished."
             session.add(sync_run)
             session.commit()
             try:

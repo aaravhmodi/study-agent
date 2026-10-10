@@ -91,8 +91,11 @@ def test_the_dashboard_starts_tasks_and_reports_them(monkeypatch: pytest.MonkeyP
     assert client.post("/jobs/sync").json()["state"] == "running"
     busy = client.post("/jobs/index")
     assert (busy.status_code, busy.json()) == (409, {"detail": "Another task is still running."})
+    # The health check says so, for a deploy to wait on.
+    assert client.get("/health").json()["busy"] is True
     release.set()
     _wait(runner)
+    assert client.get("/health").json()["busy"] is False
 
     done = client.get("/jobs").json()
     assert (done["name"], done["state"], done["message"]) == ("sync", "done", "Synced 6 courses.")

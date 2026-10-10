@@ -205,8 +205,13 @@ def _start_job(name: str, work: Callable[[Callable[[str], None]], str]) -> JobSt
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "browser_mode": get_settings().browser_mode}
+def health() -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "browser_mode": get_settings().browser_mode,
+        # A sync or an index is running: a deploy should wait rather than cut it off.
+        "busy": _jobs.status().state == "running",
+    }
 
 
 @app.get("/courses")
@@ -475,7 +480,12 @@ def _set_assessment_status(assessment_id: str, status: str) -> dict[str, Any]:
 def dashboard_data() -> dict[str, Any]:
     ensure_schema()
     with SessionLocal() as session:
-        last_sync = session.scalar(select(SyncRun).order_by(SyncRun.started_at.desc()))
+        # The last sync that brought anything in; one that failed or was cut off is not it.
+        last_sync = session.scalar(
+            select(SyncRun)
+            .where(SyncRun.status.in_(("COMPLETED", "PARTIAL")))
+            .order_by(SyncRun.started_at.desc())
+        )
         active_courses = session.scalars(
             select(Course).where(Course.active.is_(True)).order_by(Course.name)
         ).all()
