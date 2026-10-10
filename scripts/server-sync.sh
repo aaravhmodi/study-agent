@@ -3,7 +3,7 @@
 #
 # LEARN is read through the Chrome you are signed in to, so syncing stays here. The
 # server holds the live data: chats, notes and the assessments you marked done. This
-# stops its dashboard, brings its database back, syncs and indexes, sends the
+# stops its dashboard, brings its database and index record back, syncs and indexes, sends the
 # database, the changed course files and the index over, and starts it again.
 #
 # Run it from Git Bash:   bash scripts/server-sync.sh
@@ -22,8 +22,10 @@ on_server() { ssh -o BatchMode=yes "$server" "cd '$remote' && $1"; }
 on_server "docker compose stop dashboard"
 trap 'on_server "docker compose start dashboard"' EXIT
 
-# The server's copy knows what was marked done since the last sync.
+# The server's copies know what was marked done, and what it indexed itself, since
+# the last sync here.
 scp -q -o BatchMode=yes "$server:$remote/data/study_agent.db" data/study_agent.db
+scp -q -o BatchMode=yes "$server:$remote/data/rag_manifest.json" data/rag_manifest.json
 
 uv run study-agent sync
 uv run study-agent rag-index
