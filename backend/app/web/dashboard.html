@@ -976,7 +976,8 @@ function shrunk(file) {
         context.drawImage(image, 0, 0, canvas.width, canvas.height);
         // Screenshots stay sharp as PNG; a photo that would be large goes as JPEG.
         const png = canvas.toDataURL('image/png');
-        resolve(png.length < 1500000 ? png : canvas.toDataURL('image/jpeg', 0.85));
+        // Four pictures must fit one request through Vercel, which passes about 3 MB.
+        resolve(png.length < 700000 ? png : canvas.toDataURL('image/jpeg', 0.85));
       };
       image.src = reader.result;
     };
