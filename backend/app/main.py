@@ -14,7 +14,7 @@ from app.config import get_settings
 from app.db.database import SessionLocal, ensure_schema
 from app.models import Assessment, ChangeEvent, Course, Resource, SyncRun
 from app.schemas.chat import ChatRequest, ChatResponse
-from app.schemas.chat_session import ChatSession, ChatSessionSummary
+from app.schemas.chat_session import ChatSession, ChatSessionSummary, TurnImage
 from app.schemas.course_note import CourseNoteRequest
 from app.schemas.sign_in import SignInRequest
 from app.services.access import (
@@ -25,6 +25,7 @@ from app.services.access import (
     session_token,
     valid_session,
 )
+from app.services.chat_images import ImageError, prepare_picture
 from app.services.chat_sessions import SESSIONS_FILE, ChatSessionStore
 from app.services.course_notes import (
     NOTES_FILE,
@@ -103,18 +104,27 @@ def chat(request: ChatRequest) -> ChatResponse:
     if request.session_id and session is None:
         raise HTTPException(status_code=404, detail="Chat session not found")
     try:
-        response = RagService(get_settings()).ask(
+        prepared = [prepare_picture(image.data_url) for image in request.images]
+    except ImageError as exc:
+        raise HTTPException(status_code=422, detail=f"Attached image: {exc}.") from exc
+    try:
+        tutor = RagService(get_settings())
+        pictures = [tutor.read_picture(picture) for picture in prepared]
+        response = tutor.ask(
             request.question,
             request.course_code,
             fresh=request.fresh,
             history=session.turns if session else None,
+            pictures=pictures,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     # A session is only created once there is an answer to keep.
     if session is None:
         session = store.create(request.question, request.course_code)
-    store.add_turn(session.id, request.question, request.course_code, response)
+    # The conversation keeps a thumbnail and what each picture said, not the picture.
+    kept = [TurnImage(thumbnail=picture.thumbnail, text=picture.text) for picture in pictures]
+    store.add_turn(session.id, request.question, request.course_code, response, images=kept)
     return response.model_copy(update={"session_id": session.id})
 
 

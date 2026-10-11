@@ -14,7 +14,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from app.schemas.chat import ChatResponse
-from app.schemas.chat_session import ChatSession, ChatSessionSummary, ChatTurn
+from app.schemas.chat_session import ChatSession, ChatSessionSummary, ChatTurn, TurnImage
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +56,7 @@ class ChatSessionStore:
         response: ChatResponse,
         *,
         now: datetime | None = None,
+        images: list[TurnImage] | None = None,
     ) -> ChatSession:
         sessions = self._load()
         session = sessions.get(session_id)
@@ -63,7 +64,11 @@ class ChatSessionStore:
             raise KeyError(session_id)
         moment = now or datetime.now(UTC)
         turn = ChatTurn(
-            question=question, course_code=course_code, response=response, asked_at=moment
+            question=question,
+            course_code=course_code,
+            response=response,
+            asked_at=moment,
+            images=images or [],
         )
         session.turns = [*session.turns, turn][-MAX_TURNS:]
         session.updated_at = moment

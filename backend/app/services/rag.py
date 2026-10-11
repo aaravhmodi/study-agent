@@ -19,6 +19,7 @@ from app.schemas.chat import ChatCitation, ChatResponse, ChatUsage
 from app.schemas.chat_session import ChatTurn
 from app.services.answer_cache import AnswerCache, cache_key, index_fingerprint
 from app.services.answer_format import clean_answer, clean_citations, display_filename
+from app.services.chat_images import Picture
 from app.services.course_notes import NOTES_FILE, course_in_question, tutor_notes
 from app.services.figure_guide import FIGURE_GUIDE
 from app.services.figures import extract_figures
@@ -38,6 +39,16 @@ from app.services.saved_files import saved_file
 from app.services.textbook_toc import Chapter, chapters, describe, parse_contents
 
 logger = logging.getLogger(__name__)
+
+# What an attached picture is read for: its words and numbers, kept with the
+# conversation after the picture itself is gone.
+PICTURE_PROMPT = (
+    "Read this picture for a study tutor. First transcribe everything written in it, "
+    "exactly and in reading order: text, numbers, table contents, and equations as LaTeX. "
+    "Then, if it has a diagram, graph or circuit, describe it in two or three sentences: "
+    "what it shows, its labels and its values. Do not solve or explain anything."
+)
+MAX_PICTURE_TEXT = 4000
 
 # Requests sharing the tutor prefix are routed together so the prefix stays cached.
 _CACHE_KEY = "study-agent-tutor"
@@ -278,7 +289,15 @@ class RagService:
         *,
         fresh: bool = False,
         history: list[ChatTurn] | None = None,
+        pictures: list[Picture] | None = None,
     ) -> ChatResponse:
+        """Answer a question from the course files.
+
+        ``pictures`` are what the student attached, already read: the model looks at
+        them, and what they say also steers the search of the course files.
+        """
+
+        pictures = pictures or []
         manifest = self._load_manifest()
         vector_store_id = manifest.get("vector_store_id")
         if not vector_store_id:
@@ -300,8 +319,9 @@ class RagService:
         note = tutor_notes(self.notes_path, note_course)
         key = cache_key(question, normalized_course_code, settings=self._answer_shape(files, note))
         earlier = (history or [])[-FOLLOW_UP_TURNS:]
-        # A follow-up depends on the conversation, so it is never served from the cache.
-        if not fresh and not earlier and (saved := cache.get(key)):
+        # A follow-up depends on the conversation, and a question about a picture on
+        # the picture, so neither is served from the cache.
+        if not fresh and not earlier and not pictures and (saved := cache.get(key)):
             return saved.model_copy(update={"cached": True, "usage": None})
         lecture_ids = matching_resource_ids(question, files, normalized_course_code)
         context = []
@@ -331,12 +351,25 @@ class RagService:
                 "do not repeat what was already explained):"
             )
             for turn in earlier:
-                context.append(f"Student: {turn.question}\nTutor: {_brief(turn.response.answer)}")
+                # The pictures of earlier turns are not sent again; what they said is.
+                seen = "".join(
+                    f"\n(attached a picture, which read: {_brief(image.text, 600)})"
+                    for image in turn.images
+                    if image.text
+                )
+                context.append(
+                    f"Student: {turn.question}{seen}\nTutor: {_brief(turn.response.answer)}"
+                )
             context.append(f"New question: {question}")
         else:
             context.append(f"Question: {question}")
+        for number, picture in enumerate(pictures, start=1):
+            if picture.text:
+                context.append(f"Attached picture {number}, as read:\n{picture.text}")
         # A short follow-up ("why?") is searched together with the question it follows.
         search_text = f"{earlier[-1].question}\n{question}" if earlier else question
+        # A screenshot of a problem is searched by what it says, not by "explain this".
+        search_text += "".join(f"\n{_brief(picture.text, 500)}" for picture in pictures)
         # "Chapter 3" means nothing to semantic search; its title and sections do.
         search_text += _chapter_search_terms(files, note_course, named_chapters)
         found = self._passages(
@@ -361,7 +394,7 @@ class RagService:
             model=self.settings.openai_chat_model,
             # Static instructions form a stable prefix that OpenAI can cache.
             instructions=TUTOR_INSTRUCTIONS,
-            input="\n".join(context),
+            input=_model_input("\n".join(context), pictures),
             tools=cast(Any, tools),
             # One web search at most; course passages are already in the input.
             max_tool_calls=1,
@@ -384,9 +417,38 @@ class RagService:
             figures=figures,
             usage=_usage(response),
         )
-        if not earlier:
+        if not earlier and not pictures:
             cache.put(key, result)
         return result
+
+    def read_picture(self, picture: Picture) -> Picture:
+        """Have the model read an attached picture, so its content outlives the turn.
+
+        A picture that cannot be read is still shown to the tutor; it just has no text.
+        """
+
+        try:
+            response = self.client.responses.create(
+                model=self.settings.openai_model,
+                input=cast(
+                    Any,
+                    [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "input_text", "text": PICTURE_PROMPT},
+                                {"type": "input_image", "image_url": picture.data_url},
+                            ],
+                        }
+                    ],
+                ),
+                max_output_tokens=1200,
+            )
+        except Exception as exc:  # the question can still be answered from the picture
+            logger.warning("Could not read an attached picture (%s)", type(exc).__name__)
+            return picture
+        text = str(getattr(response, "output_text", "")).strip()
+        return picture.model_copy(update={"text": text[:MAX_PICTURE_TEXT]})
 
     def _located(
         self, passages: list[Passage], files: dict[str, Any]
@@ -612,6 +674,16 @@ def _upload_hash(path: Path) -> str | None:
     if not path.is_file():
         return None
     return hashlib.sha256(_local_text_path(path).read_bytes()).hexdigest()
+
+
+def _model_input(text: str, pictures: list[Picture]) -> Any:
+    """The question and its context, with any attached pictures for the model to see."""
+
+    if not pictures:
+        return text
+    content: list[dict[str, str]] = [{"type": "input_text", "text": text}]
+    content += [{"type": "input_image", "image_url": picture.data_url} for picture in pictures]
+    return [{"role": "user", "content": content}]
 
 
 def _brief(answer: str, limit: int = 800) -> str:
