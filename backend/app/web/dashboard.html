@@ -211,6 +211,27 @@ textarea:focus,select:focus{border-color:var(--ink);outline:none;box-shadow:inse
 .quiz-result.wrong .quiz-verdict{color:var(--pencil)}
 .quiz-model{margin-bottom:8px}
 .quiz-model .label,.quiz-why .label{display:block;margin-bottom:2px}
+.quiz-topic{display:block;margin-bottom:6px;font:600 11.5px/1.4 var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+.quiz-self{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px;font-size:14px;color:var(--ink-2)}
+.quiz-self button{padding:6px 12px;font-size:13.5px}
+.quiz-self .picked{border-color:var(--ink);font-weight:600}
+.turn-score{margin:0 0 10px;font:13px/1.5 var(--mono);color:var(--ink-2)}
+.turn-score b{color:var(--ink);font-weight:500}
+.practice-course{padding:16px 0;border-top:1px solid var(--rule)}
+.practice-course:first-child{border-top:0;padding-top:4px}
+.practice-course h3{margin:0;font:600 18px/1.3 var(--serif)}
+.practice-line{margin:4px 0 0;font:13px/1.6 var(--mono);color:var(--ink-2)}
+.practice-line b{color:var(--ink);font-weight:500}
+.practice-topics{margin:10px 0 0;padding:0;list-style:none;display:grid;gap:5px;max-width:560px}
+.practice-topics li{display:grid;grid-template-columns:minmax(0,1fr) 120px 52px;gap:10px;align-items:center;font-size:14px}
+.practice-topics .bar{height:6px;background:var(--rule);border-radius:3px;overflow:hidden}
+.practice-topics .bar span{display:block;height:100%;background:var(--ok)}
+.practice-topics .weak .bar span{background:var(--pencil)}
+.practice-topics .count{font:12px var(--mono);color:var(--ink-3);text-align:right}
+.practice-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.practice-actions button{padding:7px 13px;font-size:13.5px}
+.review-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+.review-head p{margin:0;font:13px var(--mono);color:var(--ink-2)}
 .figure.source .source-where{display:block;font:12.5px/1.5 var(--mono);color:var(--ink-2);margin-top:3px;overflow-wrap:anywhere}
 .figure.source .source-page{display:block;margin-top:8px;border:1px solid var(--rule);background:#fff}
 .figure.source .source-page img{display:block;width:100%;height:auto}
@@ -309,6 +330,7 @@ button.row:hover b{text-decoration:underline;text-decoration-color:var(--pencil)
   <nav class="screen-nav" id="screen-nav" aria-label="Dashboard screens">
     <button type="button" data-screen="ask">Ask</button>
     <button type="button" data-screen="upcoming">Coming up</button>
+    <button type="button" data-screen="practice">Practice</button>
     <button type="button" data-screen="courses">Courses</button>
     <button type="button" data-screen="chats">Recent chats</button>
     <button type="button" data-screen="activity">Activity</button>
@@ -348,6 +370,13 @@ button.row:hover b{text-decoration:underline;text-decoration-color:var(--pencil)
       </section>
       <section id="courses-detail" class="detail hidden" aria-live="polite"><div id="courses-detail-content"></div></section>
     </div>
+    <div id="screen-practice" class="screen hidden">
+      <section class="section" aria-labelledby="practice-title">
+        <div class="section-head"><h2 id="practice-title">Practice</h2><button type="button" class="quiet-button hidden" id="review-close">Back to all courses</button></div>
+        <div id="practice"><p class="loading">Loading…</p></div>
+        <div id="review" class="hidden"></div>
+      </section>
+    </div>
     <div id="screen-chats" class="screen hidden">
       <section class="section" aria-labelledby="chats-title">
         <div class="section-head"><h2 id="chats-title">Recent chats</h2></div>
@@ -376,7 +405,7 @@ button.row:hover b{text-decoration:underline;text-decoration-color:var(--pencil)
 <script>
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const $ = selector => document.querySelector(selector);
-const screenNames = new Set(['ask', 'upcoming', 'courses', 'chats', 'activity']);
+const screenNames = new Set(['ask', 'upcoming', 'practice', 'courses', 'chats', 'activity']);
 function showScreen(name) {
   const selected = screenNames.has(name) ? name : 'ask';
   document.querySelectorAll('.screen').forEach(screen => screen.classList.toggle('hidden', screen.id !== `screen-${selected}`));
@@ -390,6 +419,8 @@ $('#screen-nav').addEventListener('click', event => {
   if (button) location.hash = button.dataset.screen;
 });
 window.addEventListener('hashchange', () => showScreen(location.hash.slice(1)));
+// The Practice screen shows how things stand now, so it is read each time it opens.
+window.addEventListener('hashchange', () => { if (location.hash === '#practice') loadPractice() });
 showScreen(location.hash.slice(1));
 const date = value => value ? new Date(value).toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}) : 'No date';
 const DAY = 86400000;
@@ -805,7 +836,32 @@ async function formatCode(answer) {
 // A practice question: the student answers first, then sees how they did and why.
 // The server has already worked out which option, or which number, is right.
 let quizCount = 0;
-function drawQuiz(holder, figure) {
+// Every answer is kept on the server, so missed questions come back and results add
+// up by topic. A question that could not be kept is still answered; it just is not counted.
+async function keepAnswer(course, figure, correct) {
+  try {
+    await getJson('/practice/answers', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({course_code: course || null, quiz: figure, correct})});
+  } catch (_) {}
+}
+// "3 of 5 answered · 2 right", above a turn's questions once one is answered.
+function showTurnScore(holder) {
+  const scope = holder.closest('.turn-body, #review');
+  if (!scope) return;
+  const cards = [...scope.querySelectorAll('.figure.quiz')];
+  const done = cards.filter(card => card.dataset.result);
+  if (cards.length < 2 || !done.length) return;
+  let line = scope.querySelector('.turn-score');
+  if (!line) {
+    line = document.createElement('p');
+    line.className = 'turn-score';
+    line.setAttribute('role', 'status');
+    (scope.querySelector('.answer') || scope).before(line);
+  }
+  const right = done.filter(card => card.dataset.result === 'right').length;
+  line.innerHTML = `<b>${done.length}</b> of ${cards.length} answered · <b>${right}</b> right`
+    + (done.length === cards.length ? ` · ${Math.round(100 * right / cards.length)}%` : '');
+}
+function drawQuiz(holder, figure, course = null, onAnswered = null) {
   holder.classList.add('quiz');
   const id = `quiz-${++quizCount}`;
   const letters = 'ABCDEF';
@@ -818,7 +874,15 @@ function drawQuiz(holder, figure) {
     : `<form class="quiz-answer"><label class="label" for="${id}">Your answer</label>${numeric
         ? `<div class="quiz-number"><input id="${id}" type="text" inputmode="decimal" autocomplete="off" placeholder="a number"><span class="mono">${esc(figure.unit || '')}</span></div>`
         : `<textarea id="${id}"${/```/.test(figure.answer || '') ? ' class="code" spellcheck="false" placeholder="Write your code, then check it"' : ' placeholder="Write your answer, then check it"'}></textarea>`}<button type="submit" class="secondary-button">Check</button></form>`;
-  holder.innerHTML = `<div class="quiz-question">${shown(figure.question)}</div>${ask}<div class="quiz-result hidden" role="status" aria-live="polite"></div>`;
+  const topic = figure.topic ? `<span class="quiz-topic">${esc(figure.topic)}</span>` : '';
+  holder.innerHTML = `${topic}<div class="quiz-question">${shown(figure.question)}</div>${ask}<div class="quiz-result hidden" role="status" aria-live="polite"></div>`;
+  // What the answer was worth: kept, shown in the turn's score, and passed on.
+  const settle = right => {
+    holder.dataset.result = right ? 'right' : 'wrong';
+    keepAnswer(course, figure, right);
+    showTurnScore(holder);
+    if (onAnswered) onAnswered(right);
+  };
   formatCode(holder);  // a question about code shows its code like any other
 
   const result = holder.querySelector('.quiz-result');
@@ -837,6 +901,7 @@ function drawQuiz(holder, figure) {
       other.classList.toggle('wrong', index === picked && picked !== figure.correct);
     });
     reveal(picked === figure.correct ? 'Correct' : `Not quite: the answer is ${letters[figure.correct]}`, picked === figure.correct);
+    settle(picked === figure.correct);
   }));
   holder.querySelector('.quiz-answer')?.addEventListener('submit', event => {
     event.preventDefault();
@@ -851,15 +916,27 @@ function drawQuiz(holder, figure) {
         : Number((typed.match(/-?\d*\.?\d+(?:[eE][-+]?\d+)?/) || [NaN])[0]);
       const right = Math.abs(given - figure.number) <= Math.max(Math.abs(figure.number) * 0.02, 1e-9);
       reveal(right ? 'Correct' : 'Not quite', right);
+      settle(right);
     } else {
+      // Only the student can say whether an answer in words or code was right.
       reveal('Compare your answer with this one', null);
+      const judge = document.createElement('div');
+      judge.className = 'quiz-self';
+      judge.innerHTML = '<span>Did you have it?</span><button type="button" class="secondary-button" data-right="1">I had it</button><button type="button" class="secondary-button" data-right="">I missed it</button>';
+      result.append(judge);
+      judge.querySelectorAll('button').forEach(button => button.addEventListener('click', () => {
+        judge.querySelectorAll('button').forEach(other => { other.disabled = true });
+        button.classList.add('picked');
+        result.classList.add(button.dataset.right ? 'right' : 'wrong');
+        settle(Boolean(button.dataset.right));
+      }));
     }
     field.readOnly = true;
     event.target.querySelector('button').disabled = true;
   });
 }
 
-async function drawFigures(answer, figures) {
+async function drawFigures(answer, figures, course = null) {
   if (!answer || !figures.length) return;
   const slots = new Map();
   answer.querySelectorAll('pre > code.language-figure').forEach(code => {
@@ -875,7 +952,7 @@ async function drawFigures(answer, figures) {
       if (figure.kind === 'plot') await drawPlot(holder, figure);
       else if (figure.kind === 'sketch') drawSketch(holder, figure);
       else if (figure.kind === 'source') drawSource(holder, figure);
-      else if (figure.kind === 'quiz') drawQuiz(holder, figure);
+      else if (figure.kind === 'quiz') drawQuiz(holder, figure, course);
       else await drawDiagram(holder, figure);
     } catch (error) {
       holder.innerHTML = `<p class="figure-error">This figure could not be drawn (${esc(error.message || error)}).</p>`;
@@ -1014,6 +1091,84 @@ function turnImages(images) {
     : '').join('')}</div>`;
 }
 
+// Practice: how each course stands, its weakest topics, and the questions due again.
+// Missed questions come back at once; ones answered right wait a day, then longer.
+const percent = (right, total) => total ? Math.round(100 * right / total) : 0;
+async function loadPractice() {
+  const box = $('#practice');
+  let scores;
+  try { scores = await getJson('/practice') } catch (error) { box.innerHTML = `<div class="notice">${esc(error.message || error)}</div>`; return }
+  if (!scores.length) {
+    box.innerHTML = '<p class="empty">Nothing practised yet. Ask the tutor for practice questions, or to explain a topic, and answer the questions it gives: each one is kept here, and the ones you miss come back.</p>';
+    return;
+  }
+  box.innerHTML = scores.map(score => {
+    const name = score.course || 'No course';
+    const weak = score.topics.filter(topic => topic.right < topic.questions).slice(0, 3).map(topic => topic.topic);
+    return `<div class="practice-course" data-course="${esc(score.course)}">
+      <h3>${esc(name)}</h3>
+      <p class="practice-line"><b>${score.questions}</b> questions practised · <b>${percent(score.right, score.questions)}%</b> right at last try · <b>${score.due}</b> due now</p>
+      <ul class="practice-topics">${score.topics.slice(0, 8).map(topic => `<li class="${topic.right / topic.questions < 0.7 ? 'weak' : ''}"><span>${esc(topic.topic)}</span><span class="bar"><span style="width:${percent(topic.right, topic.questions)}%"></span></span><span class="count">${topic.right}/${topic.questions}</span></li>`).join('')}</ul>
+      <div class="practice-actions">
+        <button type="button" class="primary-button" data-review ${score.due ? '' : 'disabled'}>Review ${score.due} due</button>
+        ${weak.length && score.course ? `<button type="button" class="secondary-button" data-weak="${esc(weak.join('; '))}">Practise weak topics</button>` : ''}
+        ${score.course ? '<button type="button" class="secondary-button" data-exam>Practice midterm</button>' : ''}
+      </div>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('.practice-course').forEach(row => {
+    const course = row.dataset.course;
+    row.querySelector('[data-review]')?.addEventListener('click', () => startReview(course));
+    row.querySelector('[data-weak]')?.addEventListener('click', event => askFor(course,
+      `Give me 8 practice questions on my weakest topics: ${event.target.dataset.weak}. Mix the topics up, and make the questions different from ones I have seen.`));
+    row.querySelector('[data-exam]')?.addEventListener('click', () => askFor(course,
+      'Give me a practice midterm of 15 questions in the exam\'s format, covering everything the midterm covers, with the topics mixed up. Questions only, no explanation first.'));
+  });
+}
+// Sends a prepared request to the tutor from another screen.
+function askFor(course, question) {
+  newChat();
+  location.hash = 'ask';
+  $('#chat-course').value = course;
+  $('#chat-question').value = question;
+  askChat();
+}
+// The due questions of one course, one after another on this screen.
+async function startReview(course) {
+  const review = $('#review');
+  let due;
+  try { due = await getJson(`/practice/due?limit=20${course ? `&course=${encodeURIComponent(course)}` : ''}`) } catch (error) { toast(error.message || String(error), 'error'); return }
+  if (!due.length) { toast('Nothing is due right now.'); return }
+  $('#practice').classList.add('hidden');
+  $('#review-close').classList.remove('hidden');
+  review.classList.remove('hidden');
+  review.innerHTML = `<div class="review-head"><p>${esc(course || 'No course')} · ${due.length} question${due.length === 1 ? '' : 's'} due</p></div><div class="answer"></div>`;
+  const list = review.querySelector('.answer');
+  let left = due.length;
+  for (const item of due) {
+    const holder = document.createElement('figure');
+    holder.className = 'figure';
+    list.append(holder);
+    drawQuiz(holder, item.quiz, item.course, () => {
+      left -= 1;
+      if (left) return;
+      const right = review.querySelectorAll('.figure.quiz[data-result="right"]').length;
+      const done = document.createElement('p');
+      done.className = 'practice-line';
+      done.innerHTML = `Done: <b>${right}</b> of ${due.length} right. ${right < due.length ? 'The ones you missed are due again now; the rest come back after a gap.' : 'They come back after a gap, a little longer each time.'}`;
+      review.append(done);
+    });
+  }
+}
+function closeReview() {
+  $('#review').classList.add('hidden');
+  $('#review').innerHTML = '';
+  $('#review-close').classList.add('hidden');
+  $('#practice').classList.remove('hidden');
+  loadPractice();
+}
+$('#review-close').addEventListener('click', closeReview);
+
 // The open conversation; follow-ups are sent with its id so the tutor sees earlier turns.
 let currentSession = null;
 
@@ -1045,7 +1200,7 @@ function answerPreview(answer) {
 
 // One question and its answer, appended to the thread. The question is a header that
 // collapses the answer, so a long conversation can be scanned by what was asked.
-function appendTurn(question, result, meta, images = []) {
+function appendTurn(question, result, meta, images = [], course = null) {
   const turn = document.createElement('article');
   turn.className = 'turn';
   turn.innerHTML = `<button type="button" class="turn-head" aria-expanded="true">
@@ -1064,7 +1219,7 @@ function appendTurn(question, result, meta, images = []) {
     </div>`;
   $('#chat-thread').append(turn);
   formatCode(turn.querySelector('.answer'));
-  drawFigures(turn.querySelector('.answer'), result.figures || []);
+  drawFigures(turn.querySelector('.answer'), result.figures || [], course);
   turn.querySelector('[data-fresh]')?.addEventListener('click', () => askFresh(question));
   turn.querySelector('.turn-head').addEventListener('click', () => setTurnOpen(turn, turn.classList.contains('collapsed')));
   updateThreadTools();
@@ -1116,7 +1271,7 @@ async function askChat(fresh = false, questionText = null) {
     progress.stop();
     pending.remove();
     setConversation(result.session_id || null);
-    appendTurn(question, result, turnMeta(result, course, Math.round(progress.elapsed() / 1000)), result.images).scrollIntoView({behavior: 'smooth', block: 'start'});
+    appendTurn(question, result, turnMeta(result, course, Math.round(progress.elapsed() / 1000)), result.images, course).scrollIntoView({behavior: 'smooth', block: 'start'});
     $('#chat-question').value = '';
     if (pictures.length) { attached = []; showAttached() }
     loadChats();
@@ -1143,7 +1298,7 @@ async function openChat(id, row) {
     setConversation(session.id);
     if (session.course_code) $('#chat-course').value = session.course_code;
     for (const turn of session.turns) {
-      appendTurn(turn.question, turn.response, turnMeta(turn.response, turn.course_code, null) || esc(date(turn.asked_at)), turn.images);
+      appendTurn(turn.question, turn.response, turnMeta(turn.response, turn.course_code, null) || esc(date(turn.asked_at)), turn.images, turn.course_code);
     }
     // Reopened chats show what was asked, with only the latest answer open.
     const turns = [...$('#chat-thread').querySelectorAll('.turn')];
@@ -1394,6 +1549,7 @@ async function deleteCourseNote(courseId, noteId, button) {
 
 loadChats();
 watchJob();
+if (location.hash === '#practice') loadPractice();
 load().catch(error => {
   $('#status-line').textContent = 'Could not load your courses.';
   fail(error);
