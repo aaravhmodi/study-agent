@@ -3,10 +3,21 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+class ChatImage(BaseModel):
+    """A screenshot or photo attached to a question, as the page sends it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # "data:image/png;base64,...". The server checks and redraws it before use.
+    data_url: str = Field(min_length=30, max_length=6_000_000)
+
+
 class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     question: str = Field(min_length=2, max_length=4000)
+    # Pictures the question is about: pasted, dropped or chosen.
+    images: list[ChatImage] = Field(default_factory=list, max_length=4)
     course_code: str | None = Field(default=None, max_length=100)
     # Skip the saved answer and ask the model again.
     fresh: bool = False
