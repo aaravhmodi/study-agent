@@ -14,3 +14,10 @@ def test_dashboard_page_is_served() -> None:
     assert "function drawFigures" in response.text
     assert "function citeLink" in response.text
     assert "function loadChats" in response.text and 'id="chat-thread"' in response.text
+
+
+def test_the_page_has_no_stray_control_characters() -> None:
+    page = TestClient(app).get("/dashboard").text
+
+    # An escape lost while editing leaves a backspace or bell in a pattern, unseen.
+    assert [hex(ord(char)) for char in page if ord(char) < 32 and char not in "\n\t"] == []
