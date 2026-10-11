@@ -41,7 +41,7 @@ On a single computer there is no Vercel and no browser container: the dashboard 
 | --- | --- | --- |
 | Dashboard and API | `backend/app/main.py`, `backend/app/web/dashboard.html` | One FastAPI app serves a single-file page and its JSON API: courses, assessments, chat, notes, question screenshots, and the sync and index tasks. With a password set, only the page and `/health` answer before sign-in. |
 | Sync | `backend/app/agents/`, `backend/app/browser/`, `backend/app/services/sync_service.py`, `document_collector.py` | Sends small read-only scripts to a browser signed in to LEARN: it lists courses, reads each course's home, calendar, content tree, announcements and Outline, and downloads the files with authenticated GETs. Everything the browser returns is validated with Pydantic before it is saved. |
-| Tutor | `backend/app/services/rag.py`, `retrieval.py`, `figures.py`, `question_sources.py`, `pdf_pages.py` | Searches the course index once, sends the best passages with the question, and checks what comes back: figures are described as data and drawn by the server, and a cited course question is found in the saved PDF and shown as a screenshot. |
+| Tutor | `backend/app/services/rag.py`, `retrieval.py`, `figures.py`, `question_sources.py`, `pdf_pages.py`, `practice.py`, `chat_images.py` | Searches the course index once, sends the best passages with the question, and checks what comes back: figures are described as data and drawn by the server, a cited course question is found in the saved PDF and shown as a screenshot, and practice questions become cards the page can mark. Attached pictures are checked, read once and kept as text. |
 | Background tasks | `backend/app/services/jobs.py`, `refresh.py` | Runs one sync or index at a time for the dashboard's buttons and reports each step. `/health` says when one is running. |
 | Sign-in | `backend/app/services/access.py` | One password and a signed 30-day cookie; no accounts and no session store. |
 | Command line | `backend/app/cli/commands.py` | The same sync, index and notes from a terminal, plus setup and diagnostics. |
@@ -161,7 +161,7 @@ Each answer shows its token count, e.g. "9.3k tokens (5.7k cached)". For fewer t
 Chat answers use the lighter `OPENAI_CHAT_MODEL` (default `gpt-6-luna`) with low reasoning effort and a 3,000-token output cap; handwritten-PDF transcription keeps `OPENAI_MODEL`. The tutor is built around study techniques with strong evidence:
 
 - **Concept by concept:** "Explain ..." questions get an Overview, one subsection per key concept in the chapter, a Worked example, and Common mistakes.
-- **Practice testing:** every explanation ends with "Check yourself" questions whose answers stay hidden until clicked.
+- **Practice testing:** every explanation ends with "Check yourself" questions you answer on the page before seeing the answer.
 - **Spacing:** the Study checklist says when to revisit the topic.
 - **No answer-copying:** questions that look like graded assignment or lab problems get concepts and a first-step hint, not a full solution.
 - **Any lecture:** naming "Lecture 7", "week 3", "chapter 5" or "tutorial 4" narrows the search to the matching course files.
@@ -175,6 +175,22 @@ uv run study-agent rag-eval -q "Explain bending stress." --course "SYDE 286"
 ```
 
 Each answer is scored for structure, concept coverage, balanced LaTeX, paragraph and sentence length, cited sources, and (for questions about a shape) whether a figure came back; the full report is written to `data/rag_eval.json`.
+
+### Practice questions you answer
+
+A practice question is a card, not text with the answer underneath. Pick one of the options, or type a number or a sentence, and press Check: the card says whether you were right, shows the answer and explains why. A numeric answer is marked for you, within 2% for rounding, and an exact fraction such as 2/11 can be typed as the fraction or its decimal. An answer in words is shown beside yours to compare.
+
+The tutor writes each question as a short labelled block (the question, lettered options if any, the answer, and why). The server reads it, checks it is a usable question, and works out which option or number is right; a block it cannot read stays in the answer as plain text, so no question is lost.
+
+### Code in answers
+
+Code is shown with its language named, a Copy button and syntax colours (highlight.js, loaded only when an answer has code). What the program prints is a separate block marked Output.
+
+### Pictures in questions
+
+Paste a screenshot into the question, drop an image on the box, or use **Add a picture**; up to four go with one question, and a picture on its own is a question. The page shrinks each one before sending it.
+
+The server checks that each is a real image and redraws it from its pixels. A vision model then reads it once: the text, numbers and equations exactly, and a short description of any diagram. The tutor sees the picture and that reading, and the course files are searched by what the picture says, so a screenshot of a problem finds the lecture it belongs to. The conversation keeps a thumbnail and the reading, not the picture, so a follow-up still knows what was in it; click a thumbnail to see what was read.
 
 ### Conversations and follow-ups
 
@@ -345,7 +361,7 @@ uv run pytest
 Built and in use:
 
 - Reading LEARN and Outline without changing them: courses, assessments from the calendar, announcements and outlines, and every posted file.
-- A tutor grounded in those files, with page citations, screenshots of cited course questions, figures, conversations, course notes and saved answers.
+- A tutor grounded in those files, with page citations, screenshots of cited course questions, figures, practice questions marked on the page, formatted code, pictures in questions, conversations, course notes and saved answers.
 - A dashboard with assessments, completion you mark yourself, notes, and buttons that sync and re-index with live progress.
 - Running on a home server in Docker with a browser of its own, a password, a public address through Tailscale Funnel with the page on Vercel, and deploys on push.
 
