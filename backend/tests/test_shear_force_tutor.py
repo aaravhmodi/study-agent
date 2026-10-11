@@ -18,7 +18,7 @@ from app.services.rag_eval import (
     run_eval,
 )
 
-from tests.fake_openai import LECTURE_7, FakeVectorStores
+from tests.fake_openai import LECTURE_7, FakeVectorStores, search_result
 
 GOOD = (Path(__file__).parent / "fixtures" / "shear_force_answer.md").read_text(encoding="utf-8")
 SHEAR_COURSE = "SYDE 286"
@@ -535,3 +535,43 @@ def test_chapters_in_course_notes_are_outlined_too(tmp_path: Path) -> None:
     assert "Chapter 3: Descriptive Statistics" in sent and "Chapter 4: Probability" in sent
     # Only chapters the question itself names change the search.
     assert service.client.vector_stores.calls[0]["query"] == "What is on the midterm?"  # type: ignore[attr-defined]
+
+
+class OutlineOnlyStores(FakeVectorStores):
+    """Nothing matches a vague question; the course outline matches a search for it."""
+
+    def search(self, vector_store_id: str, **kwargs: Any) -> Any:
+        super().search(vector_store_id, **kwargs)
+        if "course outline" not in kwargs["query"]:
+            return SimpleNamespace(data=[])
+        outline = search_result("Course-outline.txt", "This course covers stress and strain.")
+        return SimpleNamespace(data=[outline])
+
+
+def test_a_question_that_matches_nothing_is_answered_from_the_course_outline(
+    tmp_path: Path,
+) -> None:
+    responses = FakeResponses()
+    service = _service(tmp_path, responses)
+    stores = OutlineOnlyStores()
+    service.client = SimpleNamespace(responses=responses, vector_stores=stores)  # type: ignore[assignment]
+
+    service.ask("what is this about", SHEAR_COURSE)
+
+    first, second = stores.calls
+    assert first["query"] == "what is this about"
+    assert second["query"].startswith("SYDE 286 course outline")
+    sent = responses.calls[0]["input"]
+    assert "This course covers stress and strain." in sent and "none matched" not in sent
+
+
+def test_without_a_course_there_is_no_outline_to_fall_back_on(tmp_path: Path) -> None:
+    responses = FakeResponses()
+    service = _service(tmp_path, responses)
+    stores = OutlineOnlyStores()
+    service.client = SimpleNamespace(responses=responses, vector_stores=stores)  # type: ignore[assignment]
+
+    service.ask("what is this about")
+
+    assert len(stores.calls) == 1
+    assert "Course passages: none matched this question." in responses.calls[0]["input"]

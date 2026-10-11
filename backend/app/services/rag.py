@@ -313,8 +313,9 @@ class RagService:
             context.append(f"Course: {normalized_course_code}")
         if note:
             context.append(
-                f"Instructor notes for {note_course} (what the professor said, saved by the "
-                f"student; newest first):\n{note}"
+                f"Instructor notes for {note_course} (what the professor said about its "
+                "assessments, saved by the student; background for the answer, not what the "
+                f"student is asking about; newest first):\n{note}"
             )
         named_chapters = _chapter_numbers(question)
         outline = _chapter_outline(
@@ -342,10 +343,19 @@ class RagService:
         search_text = f"{earlier[-1].question}\n{question}" if earlier else question
         # "Chapter 3" means nothing to semantic search; its title and sections do.
         search_text += _chapter_search_terms(files, note_course, named_chapters)
-        passages, documents = self._located(
-            self._passages(search_text, str(vector_store_id), normalized_course_code, lecture_ids),
-            files,
+        found = self._passages(
+            search_text, str(vector_store_id), normalized_course_code, lecture_ids
         )
+        if not found and normalized_course_code and not earlier:
+            # "What is this about?" with a course chosen matches no passage. What it is
+            # about is the course, so the tutor gets the course's own outline to answer from.
+            found = self._passages(
+                f"{normalized_course_code} course outline: topics covered and learning outcomes",
+                str(vector_store_id),
+                normalized_course_code,
+                [],
+            )
+        passages, documents = self._located(found, files)
         context.append("")
         context.append(format_passages(passages))
         tools: list[dict[str, Any]] = []
@@ -451,7 +461,7 @@ class RagService:
             "note": hashlib.sha256((note or "").encode("utf-8")).hexdigest()[:16],
             # Bump when the saved response format changes (4: course questions shown
             # from the student's files).
-            "format": 4,
+            "format": 5,
         }
 
     def _passages(
