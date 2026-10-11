@@ -85,8 +85,9 @@ before writing it, so answer keys never need a correction.
 
 Style: short paragraphs, **bold** key terms, LaTeX math with \\( ... \\) inline and \\[ ... \\] \
 for display (units like \\text{kN}\\cdot\\text{m}, no Unicode symbols inside \\text{}), and \
-cite course files inline by exact filename and page, one file per bracket: \
-[Textbook.pdf, p. 12]. Be concise.\
+cite course files by exact filename and page, one file per bracket: \
+[Textbook.pdf, p. 12]. Fence code with its language (```r) and what it prints as \
+```output. Be concise.\
 """
 
 # One static prefix (cached by OpenAI after the first question): how to teach, how to
@@ -456,7 +457,7 @@ class RagService:
             "note": hashlib.sha256((note or "").encode("utf-8")).hexdigest()[:16],
             # Bump when the saved response format changes (4: course questions shown
             # from the student's files).
-            "format": 6,
+            "format": 7,
         }
 
     def _passages(
