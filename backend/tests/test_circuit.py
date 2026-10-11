@@ -73,3 +73,16 @@ def test_circuit_blocks_become_sanitized_sketches() -> None:
     assert figure.kind == "sketch" and figure.title == "RC low-pass filter"
     assert "<svg" in figure.svg and "<script" not in figure.svg
     assert text == "```figure\n0\n```"
+
+
+def test_a_part_named_with_a_subscript_is_found_by_its_plain_name() -> None:
+    parts = [
+        {"type": "voltage_source", "dir": "up", "label": "12 V", "id": "V1"},
+        {"type": "resistor", "dir": "right", "label": "R₁", "id": "R₁"},
+        {"type": "line", "dir": "down", "at": "R1.end"},
+        {"type": "line", "dir": "left", "to": "V₁.start"},
+    ]
+
+    _title, svg = render_circuit(json.dumps({"title": "Loop", "parts": parts}))
+
+    assert svg.lstrip().startswith("<svg") or "<svg" in svg

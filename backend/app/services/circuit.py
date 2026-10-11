@@ -42,6 +42,7 @@ _ANCHOR = re.compile(r"^([A-Za-z_][\w-]{0,30})(?:\.(start|end))?$")
 # schemdraw reads $...$ as math; labels are plain text.
 _MATH_MARKS = re.compile(r"[$\\]")
 _LOCK = threading.Lock()
+_SUBSCRIPTS = str.maketrans("₀₁₂₃₄₅₆₇₈₉", "0123456789")
 
 
 class CircuitError(ValueError):
@@ -66,6 +67,20 @@ class PartSpec(BaseModel):
     length: float | None = Field(default=None, gt=0, le=12)
     # Dots only: an open terminal instead of a solid junction.
     open: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _plain_names(cls, value: object) -> object:
+        # The tutor sometimes names a part "R₁" and refers to it as "R1", or the
+        # other way round. They are the same part.
+        if isinstance(value, dict):
+            return {
+                key: item.translate(_SUBSCRIPTS)
+                if key in {"id", "at", "to"} and isinstance(item, str)
+                else item
+                for key, item in value.items()
+            }
+        return value
 
     @model_validator(mode="after")
     def _check(self) -> "PartSpec":
