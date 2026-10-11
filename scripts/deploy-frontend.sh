@@ -46,4 +46,14 @@ if [ ! -d "$site/.vercel" ]; then
   # replace the site with the repo itself, which has no page at its root.
   vercel git disconnect --yes --cwd "$site" || true
 fi
-vercel deploy --prod --yes --cwd "$site"
+# The CLI now and then returns without deploying. Try twice, and say so plainly if the
+# old page is still the one being served.
+for attempt in 1 2; do
+  if out=$(vercel deploy --prod --yes --cwd "$site" 2>&1) && grep -q '"readyState": "READY"' <<< "$out"; then
+    grep -E '"url"|"readyState"' <<< "$out"
+    exit 0
+  fi
+  echo "Vercel deploy attempt $attempt did not finish:" >&2
+  tail -n 6 <<< "$out" >&2
+done
+exit 1
