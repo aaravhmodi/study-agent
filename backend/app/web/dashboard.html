@@ -155,6 +155,34 @@ textarea:focus,select:focus{border-color:var(--ink);outline:none;box-shadow:inse
 .figure .sketch svg{display:block;margin:0 auto;width:100%;max-width:520px;height:auto;max-height:420px}
 .figure .figure-error{font:12.5px var(--mono);color:var(--ink-3);margin:0}
 .figure.source figcaption .label{display:block;margin-bottom:3px}
+.figure.quiz{padding:14px 16px}
+.quiz .answer>:last-child{margin-bottom:0}
+.quiz-question{font-weight:500}
+.quiz-choices{display:grid;gap:8px;margin-top:12px}
+.quiz-choice{display:flex;align-items:baseline;gap:10px;width:100%;text-align:left;padding:9px 12px;background:var(--paper);border:1px solid var(--rule-2);border-radius:3px;cursor:pointer}
+.quiz-choice:hover:not(:disabled){border-color:var(--ink)}
+.quiz-choice:disabled{cursor:default;color:var(--ink-3)}
+.quiz-choice.right:disabled,.quiz-choice.wrong:disabled{color:var(--ink)}
+.quiz-choice .answer p{margin:0}
+.quiz-letter{flex:none;font:600 12.5px var(--mono);color:var(--ink-3)}
+.quiz-choice.right{border-color:var(--ok);background:var(--ok-wash);color:var(--ink)}
+.quiz-choice.right .quiz-letter{color:var(--ok)}
+.quiz-choice.wrong{border-color:var(--pencil);background:var(--pencil-wash);color:var(--ink)}
+.quiz-choice.wrong .quiz-letter{color:var(--pencil)}
+.quiz-answer{display:grid;gap:8px;margin-top:12px;justify-items:start}
+.quiz-answer textarea{min-height:64px;font-size:15px}
+.quiz-answer input{width:12em;padding:8px 10px;border:1px solid var(--rule-2);border-radius:3px;background:var(--paper);font:15px var(--mono)}
+.quiz-answer textarea,.quiz-answer input{background:var(--paper)}
+.quiz-answer [readonly]{color:var(--ink-2);border-style:dashed}
+.quiz-number{display:flex;align-items:baseline;gap:8px}
+.quiz-result{margin-top:12px;padding:10px 12px;border-left:3px solid var(--rule-2);background:var(--paper)}
+.quiz-result.right{border-left-color:var(--ok)}
+.quiz-result.wrong{border-left-color:var(--pencil)}
+.quiz-verdict{margin:0 0 6px;font-weight:600}
+.quiz-result.right .quiz-verdict{color:var(--ok)}
+.quiz-result.wrong .quiz-verdict{color:var(--pencil)}
+.quiz-model{margin-bottom:8px}
+.quiz-model .label,.quiz-why .label{display:block;margin-bottom:2px}
 .figure.source .source-where{display:block;font:12.5px/1.5 var(--mono);color:var(--ink-2);margin-top:3px;overflow-wrap:anywhere}
 .figure.source .source-page{display:block;margin-top:8px;border:1px solid var(--rule);background:#fff}
 .figure.source .source-page img{display:block;width:100%;height:auto}
@@ -704,6 +732,57 @@ function drawSource(holder, figure) {
 }
 
 // The answer marks each figure's place with a ```figure block holding its index.
+// A practice question: the student answers first, then sees how they did and why.
+// The server has already worked out which option, or which number, is right.
+let quizCount = 0;
+function drawQuiz(holder, figure) {
+  holder.classList.add('quiz');
+  const id = `quiz-${++quizCount}`;
+  const letters = 'ABCDEF';
+  const shown = text => renderAnswer(text || '');
+  const options = figure.choices || [];
+  const numeric = figure.number !== null && figure.number !== undefined;
+  const ask = options.length
+    ? `<div class="quiz-choices" role="group" aria-label="Options">${options.map((option, index) =>
+        `<button type="button" class="quiz-choice" data-option="${index}"><span class="quiz-letter">${letters[index]}</span>${shown(option)}</button>`).join('')}</div>`
+    : `<form class="quiz-answer"><label class="label" for="${id}">Your answer</label>${numeric
+        ? `<div class="quiz-number"><input id="${id}" type="text" inputmode="decimal" autocomplete="off" placeholder="a number"><span class="mono">${esc(figure.unit || '')}</span></div>`
+        : `<textarea id="${id}" placeholder="Write your answer, then check it"></textarea>`}<button type="submit" class="secondary-button">Check</button></form>`;
+  holder.innerHTML = `<div class="quiz-question">${shown(figure.question)}</div>${ask}<div class="quiz-result hidden" role="status" aria-live="polite"></div>`;
+
+  const result = holder.querySelector('.quiz-result');
+  const reveal = (verdict, right) => {
+    result.className = `quiz-result ${right === true ? 'right' : right === false ? 'wrong' : ''}`;
+    result.innerHTML = `<p class="quiz-verdict">${esc(verdict)}</p>`
+      + (options.length ? '' : `<div class="quiz-model"><span class="label">Answer</span>${shown(figure.answer)}</div>`)
+      + (figure.explanation ? `<div class="quiz-why"><span class="label">Why</span>${shown(figure.explanation)}</div>` : '');
+  };
+  holder.querySelectorAll('.quiz-choice').forEach(button => button.addEventListener('click', () => {
+    const picked = Number(button.dataset.option);
+    holder.querySelectorAll('.quiz-choice').forEach((other, index) => {
+      other.disabled = true;
+      other.classList.toggle('right', index === figure.correct);
+      other.classList.toggle('wrong', index === picked && picked !== figure.correct);
+    });
+    reveal(picked === figure.correct ? 'Correct' : `Not quite: the answer is ${letters[figure.correct]}`, picked === figure.correct);
+  }));
+  holder.querySelector('.quiz-answer')?.addEventListener('submit', event => {
+    event.preventDefault();
+    const field = event.target.querySelector('input, textarea');
+    if (!field.value.trim()) { field.focus(); return }
+    if (numeric) {
+      // "6", "6 kN" and "6.0" are the same answer; 2% covers rounding.
+      const given = Number((field.value.replace(/,/g, '').match(/-?\d*\.?\d+(?:[eE][-+]?\d+)?/) || [NaN])[0]);
+      const right = Math.abs(given - figure.number) <= Math.max(Math.abs(figure.number) * 0.02, 1e-9);
+      reveal(right ? 'Correct' : 'Not quite', right);
+    } else {
+      reveal('Compare your answer with this one', null);
+    }
+    field.readOnly = true;
+    event.target.querySelector('button').disabled = true;
+  });
+}
+
 async function drawFigures(answer, figures) {
   if (!answer || !figures.length) return;
   const slots = new Map();
@@ -720,6 +799,7 @@ async function drawFigures(answer, figures) {
       if (figure.kind === 'plot') await drawPlot(holder, figure);
       else if (figure.kind === 'sketch') drawSketch(holder, figure);
       else if (figure.kind === 'source') drawSource(holder, figure);
+      else if (figure.kind === 'quiz') drawQuiz(holder, figure);
       else await drawDiagram(holder, figure);
     } catch (error) {
       holder.innerHTML = `<p class="figure-error">This figure could not be drawn (${esc(error.message || error)}).</p>`;
