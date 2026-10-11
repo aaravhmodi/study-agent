@@ -1,6 +1,89 @@
 # StudyAgent
 
-StudyAgent is a local-first academic workload assistant for University of Waterloo LEARN / D2L Brightspace. It discovers active course shells, reads announcements, calendar due items, content resources, and checks Outline.uwaterloo.ca without changing LMS data.
+StudyAgent keeps track of your University of Waterloo courses and tutors you from their own materials. It reads LEARN (D2L Brightspace) and Outline through a browser you are signed in to, never changing anything there: active courses, announcements, due dates and every file posted. Then it answers questions from those files, citing the page and showing the original question when it gives one.
+
+It runs on one computer, or on an always-on home server that you reach from any device.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    you(["You, on any device"])
+    subgraph vercel["Vercel (optional)"]
+        page["The dashboard page<br/>a static copy, no data"]
+    end
+    subgraph server["Your computer or home server (Docker Compose)"]
+        dash["dashboard container<br/>FastAPI: page, API, tutor, sync"]
+        chrome["browser container<br/>Chromium you sign in to"]
+        data[("data/<br/>SQLite, course files,<br/>chats, notes")]
+        profile[("browser-profile/<br/>LEARN session")]
+    end
+    learn["LEARN and Outline"]
+    openai["OpenAI<br/>file search, answers,<br/>handwriting transcription"]
+    github["GitHub main"]
+
+    you -->|https| page
+    page -->|"forwards every request<br/>(Tailscale Funnel)"| dash
+    you -.->|"Tailscale: dashboard :8000,<br/>sign-in window :6080"| dash
+    dash -->|"drives over CDP"| chrome
+    chrome -->|"read-only, your session"| learn
+    dash --- data
+    chrome --- profile
+    dash -->|"search, chat, vision"| openai
+    github -.->|"pulled every minute"| dash
+```
+
+On a single computer there is no Vercel and no browser container: the dashboard runs with `uv`, and the sync attaches to your own Chrome.
+
+### The parts
+
+| Part | Where | What it does |
+| --- | --- | --- |
+| Dashboard and API | `backend/app/main.py`, `backend/app/web/dashboard.html` | One FastAPI app serves a single-file page and its JSON API: courses, assessments, chat, notes, question screenshots, and the sync and index tasks. With a password set, only the page and `/health` answer before sign-in. |
+| Sync | `backend/app/agents/`, `backend/app/browser/`, `backend/app/services/sync_service.py`, `document_collector.py` | Sends small read-only scripts to a browser signed in to LEARN: it lists courses, reads each course's home, calendar, content tree, announcements and Outline, and downloads the files with authenticated GETs. Everything the browser returns is validated with Pydantic before it is saved. |
+| Tutor | `backend/app/services/rag.py`, `retrieval.py`, `figures.py`, `question_sources.py`, `pdf_pages.py` | Searches the course index once, sends the best passages with the question, and checks what comes back: figures are described as data and drawn by the server, and a cited course question is found in the saved PDF and shown as a screenshot. |
+| Background tasks | `backend/app/services/jobs.py`, `refresh.py` | Runs one sync or index at a time for the dashboard's buttons and reports each step. `/health` says when one is running. |
+| Sign-in | `backend/app/services/access.py` | One password and a signed 30-day cookie; no accounts and no session store. |
+| Command line | `backend/app/cli/commands.py` | The same sync, index and notes from a terminal, plus setup and diagnostics. |
+| Server browser | `browser/` | Chromium on a virtual screen, shown as a web page (noVNC) so you can sign in to LEARN in it, and driven by the sync over its debugging port. |
+| Scripts | `scripts/` | `deploy-frontend.sh` puts the page on Vercel; `server-sync.sh` syncs from your own computer and hands the result to the server. |
+
+### What is stored, and where
+
+Everything lives in `data/` beside the code, and nothing but your questions and course text leaves the machine.
+
+| File | Holds |
+| --- | --- |
+| `study_agent.db` | Courses, assessments (and which you marked done), announcements, the list of files, sync history. |
+| `downloads/` | Every course file as downloaded, and beside each PDF its text, page by page. |
+| `rag_manifest.json` | Which files are in the OpenAI vector store, so only new or changed ones are uploaded. |
+| `chat_sessions.json`, `course_notes.json`, `answer_cache.json` | Your conversations, your notes, and saved answers to repeated questions. |
+| `browser-profile/` (beside `data/`) | The server browser's profile, which is your LEARN session. |
+
+OpenAI holds a copy of the course files' text in a vector store, and sees each question with the passages sent along. The page on Vercel holds no data at all.
+
+### What a question does
+
+1. The page posts the question to `/chat`.
+2. The server searches the vector store once, for that course if one is chosen, and keeps the best distinct passages within a token budget.
+3. It sends a fixed, cached set of teaching instructions, your notes for the course, the last few exchanges and the passages to the chat model.
+4. It validates the answer: figures become drawings, and each course question the tutor cites is located in the saved PDF and turned into a screenshot reference.
+5. The answer is saved to the conversation and, for a first question, to the answer cache.
+
+### What a sync does
+
+1. It checks that the browser is on LEARN and signed in; if not, it stops and says so.
+2. For each course it reads the pages above, opens each announcement and due-date page, and saves what it finds.
+3. It downloads each file. One whose contents have not changed keeps its saved copy and extracted text.
+4. From the dashboard, it then uploads new and changed files to the index.
+
+### What is trusted
+
+- **LEARN is only read.** The sync navigates and downloads; it never submits or edits. Your Waterloo password and Duo codes are typed by you into the browser and never pass through the app.
+- **The model's output is data.** Figures, citations and source references are parsed and checked; nothing the model writes is run.
+- **One password guards a server.** The dashboard will not listen beyond its own computer without one.
+- **The sign-in window is private.** It has no password and is your LEARN session, so it is published on the Tailscale address only.
+- **Secrets stay in `.env`**, which is not in git, and logs redact keys, cookies and tokens.
 
 ## Prerequisites
 
@@ -203,9 +286,11 @@ The server's `data/` is the live copy: it holds your chats, your notes, the cour
 
 ### Sync LEARN on the server
 
-`compose.yaml` also runs a Chromium for the sync to read LEARN with. Open its window at `http://<TAILSCALE_IP>:6080/vnc.html` from one of your Tailscale devices and sign in to LEARN there, with your password and Duo, as you would in any browser. The session is kept in `browser-profile/`, so it survives restarts until Waterloo asks you to sign in again.
+`compose.yaml` also runs a Chromium for the sync to read LEARN with. Open its window at `http://<TAILSCALE_IP>:6080/vnc.html` from one of your Tailscale devices and sign in to LEARN there, with your password and Duo, as you would in any browser. The session is kept in `browser-profile/` and survives restarts of the browser, until Waterloo asks you to sign in again.
 
-Then use the two buttons under the dashboard's status line. **Sync LEARN** reads your courses again and indexes what is new; **Re-index files** only brings the tutor's index in line with the saved files. They run on the server one at a time and show their progress. A sync that meets LEARN's sign-in page stops and says so: sign in through the window and sync again.
+Then use the two buttons under the dashboard's status line. **Sync LEARN** reads your courses again and indexes what is new; **Re-index files** only brings the tutor's index in line with the saved files. They run on the server one at a time. A panel under the buttons lists each step as it happens, with a running clock, then says whether the task completed successfully or failed and what it did. A sync that meets LEARN's sign-in page stops and says so: sign in through the window and sync again.
+
+In its own browser the sync brings each page to the front before reading it, because Outline and a course's home only finish loading in the tab that is showing, and closes its tabs after each course so the browser does not run out of memory.
 
 The sign-in window has no password of its own and whoever opens it is using your LEARN session, so it is published on the Tailscale address only. Never put it behind Funnel or any public address.
 
@@ -213,7 +298,7 @@ You can still sync from this computer instead, with the Chrome you are signed in
 
 ### Deploy on push
 
-Make the server's folder a git clone of this repository and have cron run a small script every minute that fetches `main`, and when it has moved, checks it out, runs `docker compose up -d --build` and waits for `/health`. A commit that fails to build or come up is rolled back to the one before it. Your `.env` and `data/` are untracked, so a deploy never touches them. The page on Vercel is separate: after changing `dashboard.html`, also run `bash scripts/deploy-frontend.sh`.
+Make the server's folder a git clone of this repository and have cron run a small script every minute that fetches `main`, and when it has moved, checks it out, runs `docker compose up -d --build` and waits for `/health`. A commit that fails to build or come up is rolled back to the one before it. While a sync or an index is running, `/health` reports `"busy": true` and the script leaves the project alone until it is done, so a deploy never cuts a task off. Your `.env` and `data/` are untracked, so a deploy never touches them. The page on Vercel is separate: after changing `dashboard.html`, also run `bash scripts/deploy-frontend.sh`.
 
 ### Open it from anywhere, with the page on Vercel
 
@@ -222,7 +307,7 @@ To reach it without Tailscale, give the server a public https address and put th
 1. On the server, turn on [Tailscale Funnel](https://tailscale.com/kb/1223/funnel) for the dashboard's port: `sudo tailscale funnel --bg 8000`. The first run links to the Tailscale admin page that enables Funnel and HTTPS for your tailnet. It prints the address, `https://<server>.<tailnet>.ts.net`.
 2. On this computer, set `STUDY_API_URL` in `.env` to that address and run `bash scripts/deploy-frontend.sh` from Git Bash, signed in to the Vercel CLI.
 
-Vercel then serves only the page, which holds no data, and forwards everything the page loads to the server, which checks the password itself. Vercel gives up on a forwarded request after 120 seconds, so an unusually slow answer shows an error there even though it is saved; reload and it is in Recent chats.
+Vercel then serves only the page, which holds no data, and forwards everything the page loads to the server, which checks the password itself. The page tries again when a request is lost on the way: always for something it only reads, and for anything else only when Vercel says the request never reached the server. Vercel gives up on a forwarded request after 120 seconds, so an unusually slow answer shows an error there even though it is saved; reload and it is in Recent chats.
 
 ## Daily workflow
 
@@ -257,4 +342,16 @@ uv run pytest
 
 ## Current scope
 
-Milestones 1–3 include the repository structure, SQLAlchemy models, Alembic migration, Typer CLI, FastAPI health endpoint, mock LEARN fixtures, Browser Use detection, active-course discovery, read-only course scanning, announcement/resource persistence, calendar assessment extraction, and Outline checks. Topic extraction, change detection, planning, and conversational queries remain later milestones.
+Built and in use:
+
+- Reading LEARN and Outline without changing them: courses, assessments from the calendar, announcements and outlines, and every posted file.
+- A tutor grounded in those files, with page citations, screenshots of cited course questions, figures, conversations, course notes and saved answers.
+- A dashboard with assessments, completion you mark yourself, notes, and buttons that sync and re-index with live progress.
+- Running on a home server in Docker with a browser of its own, a password, a public address through Tailscale Funnel with the page on Vercel, and deploys on push.
+
+Not built yet:
+
+- Noticing what changed between syncs. The Activity screen and `/changes` exist, but nothing writes to them.
+- Skipping the download of files LEARN says have not changed; every file is fetched on every sync, which is most of a sync's time.
+- Syncing on a schedule from the server, and telling you when LEARN needs a new sign-in.
+- Topic extraction and study planning.
