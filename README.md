@@ -43,6 +43,7 @@ On a single computer there is no Vercel and no browser container: the dashboard 
 | Sync | `backend/app/agents/`, `backend/app/browser/`, `backend/app/services/sync_service.py`, `document_collector.py` | Sends small read-only scripts to a browser signed in to LEARN: it lists courses, reads each course's home, calendar, content tree, announcements and Outline, and downloads the files with authenticated GETs. Everything the browser returns is validated with Pydantic before it is saved. |
 | Tutor | `backend/app/services/rag.py`, `retrieval.py`, `figures.py`, `question_sources.py`, `pdf_pages.py`, `practice.py`, `chat_images.py` | Searches the course index once, sends the best passages with the question, and checks what comes back: figures are described as data and drawn by the server, a cited course question is found in the saved PDF and shown as a screenshot, and practice questions become cards the page can mark. Attached pictures are checked, read once and kept as text. |
 | Background tasks | `backend/app/services/jobs.py`, `refresh.py` | Runs one sync or index at a time for the dashboard's buttons and reports each step. `/health` says when one is running. |
+| Practice log | `backend/app/services/practice_log.py` | Keeps every practice answer, schedules each question's next turn, and adds results up by course and topic. |
 | Sign-in | `backend/app/services/access.py` | One password and a signed 30-day cookie; no accounts and no session store. |
 | Command line | `backend/app/cli/commands.py` | The same sync, index and notes from a terminal, plus setup and diagnostics. |
 | Server browser | `browser/` | Chromium on a virtual screen, shown as a web page (noVNC) so you can sign in to LEARN in it, and driven by the sync over its debugging port. |
@@ -58,6 +59,7 @@ Everything lives in `data/` beside the code, and nothing but your questions and 
 | `downloads/` | Every course file as downloaded, and beside each PDF its text, page by page. |
 | `rag_manifest.json` | Which files are in the OpenAI vector store, so only new or changed ones are uploaded. |
 | `chat_sessions.json`, `course_notes.json`, `answer_cache.json` | Your conversations, your notes, and saved answers to repeated questions. |
+| `practice.json` | Every practice question you answered, each attempt, and when it is due again. |
 | `browser-profile/` (beside `data/`) | The server browser's profile, which is your LEARN session. |
 
 OpenAI holds a copy of the course files' text in a vector store, and sees each question with the passages sent along. The page on Vercel holds no data at all.
@@ -181,6 +183,17 @@ Each answer is scored for structure, concept coverage, balanced LaTeX, paragraph
 A practice question is a card, not text with the answer underneath. Pick one of the options, or type a number or a sentence, and press Check: the card says whether you were right, shows the answer and explains why. A numeric answer is marked for you, within 2% for rounding, and an exact fraction such as 2/11 can be typed as the fraction or its decimal. An answer in words is shown beside yours to compare.
 
 The tutor writes each question as a short labelled block (the question, lettered options if any, the answer, and why). The server reads it, checks it is a usable question, and works out which option or number is right; a block it cannot read stays in the answer as plain text, so no question is lost.
+
+### Practice that remembers
+
+Every practice question you answer is kept, with whether you got it right, in `data/practice.json`. An option or a number is marked for you; for an answer in words or code you say whether you had it. That record is what the **Practice** screen works from.
+
+- **Missed questions come back.** A question answered wrong is due again at once. One answered right waits a day, then two, four and seven. This is successive relearning, the combination of practice testing and spacing that study research rates highest.
+- **Weak topics first.** Each question names the concept it tests, so the screen shows every course's topics with the share you got right at your last try, weakest first.
+- **Three ways to practise.** *Review due* asks the questions that are due again, with no model call. *Practise weak topics* asks the tutor for new questions on the topics you miss most. *Practice midterm* asks for 15 questions in the exam's format across everything it covers.
+- **The next test.** Each course shows how long until its next midterm, test or exam on LEARN, and the course with the nearest one is listed first.
+
+A turn with several questions shows its score as you go ("6 of 6 answered · 4 right · 67%"). Scores count each question once, by your latest answer: what you know now, not what you once got wrong.
 
 ### Code in answers
 
@@ -363,6 +376,7 @@ Built and in use:
 - Reading LEARN and Outline without changing them: courses, assessments from the calendar, announcements and outlines, and every posted file.
 - A tutor grounded in those files, with page citations, screenshots of cited course questions, figures, practice questions marked on the page, formatted code, pictures in questions, conversations, course notes and saved answers.
 - A dashboard with assessments, completion you mark yourself, notes, and buttons that sync and re-index with live progress.
+- Practice that is recorded and spaced: missed questions return, weak topics are listed first, and a practice midterm is one click.
 - Running on a home server in Docker with a browser of its own, a password, a public address through Tailscale Funnel with the page on Vercel, and deploys on push.
 
 Not built yet:
