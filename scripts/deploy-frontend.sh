@@ -20,7 +20,7 @@ esac
 
 # Every path the server answers on; a test checks none is missing. The page itself
 # is the only thing Vercel keeps, at / and, as on the server, at /dashboard.
-paths="api|chat|courses|assessments|course-resources|resources|changes|jobs|login|logout|health|docs|openapi.json"
+paths="api|chat|courses|assessments|course-resources|resources|changes|jobs|practice|login|logout|health|docs|openapi.json"
 site=.vercel-site
 mkdir -p "$site"
 cp backend/app/web/dashboard.html "$site/index.html"

@@ -16,6 +16,7 @@ from app.models import Assessment, ChangeEvent, Course, Resource, SyncRun
 from app.schemas.chat import ChatRequest, ChatResponse, TurnImage
 from app.schemas.chat_session import ChatSession, ChatSessionSummary
 from app.schemas.course_note import CourseNoteRequest
+from app.schemas.practice import PracticeAnswer, PracticeQuestion
 from app.schemas.sign_in import SignInRequest
 from app.services.access import (
     SESSION_COOKIE,
@@ -38,6 +39,7 @@ from app.services.course_notes import (
 from app.services.jobs import JobRunner, JobStatus
 from app.services.learn_links import viewer_url
 from app.services.pdf_pages import PdfError, render_pdf_page
+from app.services.practice_log import PRACTICE_FILE, CourseScore, PracticeItem, PracticeLog
 from app.services.rag import RagService
 from app.services.refresh import rebuild_index, sync_learn
 from app.services.saved_files import saved_file
@@ -186,6 +188,45 @@ def _course_code(course_id: str) -> str:
 
 def _notes_path() -> Path:
     return get_settings().data_dir / NOTES_FILE
+
+
+def _practice_log() -> PracticeLog:
+    return PracticeLog(get_settings().data_dir / PRACTICE_FILE)
+
+
+def _as_question(item: PracticeItem) -> PracticeQuestion:
+    return PracticeQuestion(
+        id=item.id,
+        course=item.course,
+        quiz=item.quiz,
+        attempts=len(item.attempts),
+        right=item.right,
+        due_at=item.due_at,
+    )
+
+
+@app.post("/practice/answers", response_model=PracticeQuestion)
+def record_practice(answer: PracticeAnswer) -> PracticeQuestion:
+    """Keep one answered practice question, and set when it comes back."""
+
+    return _as_question(_practice_log().record(answer.course_code, answer.quiz, answer.correct))
+
+
+@app.get("/practice", response_model=list[CourseScore])
+def practice_scores() -> list[CourseScore]:
+    """How each course's practice stands: questions right, due, and the weakest topics."""
+
+    return _practice_log().scores()
+
+
+@app.get("/practice/due", response_model=list[PracticeQuestion])
+def practice_due(
+    course: str | None = Query(default=None, max_length=100),
+    limit: int = Query(default=10, ge=1, le=50),
+) -> list[PracticeQuestion]:
+    """Questions to answer again now, those last answered wrong first."""
+
+    return [_as_question(item) for item in _practice_log().due(course, limit=limit)]
 
 
 @app.get("/jobs")

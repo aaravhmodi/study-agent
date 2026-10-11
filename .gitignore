@@ -21,3 +21,5 @@ data/.sent-to-server
 data/.sending
 .vercel-site/
 browser-profile/
+data/practice.json
+data/practice.tmp
