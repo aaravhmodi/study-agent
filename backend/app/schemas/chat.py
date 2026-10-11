@@ -131,6 +131,8 @@ class QuizFigure(BaseModel):
     number: float | None = None
     unit: str = Field(default="", max_length=20)
     explanation: str = Field(default="", max_length=4000)
+    # The concept it tests, in a few words, so results add up by topic.
+    topic: str = Field(default="", max_length=60)
 
 
 ChatFigure = Annotated[

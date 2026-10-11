@@ -114,4 +114,4 @@ def test_the_guide_example_is_a_valid_quiz_block() -> None:
     assert [figure.kind for figure in figures] == ["quiz"]
     assert figures[0].number == 6.0 and figures[0].unit == "kN"  # type: ignore[union-attr]
     # Part of the static instruction prefix, so it stays short.
-    assert len(QUIZ_GUIDE.split()) < 190
+    assert len(QUIZ_GUIDE.split()) < 225

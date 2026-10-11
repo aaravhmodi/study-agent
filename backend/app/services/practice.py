@@ -13,10 +13,13 @@ QUIZ_GUIDE = """\
 Practice questions: every Check yourself question, and any practice question the student \
 should try before seeing its answer, is a quiz block, never text with the answer in view:
 ```quiz
+Topic: Beam reactions
 Q: A simply supported beam carries 12 kN at midspan. What is each support reaction?
 Answer: 6 kN
 Why: By symmetry each support carries half the load.
 ```
+Topic names the concept tested in two or three words, the same words each time for the \
+same concept, so the student's results add up by topic. \
 For multiple choice, put the options between Q and Answer, one per line as "A) ..." to \
 "D) ...", and give the letter: "Answer: B". Otherwise Answer is the model answer; ask for \
 one quantity per question, and when it is a number, write the number then its unit in \
@@ -36,6 +39,7 @@ _CHOICE = re.compile(rf"^\s*{_MARK}\(?([A-Fa-f])[).:]{_MARK}\s+(\S.*)$")
 _ANSWER = re.compile(
     rf"^\s*{_MARK}(?:Correct\s+answer|Answer|Solution)\s*:{_MARK}\s*(.*)$", re.IGNORECASE
 )
+_TOPIC = re.compile(rf"^\s*{_MARK}Topic\s*:{_MARK}\s*(.*)$", re.IGNORECASE)
 _WHY = re.compile(
     rf"^\s*{_MARK}(?:Why|Explanation|Because|Reason)\s*:{_MARK}\s*(.*)$", re.IGNORECASE
 )
@@ -93,8 +97,12 @@ def parse_quiz(text: str) -> QuizFigure:
     why: list[str] = []
     part: list[str] | None = None
     in_code = False
+    topic = ""
     for line in text.splitlines():
-        if _FENCE.match(line):
+        if not in_code and not topic and (match := _TOPIC.match(line)):
+            # One line, wherever the tutor put it; it is never part of the question.
+            topic = " ".join(match.group(1).strip("*_ .").split())[:60]
+        elif _FENCE.match(line):
             # Code in a question or its answer is kept whole, labels inside it unread.
             in_code = not in_code
             if part is not None:
@@ -127,7 +135,12 @@ def parse_quiz(text: str) -> QuizFigure:
     if not options:
         value, unit = answer_value(given)
         return QuizFigure(
-            question=asked, answer=given, number=value, unit=unit, explanation=_joined(why)
+            question=asked,
+            answer=given,
+            number=value,
+            unit=unit,
+            explanation=_joined(why),
+            topic=topic,
         )
     if not 2 <= len(options) <= MAX_CHOICES:
         raise QuizError("multiple choice needs two to six options")
@@ -135,7 +148,9 @@ def parse_quiz(text: str) -> QuizFigure:
     correct = ord(letter.group(1).upper()) - ord("A") if letter else -1
     if not 0 <= correct < len(options):
         raise QuizError("the answer is not the letter of one of the options")
-    return QuizFigure(question=asked, choices=options, correct=correct, explanation=_joined(why))
+    return QuizFigure(
+        question=asked, choices=options, correct=correct, explanation=_joined(why), topic=topic
+    )
 
 
 def answer_value(answer: str) -> tuple[float | None, str]:

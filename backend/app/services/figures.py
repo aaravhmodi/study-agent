@@ -323,7 +323,7 @@ MAX_FIGURES = 4
 # Course questions shown from the student's files; a practice set cites several.
 MAX_SOURCES = 6
 # Practice questions answered on the page; a practice set is mostly these.
-MAX_QUIZZES = 12
+MAX_QUIZZES = 24
 _FIGURE_BLOCK = re.compile(
     rf"^[ \t]*```[ \t]*({'|'.join(_PARSERS)}|source)[ \t]*\r?\n(.*?)\r?\n[ \t]*```[ \t]*$",
     flags=re.MULTILINE | re.DOTALL,
