@@ -20,9 +20,10 @@ Why: By symmetry each support carries half the load.
 For multiple choice, put the options between Q and Answer, one per line as "A) ..." to \
 "D) ...", and give the letter: "Answer: B". Otherwise Answer is the model answer; ask for \
 one quantity per question, and when it is a number, write the number then its unit in \
-plain text ("6 kN", "0.35"), so the student's number can be checked. Why is one or two \
-sentences. Markdown and \\( \\) math work in Q, the options and Why. One block per \
-question; a figure the question needs goes before its block.\
+plain text ("6 kN", "0.35"), so the student's number can be checked. Why: one or two \
+sentences. Give the kind of question the student asks for. Markdown and \\( \\) math \
+work in Q, the options and Why. One block per question; a figure the question needs goes \
+before its block.\
 """
 
 MAX_CHOICES = 6
@@ -49,6 +50,10 @@ _FRACTION = re.compile(r"^(-?\d+)\s*/\s*(\d+)$")
 _THOUSANDS = re.compile(r"(?<![\d.])(\d{1,3}(?:,\d{3})+)(?![\d,])")
 _TEXT = re.compile(r"\\(?:text|mathrm|operatorname)\{([^{}]*)\}")
 _FENCE = re.compile(r"^[ \t]*```")
+# What is left of a symbol's name once its subscript is gone has no digits, no
+# arithmetic and no summation: "\sum M_A = 0" is a statement, not an answer.
+_SUBSCRIPT = re.compile(r"_(?:\{[^{}]*\}|\w)")
+_NOT_A_NAME = re.compile(r"[\d+*/-]|\\(?:sum|int|frac|sqrt|prod|lim)\b")
 _MONEY = re.compile(r"^\\?\$(?=\s*\d)")
 # LaTeX and Markdown dressing, and the plain text each stands for.
 _DRESSING = (
@@ -165,9 +170,13 @@ def _plain(answer: str) -> str:
     text = ("\x00" if money else "") + _TEXT.sub(r"\1", text)
     for dressing, bare in _DRESSING:
         text = text.replace(dressing, bare)
-    # "R_A = 6 kN" states one value; "x = 2, y = 3" states two and is left alone.
+    # "R_A = 6 kN" states one value. "x = 2, y = 3" states two, and "B(6) - 12(2) = 0"
+    # is an equation to solve, so both are left alone.
     if text.count("=") == 1:
-        text = text.split("=", 1)[1]
+        name, value = text.split("=", 1)
+        if _NOT_A_NAME.search(_SUBSCRIPT.sub("", name)):
+            return ""
+        text = value
     text = _THOUSANDS.sub(lambda match: match.group(1).replace(",", ""), text)
     return " ".join(text.split())
 

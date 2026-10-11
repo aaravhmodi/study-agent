@@ -32,6 +32,9 @@ ONE_NUMBER = [
     ("\\(R_A = 6\\,\\text{kN}\\)", 6.0, "kN"),
     ("$0.35$", 0.35, ""),
     ("\\(P(A \\mid B) = 0.6\\)", 0.6, ""),
+    ("\\(V_{out} = 4\\,\\text{V}\\)", 4.0, "V"),
+    ("\\(I_1 = 2\\ \\text{mA}\\)", 2.0, "mA"),
+    ("x = 7", 7.0, ""),
     ("\\(\\approx 0.182\\)", 0.182, ""),
     ("≈ 0.182", 0.182, ""),
     ("\\(4.7\\ \\text{k}\\Omega\\)", 4.7, "kΩ"),
@@ -54,6 +57,10 @@ NOT_ONE_NUMBER = [
     "3:2",
     "1/0",
     "between 4 and 6",
+    # An equation to solve is not its right-hand side.
+    "\\(B_y(6)-12(2)=0\\)",
+    "2x + 3 = 11",
+    "\\(\\sum M_A = 0\\)",
     "3 of the 5 supports are pinned",
     # Words.
     "The load adds a step equal to its size.",
