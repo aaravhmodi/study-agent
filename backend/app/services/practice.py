@@ -21,9 +21,10 @@ For multiple choice, put the options between Q and Answer, one per line as "A) .
 "D) ...", and give the letter: "Answer: B". Otherwise Answer is the model answer; ask for \
 one quantity per question, and when it is a number, write the number then its unit in \
 plain text ("6 kN", "0.35"), so the student's number can be checked. Why: one or two \
-sentences. Give the kind of question the student asks for. Markdown and \\( \\) math \
-work in Q, the options and Why. One block per question; a figure the question needs goes \
-before its block.\
+sentences. Give the kind of question the student asks for. Each Q stands alone: it \
+states every number and condition needed, never "as in Question 4" or "the flight above", \
+even when a source block shows the original. Markdown and \\( \\) math work in Q, the \
+options and Why. One block per question; a figure the question needs goes before its block.\
 """
 
 MAX_CHOICES = 6

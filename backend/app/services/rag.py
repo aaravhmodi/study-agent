@@ -519,7 +519,7 @@ class RagService:
             "note": hashlib.sha256((note or "").encode("utf-8")).hexdigest()[:16],
             # Bump when the saved response format changes (4: course questions shown
             # from the student's files).
-            "format": 7,
+            "format": 8,
         }
 
     def _passages(
