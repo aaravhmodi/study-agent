@@ -154,3 +154,19 @@ def test_the_page_reports_answers_and_asks_what_is_due(
     # What is not a question is refused, not stored.
     refused = client.post("/practice/answers", json={"quiz": {"kind": "quiz"}, "correct": True})
     assert refused.status_code == 422
+
+
+def test_answers_checked_at_the_same_moment_are_all_kept(tmp_path: Path) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    log = PracticeLog(tmp_path / "practice.json")
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(
+            pool.map(
+                lambda n: log.record("SYDE 212", _quiz(f"question {n}"), n % 2 == 0), range(24)
+            )
+        )
+
+    (score,) = log.scores()
+    assert (score.questions, score.right) == (24, 12)

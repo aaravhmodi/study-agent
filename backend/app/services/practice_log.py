@@ -13,6 +13,7 @@ which is what the student knows now rather than what they once got wrong.
 import hashlib
 import json
 import logging
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,9 @@ INTERVAL_DAYS = (0, 1, 2, 4, 7)
 MAX_ITEMS = 3000
 MAX_ATTEMPTS = 20
 NO_TOPIC = "Other"
+# Answers arrive together when a set is checked quickly; each must read the log the
+# one before it wrote.
+_WRITING = threading.Lock()
 
 
 class Attempt(BaseModel):
@@ -104,17 +108,18 @@ class PracticeLog:
 
         moment = now or datetime.now(UTC)
         code = (course or "").strip().upper()
-        items = self._load()
         identity = question_id(code, quiz)
-        item = items.get(identity) or PracticeItem(
-            id=identity, course=code, quiz=quiz, due_at=moment
-        )
-        item.quiz = quiz
-        item.attempts = [*item.attempts, Attempt(at=moment, correct=correct)][-MAX_ATTEMPTS:]
-        item.streak = min(item.streak + 1, len(INTERVAL_DAYS) - 1) if correct else 0
-        item.due_at = moment + timedelta(days=INTERVAL_DAYS[item.streak])
-        items[identity] = item
-        self._save(items)
+        with _WRITING:
+            items = self._load()
+            item = items.get(identity) or PracticeItem(
+                id=identity, course=code, quiz=quiz, due_at=moment
+            )
+            item.quiz = quiz
+            item.attempts = [*item.attempts, Attempt(at=moment, correct=correct)][-MAX_ATTEMPTS:]
+            item.streak = min(item.streak + 1, len(INTERVAL_DAYS) - 1) if correct else 0
+            item.due_at = moment + timedelta(days=INTERVAL_DAYS[item.streak])
+            items[identity] = item
+            self._save(items)
         return item
 
     def due(
