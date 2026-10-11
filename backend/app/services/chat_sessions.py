@@ -13,8 +13,8 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from app.schemas.chat import ChatResponse
-from app.schemas.chat_session import ChatSession, ChatSessionSummary, ChatTurn, TurnImage
+from app.schemas.chat import ChatResponse, TurnImage
+from app.schemas.chat_session import ChatSession, ChatSessionSummary, ChatTurn
 
 logger = logging.getLogger(__name__)
 

@@ -70,6 +70,19 @@ textarea,select{border:1px solid var(--rule-2);border-radius:3px;background:var(
 textarea{width:100%;min-height:96px;resize:vertical;line-height:1.55;font-size:15.5px}
 textarea:focus,select:focus{border-color:var(--ink);outline:none;box-shadow:inset 0 0 0 1px var(--ink)}
 .ask-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.ask-box.dropping textarea{outline:2px dashed var(--pencil);outline-offset:2px;background:var(--pencil-wash)}
+.attached{display:flex;flex-wrap:wrap;gap:10px}
+.attached:empty{display:none}
+.attached figure{position:relative;margin:0;border:1px solid var(--rule-2);border-radius:3px;background:var(--sheet);padding:4px}
+.attached img{display:block;max-height:84px;max-width:150px}
+.attached button{position:absolute;top:-8px;right:-8px;width:22px;height:22px;border-radius:50%;border:1px solid var(--rule-2);background:var(--sheet);font:600 13px/1 var(--sans);color:var(--ink-2);cursor:pointer;padding:0}
+.attached button:hover{color:var(--pencil);border-color:var(--pencil)}
+.turn-images{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 2px}
+.turn-images details{margin:0}
+.turn-images summary{list-style:none;cursor:pointer}
+.turn-images summary::-webkit-details-marker{display:none}
+.turn-images img{display:block;max-height:120px;max-width:220px;border:1px solid var(--rule-2);border-radius:3px;background:#fff}
+.turn-images .read{max-width:70ch;margin:6px 0 0;padding:8px 10px;border-left:2px solid var(--rule-2);font:12.5px/1.55 var(--mono);color:var(--ink-2);white-space:pre-wrap}
 .ask-row select{padding:9px 12px}
 .hint{margin-left:auto;font:12px var(--mono);color:var(--ink-3)}
 
@@ -305,9 +318,12 @@ button.row:hover b{text-decoration:underline;text-decoration-color:var(--pencil)
         <div class="section-head"><h2 id="ask-title">Ask about a lecture or topic</h2><button type="button" class="quiet-button hidden" id="chat-new">New chat</button></div>
         <div class="ask-box">
           <textarea id="chat-question" placeholder="e.g. Explain shear force, or what did Lecture 3 of SYDE 252 cover?"></textarea>
+          <div class="attached" id="chat-images" aria-label="Attached pictures"></div>
           <div class="ask-row">
             <select id="chat-course" aria-label="Course"><option value="">All courses</option></select>
             <button class="primary-button" id="chat-ask"><span data-label>Ask</span></button>
+            <button type="button" class="quiet-button" id="chat-attach" title="Or paste a screenshot, or drop a picture on the box">Add a picture</button>
+            <input type="file" id="chat-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
             <span class="hint">Ctrl+Enter</span>
           </div>
         </div>
@@ -866,9 +882,10 @@ async function drawFigures(answer, figures) {
 
 // /chat returns one response with no progress events, so show only what is
 // true: what is being searched and how long it has taken.
-function startWaiting(container, course) {
+function startWaiting(container, course, pictures = 0) {
   const scope = course ? `${course} files` : 'files from every course';
-  container.innerHTML = `<p class="waiting" role="status">Searching ${esc(scope)} and the web, then writing <span data-time>0 s</span><span class="slow hidden" data-slow>Long answers with worked examples can take a minute or two.</span></p>`;
+  const reading = pictures ? `Reading your picture${pictures > 1 ? 's' : ''}, searching` : 'Searching';
+  container.innerHTML = `<p class="waiting" role="status">${reading} ${esc(scope)} and the web, then writing <span data-time>0 s</span><span class="slow hidden" data-slow>Long answers with worked examples can take a minute or two.</span></p>`;
   const time = container.querySelector('[data-time]');
   const slow = container.querySelector('[data-slow]');
   const started = Date.now();
@@ -937,6 +954,62 @@ function renderSuggestions(data) {
   $('#try').innerHTML = 'Try: ' + ideas.map(([text, course]) => `<button type="button" data-ask="${esc(text)}" data-course="${esc(course || '')}">${esc(text)}</button>`).join('<span aria-hidden="true"> · </span>');
 }
 
+// Pictures waiting to go with the next question: pasted, dropped or chosen. Each is
+// shrunk here first, so a phone photo is a few hundred kilobytes on the way up.
+const MAX_PICTURES = 4;
+let attached = [];
+function shrunk(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('could not read that file'));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error('that file is not a picture'));
+      image.onload = () => {
+        const scale = Math.min(1, 1600 / Math.max(image.width, image.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(image.width * scale);
+        canvas.height = Math.round(image.height * scale);
+        const context = canvas.getContext('2d');
+        context.fillStyle = '#fff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        // Screenshots stay sharp as PNG; a photo that would be large goes as JPEG.
+        const png = canvas.toDataURL('image/png');
+        resolve(png.length < 1500000 ? png : canvas.toDataURL('image/jpeg', 0.85));
+      };
+      image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+function showAttached() {
+  const box = $('#chat-images');
+  box.innerHTML = attached.map((url, index) =>
+    `<figure><img src="${esc(url)}" alt="Attached picture ${index + 1}"><button type="button" data-remove="${index}" aria-label="Remove picture ${index + 1}">×</button></figure>`).join('');
+  box.querySelectorAll('[data-remove]').forEach(button => button.addEventListener('click', () => {
+    attached.splice(Number(button.dataset.remove), 1);
+    showAttached();
+  }));
+}
+async function attachFiles(files) {
+  const pictures = [...files].filter(file => file.type.startsWith('image/'));
+  if (!pictures.length) return false;
+  for (const file of pictures) {
+    if (attached.length >= MAX_PICTURES) { toast(`At most ${MAX_PICTURES} pictures per question.`); break }
+    try { attached.push(await shrunk(file)) } catch (error) { toast(error.message, 'error') }
+  }
+  showAttached();
+  return true;
+}
+// The pictures of a turn: thumbnails, each opening to what the tutor read in it.
+function turnImages(images) {
+  if (!images?.length) return '';
+  return `<div class="turn-images">${images.map((image, index) => /^data:image\/(png|jpeg);base64,/.test(image.thumbnail || '')
+    ? `<details><summary title="Show what was read from this picture"><img src="${esc(image.thumbnail)}" alt="Attached picture ${index + 1}"></summary>${image.text ? `<p class="read">${esc(image.text)}</p>` : ''}</details>`
+    : '').join('')}</div>`;
+}
+
 // The open conversation; follow-ups are sent with its id so the tutor sees earlier turns.
 let currentSession = null;
 
@@ -968,7 +1041,7 @@ function answerPreview(answer) {
 
 // One question and its answer, appended to the thread. The question is a header that
 // collapses the answer, so a long conversation can be scanned by what was asked.
-function appendTurn(question, result, meta) {
+function appendTurn(question, result, meta, images = []) {
   const turn = document.createElement('article');
   turn.className = 'turn';
   turn.innerHTML = `<button type="button" class="turn-head" aria-expanded="true">
@@ -979,6 +1052,7 @@ function appendTurn(question, result, meta) {
     </button>
     <div class="turn-body">
       <div class="answer-wrap">
+        ${turnImages(images)}
         <p class="answer-meta">${meta}</p>
         ${renderAnswer(result.answer, result.citations || [])}
         ${renderSources(result.citations || [])}
@@ -1022,21 +1096,25 @@ function newChat() {
 
 async function askChat(fresh = false, questionText = null) {
   const button = $('#chat-ask');
-  const question = (questionText ?? $('#chat-question').value).trim();
+  const pictures = questionText === null ? attached : [];
+  // A picture on its own is a question too.
+  const question = (questionText ?? $('#chat-question').value).trim()
+    || (pictures.length ? 'Explain what this shows and how to work through it.' : '');
   if (!question) { $('#chat-question').focus(); toast('Type a question first.'); return }
   const course = $('#chat-course').value || null;
   const done = setBusy(button, currentSession ? 'Asking follow-up' : 'Asking');
   const pending = document.createElement('div');
   $('#chat-thread').append(pending);
-  const progress = startWaiting(pending, course);
+  const progress = startWaiting(pending, course, pictures.length);
   pending.scrollIntoView({behavior: 'smooth', block: 'nearest'});
   try {
-    const result = await getJson('/chat', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question, course_code: course, fresh, session_id: currentSession})});
+    const result = await getJson('/chat', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question, course_code: course, fresh, session_id: currentSession, images: pictures.map(data_url => ({data_url}))})});
     progress.stop();
     pending.remove();
     setConversation(result.session_id || null);
-    appendTurn(question, result, turnMeta(result, course, Math.round(progress.elapsed() / 1000))).scrollIntoView({behavior: 'smooth', block: 'start'});
+    appendTurn(question, result, turnMeta(result, course, Math.round(progress.elapsed() / 1000)), result.images).scrollIntoView({behavior: 'smooth', block: 'start'});
     $('#chat-question').value = '';
+    if (pictures.length) { attached = []; showAttached() }
     loadChats();
   } catch (error) {
     progress.stop();
@@ -1061,7 +1139,7 @@ async function openChat(id, row) {
     setConversation(session.id);
     if (session.course_code) $('#chat-course').value = session.course_code;
     for (const turn of session.turns) {
-      appendTurn(turn.question, turn.response, turnMeta(turn.response, turn.course_code, null) || esc(date(turn.asked_at)));
+      appendTurn(turn.question, turn.response, turnMeta(turn.response, turn.course_code, null) || esc(date(turn.asked_at)), turn.images);
     }
     // Reopened chats show what was asked, with only the latest answer open.
     const turns = [...$('#chat-thread').querySelectorAll('.turn')];
@@ -1190,6 +1268,28 @@ async function load() {
 
 const fail = error => toast(error.message || String(error), 'error');
 $('#chat-ask').addEventListener('click', () => askChat());
+// A screenshot is pasted into the question, a file is dropped on the box, or chosen.
+$('#chat-question').addEventListener('paste', event => {
+  const files = [...(event.clipboardData?.items || [])].filter(item => item.kind === 'file').map(item => item.getAsFile()).filter(Boolean);
+  if (files.some(file => file.type.startsWith('image/'))) { event.preventDefault(); attachFiles(files) }
+});
+const askBox = document.querySelector('.ask-box');
+['dragenter', 'dragover'].forEach(name => askBox.addEventListener(name, event => {
+  if (![...(event.dataTransfer?.types || [])].includes('Files')) return;
+  event.preventDefault();
+  askBox.classList.add('dropping');
+}));
+['dragleave', 'drop'].forEach(name => askBox.addEventListener(name, event => {
+  if (name === 'dragleave' && askBox.contains(event.relatedTarget)) return;
+  askBox.classList.remove('dropping');
+}));
+askBox.addEventListener('drop', event => {
+  if (!event.dataTransfer?.files?.length) return;
+  event.preventDefault();
+  attachFiles(event.dataTransfer.files);
+});
+$('#chat-attach').addEventListener('click', () => $('#chat-file').click());
+$('#chat-file').addEventListener('change', event => { attachFiles(event.target.files); event.target.value = '' });
 $('#chat-new').addEventListener('click', newChat);
 $('#thread-tools').addEventListener('click', event => {
   const open = event.target.closest('[data-expand-all]') ? true : event.target.closest('[data-collapse-all]') ? false : null;

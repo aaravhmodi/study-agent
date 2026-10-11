@@ -2,17 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas.chat import ChatResponse
-
-
-class TurnImage(BaseModel):
-    """A picture that came with a question: a thumbnail to show, and what it said."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    thumbnail: str
-    # The picture as read by the model, which is what later questions go on.
-    text: str = ""
+from app.schemas.chat import ChatResponse, TurnImage
 
 
 class ChatTurn(BaseModel):

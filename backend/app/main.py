@@ -13,8 +13,8 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.db.database import SessionLocal, ensure_schema
 from app.models import Assessment, ChangeEvent, Course, Resource, SyncRun
-from app.schemas.chat import ChatRequest, ChatResponse
-from app.schemas.chat_session import ChatSession, ChatSessionSummary, TurnImage
+from app.schemas.chat import ChatRequest, ChatResponse, TurnImage
+from app.schemas.chat_session import ChatSession, ChatSessionSummary
 from app.schemas.course_note import CourseNoteRequest
 from app.schemas.sign_in import SignInRequest
 from app.services.access import (
@@ -125,7 +125,7 @@ def chat(request: ChatRequest) -> ChatResponse:
     # The conversation keeps a thumbnail and what each picture said, not the picture.
     kept = [TurnImage(thumbnail=picture.thumbnail, text=picture.text) for picture in pictures]
     store.add_turn(session.id, request.question, request.course_code, response, images=kept)
-    return response.model_copy(update={"session_id": session.id})
+    return response.model_copy(update={"session_id": session.id, "images": kept})
 
 
 @app.get("/chat/sessions", response_model=list[ChatSessionSummary])

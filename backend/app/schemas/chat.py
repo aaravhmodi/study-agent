@@ -149,6 +149,16 @@ class ChatUsage(BaseModel):
     output_tokens: int = 0
 
 
+class TurnImage(BaseModel):
+    """A picture that came with a question: a thumbnail to show, and what it said."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    thumbnail: str
+    # The picture as read by the model, which is what later questions go on.
+    text: str = ""
+
+
 class ChatResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -161,6 +171,9 @@ class ChatResponse(BaseModel):
     cached: bool = False
     # The conversation this answer belongs to; send it back to ask a follow-up.
     session_id: str | None = None
+    # On the reply to a question with pictures: what each was read as saying. The
+    # conversation keeps them on the turn, not here.
+    images: list[TurnImage] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod

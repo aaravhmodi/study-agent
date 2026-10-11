@@ -8,8 +8,7 @@ from typing import Any
 import pytest
 from app import main
 from app.config import Settings
-from app.schemas.chat import ChatResponse
-from app.schemas.chat_session import TurnImage
+from app.schemas.chat import ChatResponse, TurnImage
 from app.services.chat_images import (
     MODEL_SIDE,
     THUMBNAIL_SIDE,
@@ -192,6 +191,8 @@ def test_the_chat_keeps_a_thumbnail_and_the_text_of_each_picture(
     )
 
     assert answered.status_code == 200
+    # The reply says what was read, so the page can show it straight away.
+    assert [image["text"] for image in answered.json()["images"]] == ["Problem 3. A beam."]
     (pictures,) = FakeTutor.seen
     assert pictures[0].text == "Problem 3. A beam."
     saved = client.get(f"/chat/sessions/{answered.json()['session_id']}").json()
