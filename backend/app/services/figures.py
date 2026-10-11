@@ -20,7 +20,7 @@ from app.schemas.chat import (
 from app.services.circuit import CircuitError, render_circuit
 from app.services.fbd import FbdError, render_fbd
 from app.services.plot_math import Formula, FormulaError, compile_formula
-from app.services.practice import QuizError, parse_quiz
+from app.services.practice import QuizError, parse_quiz, quiz_blocks
 from app.services.svg_safe import SvgError, sanitize_svg
 
 logger = logging.getLogger(__name__)
@@ -325,9 +325,34 @@ MAX_SOURCES = 6
 # Practice questions answered on the page; a practice set is mostly these.
 MAX_QUIZZES = 12
 _FIGURE_BLOCK = re.compile(
-    rf"^[ \t]*```[ \t]*({'|'.join(_PARSERS)}|source|quiz)[ \t]*\r?\n(.*?)\r?\n[ \t]*```[ \t]*$",
+    rf"^[ \t]*```[ \t]*({'|'.join(_PARSERS)}|source)[ \t]*\r?\n(.*?)\r?\n[ \t]*```[ \t]*$",
     flags=re.MULTILINE | re.DOTALL,
 )
+
+
+def _with_quizzes(answer: str, figures: list[ChatFigure]) -> str:
+    """Swap each ```quiz block for a placeholder, adding its question to ``figures``."""
+
+    pieces: list[str] = []
+    end = 0
+    for start, stop, body in quiz_blocks(answer):
+        pieces.append(answer[end:start])
+        end = stop
+        try:
+            if sum(figure.kind == "quiz" for figure in figures) >= MAX_QUIZZES:
+                raise QuizError("too many questions in one answer")
+            figures.append(parse_quiz(body))
+        except (QuizError, ValidationError) as exc:
+            # Kept as the text it was, so the question is not lost; the block's start
+            # is logged to show what the tutor wrote instead of the format.
+            logger.warning(
+                "Showed a practice question as plain text: %s (it began %r)", exc, body[:160]
+            )
+            pieces.append(body if body.endswith("\n") else body + "\n")
+            continue
+        pieces.append(f"```figure\n{len(figures) - 1}\n```\n")
+    pieces.append(answer[end:])
+    return "".join(pieces)
 
 
 def extract_figures(
@@ -343,20 +368,13 @@ def extract_figures(
     """
 
     figures: list[ChatFigure] = []
-    counts = {"source": 0, "drawn": 0, "quiz": 0}
+    counts = {"source": 0, "drawn": 0}
+    # Practice questions first: one about code holds a fenced block of its own, which
+    # the pattern for the other kinds would take for the end of the question.
+    answer = _with_quizzes(answer, figures)
 
     def replace(match: re.Match[str]) -> str:
         kind, body = match.group(1), match.group(2)
-        if kind == "quiz":
-            try:
-                if counts["quiz"] >= MAX_QUIZZES:
-                    raise QuizError("too many questions in one answer")
-                figures.append(parse_quiz(body))
-            except (QuizError, ValidationError) as exc:
-                logger.warning("Showed a practice question as plain text: %s", exc)
-                return body
-            counts["quiz"] += 1
-            return f"```figure\n{len(figures) - 1}\n```"
         group, limit = ("source", MAX_SOURCES) if kind == "source" else ("drawn", MAX_FIGURES)
         parser = source if kind == "source" else _PARSERS[kind]
         if parser is None or counts[group] >= limit:
