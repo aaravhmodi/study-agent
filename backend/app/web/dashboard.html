@@ -1096,23 +1096,39 @@ function turnImages(images) {
 const percent = (right, total) => total ? Math.round(100 * right / total) : 0;
 async function loadPractice() {
   const box = $('#practice');
-  let scores;
-  try { scores = await getJson('/practice') } catch (error) { box.innerHTML = `<div class="notice">${esc(error.message || error)}</div>`; return }
-  if (!scores.length) {
-    box.innerHTML = '<p class="empty">Nothing practised yet. Ask the tutor for practice questions, or to explain a topic, and answer the questions it gives: each one is kept here, and the ones you miss come back.</p>';
-    return;
-  }
-  box.innerHTML = scores.map(score => {
-    const name = score.course || 'No course';
+  let scores, data;
+  try { [scores, data] = await Promise.all([getJson('/practice'), getJson('/api/dashboard')]) } catch (error) { box.innerHTML = `<div class="notice">${esc(error.message || error)}</div>`; return }
+  // Every course you are taking is here, practised or not, with its next test.
+  const nextExam = course => data.assessments.find(a => a.course === course && a.status !== 'COMPLETED'
+    && a.due_at && new Date(a.due_at) > Date.now() && /midterm|test|exam/i.test(`${a.type} ${a.title}`)
+    // A final report or project is filed under exams by some outlines; it is not one to practise for.
+    && !/report|project|presentation|assignment/i.test(a.title));
+  const practised = new Map(scores.map(score => [score.course, score]));
+  const courses = [...new Set([...data.courses.map(c => c.code || c.name), ...scores.map(score => score.course)])];
+  const rows = courses.map(course => ({
+    score: practised.get(course) || {course, questions: 0, right: 0, due: 0, topics: []},
+    exam: course ? nextExam(course) : null,
+  }));
+  // The course with the nearest test first, then the one with the most due.
+  rows.sort((a, b) => (a.exam ? new Date(a.exam.due_at) : Infinity) - (b.exam ? new Date(b.exam.due_at) : Infinity) || b.score.due - a.score.due);
+  const dueNow = scores.reduce((sum, score) => sum + score.due, 0);
+  const soonest = rows.find(row => row.exam);
+  const today = `<p class="practice-line"><b>${dueNow}</b> question${dueNow === 1 ? '' : 's'} due now`
+    + (soonest ? ` · next test: <b>${esc(soonest.score.course)} ${esc(soonest.exam.title)}</b> ${esc(until(soonest.exam.due_at))}` : '') + '</p>';
+  box.innerHTML = today + rows.map(({score, exam}) => {
     const weak = score.topics.filter(topic => topic.right < topic.questions).slice(0, 3).map(topic => topic.topic);
+    const standing = score.questions
+      ? `<b>${score.questions}</b> questions practised · <b>${percent(score.right, score.questions)}%</b> right at last try · <b>${score.due}</b> due now`
+      : 'Nothing practised yet';
     return `<div class="practice-course" data-course="${esc(score.course)}">
-      <h3>${esc(name)}</h3>
-      <p class="practice-line"><b>${score.questions}</b> questions practised · <b>${percent(score.right, score.questions)}%</b> right at last try · <b>${score.due}</b> due now</p>
+      <h3>${esc(score.course || 'No course')}</h3>
+      ${exam ? `<p class="practice-line"><b>${esc(exam.title)}</b> ${esc(until(exam.due_at))} <span class="muted">(${esc(date(exam.due_at))})</span></p>` : ''}
+      <p class="practice-line">${standing}</p>
       <ul class="practice-topics">${score.topics.slice(0, 8).map(topic => `<li class="${topic.right / topic.questions < 0.7 ? 'weak' : ''}"><span>${esc(topic.topic)}</span><span class="bar"><span style="width:${percent(topic.right, topic.questions)}%"></span></span><span class="count">${topic.right}/${topic.questions}</span></li>`).join('')}</ul>
       <div class="practice-actions">
-        <button type="button" class="primary-button" data-review ${score.due ? '' : 'disabled'}>Review ${score.due} due</button>
+        ${score.due ? `<button type="button" class="primary-button" data-review>Review ${score.due} due</button>` : ''}
         ${weak.length && score.course ? `<button type="button" class="secondary-button" data-weak="${esc(weak.join('; '))}">Practise weak topics</button>` : ''}
-        ${score.course ? '<button type="button" class="secondary-button" data-exam>Practice midterm</button>' : ''}
+        ${score.course ? `<button type="button" class="${score.due ? 'secondary-button' : 'primary-button'}" data-exam>Practice midterm</button>` : ''}
       </div>
     </div>`;
   }).join('');
