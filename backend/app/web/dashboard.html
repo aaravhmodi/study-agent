@@ -198,6 +198,7 @@ textarea:focus,select:focus{border-color:var(--ink);outline:none;box-shadow:inse
 .quiz-choice.wrong .quiz-letter{color:var(--pencil)}
 .quiz-answer{display:grid;gap:8px;margin-top:12px;justify-items:start}
 .quiz-answer textarea{min-height:64px;font-size:15px}
+.quiz-answer textarea.code{font:13.5px/1.6 var(--mono);min-height:84px}
 .quiz-answer input{width:12em;padding:8px 10px;border:1px solid var(--rule-2);border-radius:3px;background:var(--paper);font:15px var(--mono)}
 .quiz-answer textarea,.quiz-answer input{background:var(--paper)}
 .quiz-answer [readonly]{color:var(--ink-2);border-style:dashed}
@@ -816,8 +817,9 @@ function drawQuiz(holder, figure) {
         `<button type="button" class="quiz-choice" data-option="${index}"><span class="quiz-letter">${letters[index]}</span>${shown(option)}</button>`).join('')}</div>`
     : `<form class="quiz-answer"><label class="label" for="${id}">Your answer</label>${numeric
         ? `<div class="quiz-number"><input id="${id}" type="text" inputmode="decimal" autocomplete="off" placeholder="a number"><span class="mono">${esc(figure.unit || '')}</span></div>`
-        : `<textarea id="${id}" placeholder="Write your answer, then check it"></textarea>`}<button type="submit" class="secondary-button">Check</button></form>`;
+        : `<textarea id="${id}"${/```/.test(figure.answer || '') ? ' class="code" spellcheck="false" placeholder="Write your code, then check it"' : ' placeholder="Write your answer, then check it"'}></textarea>`}<button type="submit" class="secondary-button">Check</button></form>`;
   holder.innerHTML = `<div class="quiz-question">${shown(figure.question)}</div>${ask}<div class="quiz-result hidden" role="status" aria-live="polite"></div>`;
+  formatCode(holder);  // a question about code shows its code like any other
 
   const result = holder.querySelector('.quiz-result');
   const reveal = (verdict, right) => {
@@ -825,6 +827,7 @@ function drawQuiz(holder, figure) {
     result.innerHTML = `<p class="quiz-verdict">${esc(verdict)}</p>`
       + (options.length ? '' : `<div class="quiz-model"><span class="label">Answer</span>${shown(figure.answer)}</div>`)
       + (figure.explanation ? `<div class="quiz-why"><span class="label">Why</span>${shown(figure.explanation)}</div>` : '');
+    formatCode(result);
   };
   holder.querySelectorAll('.quiz-choice').forEach(button => button.addEventListener('click', () => {
     const picked = Number(button.dataset.option);
