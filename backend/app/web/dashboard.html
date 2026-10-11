@@ -289,6 +289,9 @@ button.row:hover b{text-decoration:underline;text-decoration-color:var(--pencil)
 
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);display:none;background:var(--ink);color:var(--paper);border-radius:3px;padding:10px 16px;font-size:14px;z-index:10;max-width:min(560px,calc(100vw - 32px))}
 .toast.show{display:block}
+.to-ask{position:fixed;right:24px;bottom:24px;z-index:5;padding:9px 14px;border:1px solid var(--ink);border-radius:3px;background:var(--sheet);font-size:14px;font-weight:500;box-shadow:0 2px 10px rgba(29,27,24,.12);cursor:pointer}
+.to-ask:hover{background:var(--ink);color:var(--paper)}
+@media (max-width:860px){.to-ask{right:16px;bottom:16px}}
 .sign-in{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;padding:16px;background:var(--paper)}
 .sign-in[hidden]{display:none}
 .sign-in-card{width:min(340px,100%);display:grid;gap:12px}
@@ -391,6 +394,7 @@ button.row:hover b{text-decoration:underline;text-decoration-color:var(--pencil)
     </div>
   </main>
 </div>
+<button type="button" class="to-ask hidden" id="to-ask">↑ Back to the question box</button>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <form class="sign-in" id="sign-in" hidden>
   <div class="sign-in-card">
@@ -1254,7 +1258,24 @@ function setTurnOpen(turn, open) {
 function updateThreadTools() {
   const turns = $('#chat-thread').querySelectorAll('.turn').length;
   $('#thread-tools').classList.toggle('hidden', turns < 2);
+  showToAsk();
 }
+
+// A long answer leaves the question box far above. Once it is out of sight in a
+// conversation, a button in the corner goes back to it, ready to type.
+function showToAsk() {
+  const box = $('#chat-question').getBoundingClientRect();
+  const inView = box.bottom > 0 && box.top < window.innerHeight;
+  const away = !inView && !$('#screen-ask').classList.contains('hidden') && $('#chat-thread').querySelector('.turn');
+  $('#to-ask').classList.toggle('hidden', !away);
+}
+window.addEventListener('scroll', showToAsk, {passive: true});
+window.addEventListener('resize', showToAsk);
+window.addEventListener('hashchange', () => setTimeout(showToAsk, 0));
+$('#to-ask').addEventListener('click', () => {
+  $('#chat-question').scrollIntoView({behavior: 'smooth', block: 'center'});
+  $('#chat-question').focus({preventScroll: true});
+});
 
 function setConversation(id) {
   currentSession = id;
