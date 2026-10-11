@@ -66,6 +66,8 @@ class PlotFigure(BaseModel):
     title: str = ""
     x_label: str = ""
     y_label: str = ""
+    x_scale: Literal["linear", "log"] = "linear"
+    y_scale: Literal["linear", "log"] = "linear"
     x_min: float
     x_max: float
     y_min: float | None = None

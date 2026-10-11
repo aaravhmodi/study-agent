@@ -5,7 +5,7 @@ import logging
 import math
 import re
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
@@ -43,6 +43,8 @@ class AxisSpec(_Spec):
     label: str = Field(default="", max_length=60)
     min: float | None = None
     max: float | None = None
+    # "log" for frequency responses (Bode plots) and anything spanning decades.
+    scale: Literal["linear", "log"] = "linear"
 
 
 class RangeSpec(_Spec):
@@ -63,15 +65,34 @@ class SeriesSpec(_Spec):
     line: bool | None = None
     # Discrete values (x[n], a probability mass function, cash flows) as stems from zero.
     stems: bool = False
+    # Bars centred on each value: a histogram, a bar chart or a PMF; "width" defaults to
+    # the closest spacing between values.
+    bars: bool = False
+    width: float | None = Field(default=None, gt=0)
     fill: bool = False
-    shade: RangeSpec | None = None
+    # One range, or several for both tails of a two-sided test.
+    shade: RangeSpec | list[RangeSpec] | None = None
 
     @model_validator(mode="after")
     def _one_source(self) -> "SeriesSpec":
         sources = [self.expr is not None, self.pieces is not None, self.points is not None]
         if sum(sources) != 1:
             raise ValueError("a series needs exactly one of expr, pieces or points")
+        if self.stems and self.bars:
+            raise ValueError("a series is drawn as stems or bars, not both")
+        if isinstance(self.shade, list) and len(self.shade) > 4:
+            raise ValueError("at most 4 shaded ranges")
         return self
+
+    @property
+    def discrete(self) -> bool:
+        return self.stems or self.bars
+
+    @property
+    def shades(self) -> list[RangeSpec]:
+        if self.shade is None:
+            return []
+        return self.shade if isinstance(self.shade, list) else [self.shade]
 
 
 class MarkerSpec(_Spec):
@@ -103,16 +124,32 @@ def parse_plot(text: str) -> PlotFigure:
 
 def build_plot(spec: PlotSpec) -> PlotFigure:
     x_min, x_max = _x_range(spec)
+    log_x, log_y = spec.x.scale == "log", spec.y.scale == "log"
+    if log_x and x_min <= 0:
+        raise FigureError("a log x axis needs x.min above zero")
+    if log_y and any(value is not None and value <= 0 for value in (spec.y.min, spec.y.max)):
+        raise FigureError("a log y axis needs y.min and y.max above zero")
     series: list[PlotSeries] = []
+    # Where bars reach past the values they are centred on.
+    edges: list[float] = []
     for item in spec.series:
-        if item.stems and item.points is None:
+        if item.discrete and item.points is None:
             points = _integer_points(item, x_min, x_max)
         else:
-            points = _series_points(item, x_min, x_max)
+            points = _series_points(item, x_min, x_max, log_x)
+        if log_y:
+            # Zero and negative values have no place on a log axis.
+            points = [(x, y if y is not None and y > 0 else None) for x, y in points]
         if all(y is None for _, y in points):
             raise FigureError(f"nothing to draw for series {item.label or '(unnamed)'}")
         if item.stems:
             series += _stems(item.label, points)
+            continue
+        if item.bars:
+            series.append(_bars(item.label, points, item.width))
+            # A log axis cannot reach below zero, so there bars may be cut at the frame.
+            if not log_x:
+                edges += [x for x, _ in series[-1].points]
             continue
         is_dots = item.points is not None and not item.line
         series.append(
@@ -123,28 +160,31 @@ def build_plot(spec: PlotSpec) -> PlotFigure:
                 fill=item.fill,
             )
         )
-        if item.shade:
-            start = max(min(item.shade.start, item.shade.end), x_min)
-            end = min(max(item.shade.start, item.shade.end), x_max)
+        for shade in item.shades:
+            start = max(min(shade.start, shade.end), x_min)
+            end = min(max(shade.start, shade.end), x_max)
             if start < end:
                 series.append(
                     PlotSeries(
                         label=f"{item.label} (shaded)".strip(),
-                        points=_series_points(item, start, end),
+                        points=_series_points(item, start, end, log_x),
                         fill=True,
                         legend=False,
                     )
                 )
     if spec.y.min is not None and spec.y.max is not None and spec.y.min >= spec.y.max:
         raise FigureError("y.min must be below y.max")
-    pad = (x_max - x_min) * 0.04 if any(item.stems for item in spec.series) else 0.0
+    discrete = any(item.discrete for item in spec.series) and not log_x
+    pad = (x_max - x_min) * 0.04 if discrete else 0.0
     return PlotFigure(
         title=spec.title,
         x_label=spec.x.label,
         y_label=spec.y.label,
-        # Stems at the very edge would be cut in half by the frame.
-        x_min=x_min - pad,
-        x_max=x_max + pad,
+        x_scale=spec.x.scale,
+        y_scale=spec.y.scale,
+        # Stems or bars at the very edge would be cut in half by the frame.
+        x_min=min([x_min, *edges]) - pad,
+        x_max=max([x_max, *edges]) + pad,
         y_min=spec.y.min,
         y_max=spec.y.max,
         series=series,
@@ -214,6 +254,23 @@ def _stems(label: str, points: list[tuple[float, float | None]]) -> list[PlotSer
     ]
 
 
+def _bars(label: str, points: list[tuple[float, float | None]], width: float | None) -> PlotSeries:
+    """One filled outline tracing a bar centred on each value, from zero to its height."""
+
+    values = sorted((x, y) for x, y in points if y is not None)
+    gaps = [b[0] - a[0] for a, b in zip(values, values[1:], strict=False) if b[0] > a[0]]
+    half = (width if width is not None else min(gaps, default=1.0)) / 2
+    outline: list[tuple[float, float | None]] = []
+    for x, y in values:
+        outline += [
+            (_round(x - half), 0.0),
+            (_round(x - half), y),
+            (_round(x + half), y),
+            (_round(x + half), 0.0),
+        ]
+    return PlotSeries(label=label, points=outline, fill=True)
+
+
 def _x_range(spec: PlotSpec) -> tuple[float, float]:
     starts: list[float] = []
     ends: list[float] = []
@@ -233,14 +290,18 @@ def _x_range(spec: PlotSpec) -> tuple[float, float]:
     return x_min, x_max
 
 
-def _series_points(item: SeriesSpec, start: float, end: float) -> list[tuple[float, float | None]]:
+def _series_points(
+    item: SeriesSpec, start: float, end: float, log: bool = False
+) -> list[tuple[float, float | None]]:
     if item.points is not None:
         inside = sorted((x, y) for x, y in item.points if start <= x <= end)
         return [(_round(x), _y(y)) for x, y in inside]
     if item.expr is not None:
-        return _sample(compile_formula(item.expr), start, end, SAMPLES)
+        return _sample(compile_formula(item.expr), start, end, SAMPLES, log)
     points: list[tuple[float, float | None]] = []
-    width = end - start
+    # On a log axis a piece's share of the samples follows its share of the decades.
+    scale: Callable[[float], float] = math.log if log else float
+    width = scale(end) - scale(start)
     previous_end: float | None = None
     for piece in sorted(item.pieces or [], key=lambda piece: piece.start):
         lo, hi = max(piece.start, start), min(piece.end, end)
@@ -248,18 +309,24 @@ def _series_points(item: SeriesSpec, start: float, end: float) -> list[tuple[flo
             continue
         if previous_end is not None and lo > previous_end:
             points.append((_round(previous_end), None))
-        count = max(20, round(SAMPLES * (hi - lo) / width))
+        count = max(20, round(SAMPLES * (scale(hi) - scale(lo)) / width))
         # At a shared boundary the two pieces' values draw the jump as a vertical line.
-        points += _sample(compile_formula(piece.expr), lo, hi, count)
+        points += _sample(compile_formula(piece.expr), lo, hi, count, log)
         previous_end = hi
     return points
 
 
 def _sample(
-    formula: Formula, start: float, end: float, count: int
+    formula: Formula, start: float, end: float, count: int, log: bool = False
 ) -> list[tuple[float, float | None]]:
-    step = (end - start) / (count - 1)
-    return [(_round(start + i * step), _y(formula(start + i * step))) for i in range(count)]
+    if log:
+        # Evenly spaced in decades, so each decade of a Bode plot gets the same detail.
+        ratio = (end / start) ** (1 / (count - 1))
+        xs = [start * ratio**i for i in range(count)]
+    else:
+        step = (end - start) / (count - 1)
+        xs = [start + i * step for i in range(count)]
+    return [(_round(x), _y(formula(x))) for x in xs]
 
 
 def _y(value: float) -> float | None:

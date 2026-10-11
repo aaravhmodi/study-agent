@@ -10,6 +10,8 @@ import math
 import re
 from collections.abc import Callable
 
+from app.services.plot_functions import FUNCTIONS as NAMED_FUNCTIONS
+
 Formula = Callable[[float], float]
 
 MAX_FORMULA_LENGTH = 200
@@ -48,7 +50,9 @@ _FUNCTIONS: dict[str, Callable[..., float]] = {
     "max": max,
     # Heaviside step and Macaulay bracket <x>^1 for singularity functions.
     "step": _step,
+    "u": _step,
     "ramp": _ramp,
+    **NAMED_FUNCTIONS,
 }
 
 _BINARY: dict[type[ast.operator], Callable[[float, float], float]] = {

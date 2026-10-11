@@ -261,11 +261,13 @@ When a topic has a shape or a picture, the tutor draws it next to the text it ex
 
 | Figure | Used for | Drawn by |
 | --- | --- | --- |
-| Graph | functions, distributions, shear and moment diagrams, signals; stems for x[n], PMFs and cash flows | Chart.js |
+| Graph | functions, distributions, shear and moment diagrams, signals, Bode plots (log axes), economic curves; stems for x[n] and cash flows, bars for histograms and PMFs, shaded tails for tests | Chart.js |
 | Free-body diagram | beams with supports and distributed loads, blocks on inclines, particles, disks | the server |
 | Circuit | schematics with sources, R, L, C, switches, diodes, meters | schemdraw |
 | Concept diagram | processes, cause and effect, proof outlines | Mermaid |
 | Sketch | anything else (a molecule, a geometric construction, a timeline) | the model's own SVG |
+
+Some courses are taught with particular graphs, so a question about one also carries a short guide to them (`backend/app/services/course_figures.py`): SYDE 212, and any STAT course, gets distributions with the asked-for area shaded, hypothesis tests with their rejection regions, PMFs as bars and histograms; SYDE 252 gets signal operations, convolution, spectra, Bode plots and pole-zero plots; SYDE 262, and any ECON course, gets cash-flow diagrams, present worth against interest rate with the IRR and MARR marked, break-even and depreciation. Formulas can call the distributions (`normpdf`, `normcdf`, `tpdf`, `chi2pdf`, `binompmf`, `poissonpmf` and more), Lathi's signal shapes (`u`, `rect`, `tri`, `sinc`) and the interest factors (`pf`, `pa`, `ap`, `fa` and the rest), so the tutor never writes a density or factor out by hand (`backend/app/services/plot_functions.py`).
 
 The model only describes a figure as data; nothing it writes is run. The server checks every description with Pydantic. It evaluates formulas with a parser that accepts only arithmetic and math functions, and lays out free-body diagrams and circuits itself. Every SVG is rebuilt from an allow-list of drawing elements, and the browser sanitizes it again. A figure that can't be drawn is left out of the answer, never shown as raw JSON. Chart.js and Mermaid load only when an answer needs them.
 

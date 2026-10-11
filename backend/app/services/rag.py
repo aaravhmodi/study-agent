@@ -20,6 +20,7 @@ from app.schemas.chat_session import ChatTurn
 from app.services.answer_cache import AnswerCache, cache_key, index_fingerprint
 from app.services.answer_format import clean_answer, clean_citations, display_filename
 from app.services.chat_images import Picture
+from app.services.course_figures import course_figure_guide
 from app.services.course_notes import NOTES_FILE, course_in_question, tutor_notes
 from app.services.figure_guide import FIGURE_GUIDE
 from app.services.figures import extract_figures
@@ -317,7 +318,10 @@ class RagService:
             question, {str(entry.get("course_code", "")).upper() for entry in files.values()}
         )
         note = tutor_notes(self.notes_path, note_course)
-        key = cache_key(question, normalized_course_code, settings=self._answer_shape(files, note))
+        graphs = course_figure_guide(note_course)
+        key = cache_key(
+            question, normalized_course_code, settings=self._answer_shape(files, note, graphs)
+        )
         earlier = (history or [])[-FOLLOW_UP_TURNS:]
         # A follow-up depends on the conversation, and a question about a picture on
         # the picture, so neither is served from the cache.
@@ -333,6 +337,8 @@ class RagService:
                 "assessments, saved by the student; background for the answer, not what the "
                 f"student is asking about; newest first):\n{note}"
             )
+        if graphs:
+            context.append(graphs)
         named_chapters = _chapter_numbers(question)
         outline = _chapter_outline(
             files, note_course, named_chapters | _chapter_numbers(note or "")
@@ -503,7 +509,9 @@ class RagService:
     def notes_path(self) -> Path:
         return self.manifest_path.with_name(NOTES_FILE)
 
-    def _answer_shape(self, files: dict[str, Any], note: str | None = None) -> dict[str, Any]:
+    def _answer_shape(
+        self, files: dict[str, Any], note: str | None = None, graphs: str | None = None
+    ) -> dict[str, Any]:
         """Everything besides the question that changes what an answer looks like."""
 
         settings = self.settings
@@ -517,6 +525,12 @@ class RagService:
             "prompt": hashlib.sha256(TUTOR_INSTRUCTIONS.encode("utf-8")).hexdigest()[:16],
             "index": index_fingerprint(files),
             "note": hashlib.sha256((note or "").encode("utf-8")).hexdigest()[:16],
+            # Only courses with graphing guidance of their own, so other saved answers stay.
+            **(
+                {"graphs": hashlib.sha256(graphs.encode("utf-8")).hexdigest()[:16]}
+                if graphs
+                else {}
+            ),
             # Bump when the saved response format changes (4: course questions shown
             # from the student's files).
             "format": 9,

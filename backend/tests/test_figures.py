@@ -285,3 +285,101 @@ def test_stem_formulas_are_evaluated_at_whole_numbers() -> None:
 
     # A discrete signal x[n] = 0.5^n is evaluated at whole numbers only.
     assert tops.points == [(0.0, 1.0), (1.0, 0.5), (2.0, 0.25), (3.0, 0.125), (4.0, 0.0625)]
+
+
+def test_shade_takes_a_list_for_both_tails() -> None:
+    spec = {
+        "x": {"min": -4, "max": 4},
+        "series": [
+            {
+                "label": "N(0, 1)",
+                "expr": "normpdf(x, 0, 1)",
+                "shade": [{"from": -4, "to": -1.96}, {"from": 1.96, "to": 9}],
+            }
+        ],
+    }
+    curve, left, right = _plot(spec).series
+
+    assert curve.legend and not left.legend and not right.legend
+    assert (left.points[0][0], left.points[-1][0]) == (-4.0, -1.96)
+    # A range past the axis is cut at its edge.
+    assert (right.points[0][0], right.points[-1][0]) == (1.96, 4.0)
+
+
+def test_bars_trace_a_filled_outline_centred_on_each_value() -> None:
+    figure = _plot(
+        {"series": [{"label": "counts", "points": [[10, 3], [20, 5], [30, 2]], "bars": True}]}
+    )
+
+    (bars,) = figure.series
+    assert bars.fill and bars.legend and bars.style == "line"
+    # The width defaults to the spacing between values, so neighbouring bars touch.
+    assert bars.points[:8] == [
+        (5.0, 0.0),
+        (5.0, 3.0),
+        (15.0, 3.0),
+        (15.0, 0.0),
+        (15.0, 0.0),
+        (15.0, 5.0),
+        (25.0, 5.0),
+        (25.0, 0.0),
+    ]
+    # The frame is padded so the outer bars are not cut in half.
+    assert figure.x_min < 5 and figure.x_max > 35
+
+
+def test_bar_formulas_are_evaluated_at_whole_numbers_with_a_set_width() -> None:
+    figure = _plot(
+        {
+            "x": {"min": 0, "max": 4},
+            "series": [{"expr": "binompmf(x, 4, 0.5)", "bars": True, "width": 0.5}],
+        }
+    )
+
+    tops = figure.series[0].points[1::4]
+    assert [x for x, _ in tops] == [-0.25, 0.75, 1.75, 2.75, 3.75]
+    assert [y for _, y in tops] == [0.0625, 0.25, 0.375, 0.25, 0.0625]
+
+
+def test_log_axis_samples_evenly_in_decades() -> None:
+    figure = _plot(
+        {
+            "x": {"min": 1, "max": 10000, "scale": "log"},
+            "series": [{"expr": "-10*log10(1 + (x/100)^2)"}],
+        }
+    )
+
+    assert figure.x_scale == "log" and figure.y_scale == "linear"
+    xs = [x for x, _ in figure.series[0].points]
+    assert xs[0] == 1.0 and xs[-1] == 10000.0
+    # A quarter of the samples in each of the four decades.
+    assert sum(x <= 10 for x in xs) == pytest.approx(SAMPLES / 4, abs=1)
+
+
+def test_log_y_axis_leaves_out_values_it_cannot_show() -> None:
+    figure = _plot(
+        {
+            "x": {"min": -1, "max": 1},
+            "y": {"scale": "log"},
+            "series": [{"points": [[-1, 0], [1, 10]]}],
+        }
+    )
+
+    assert figure.series[0].points == [(-1.0, None), (1.0, 10.0)]
+
+
+@pytest.mark.parametrize(
+    ("spec", "reason"),
+    [
+        ({"x": {"min": 0, "max": 10, "scale": "log"}, "series": [{"expr": "x"}]}, "above zero"),
+        (
+            {"x": {"min": 1, "max": 2}, "y": {"min": 0, "scale": "log"}, "series": [{"expr": "x"}]},
+            "above zero",
+        ),
+        ({"series": [{"points": [[0, 1]], "stems": True, "bars": True}]}, "stems or bars"),
+        ({"series": [{"points": [[0, 1]], "shade": [{"from": 0, "to": 1}] * 5}]}, "at most 4"),
+    ],
+)
+def test_bad_scales_and_styles_are_rejected(spec: Any, reason: str) -> None:
+    with pytest.raises(FigureError, match=reason):
+        _plot(spec)

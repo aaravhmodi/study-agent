@@ -724,10 +724,13 @@ async function drawPlot(holder, figure) {
       order: series.legend ? 0 : 1,
     };
   });
-  const axis = (label, min, max) => ({
-    type: 'linear', min: min ?? undefined, max: max ?? undefined, grace: '8%',
+  // A log axis (a Bode plot) takes no grace: padding below its minimum has no meaning.
+  const axis = (label, min, max, scale) => ({
+    type: scale === 'log' ? 'logarithmic' : 'linear', min: min ?? undefined, max: max ?? undefined,
+    grace: scale === 'log' ? undefined : '8%',
     title: {display: Boolean(label), text: label, color: ink2},
-    ticks: {color: ink3, maxTicksLimit: 9},
+    // A log axis labels only its decades, so 5,000 and 10,000 never run together.
+    ticks: {color: ink3, maxTicksLimit: 9, ...(scale === 'log' && {callback: value => Math.abs(Math.log10(value) % 1) < 1e-9 ? shortNumber(value).toLocaleString() : ''})},
     grid: {color: context => context.tick?.value === 0 ? ink3 : rule},
     border: {display: false},
   });
@@ -739,7 +742,7 @@ async function drawPlot(holder, figure) {
     options: {
       responsive: true, maintainAspectRatio: false, animation: {duration: 300},
       interaction: {mode: 'nearest', axis: 'x', intersect: false},
-      scales: {x: axis(figure.x_label, figure.x_min, figure.x_max), y: axis(figure.y_label, figure.y_min, figure.y_max)},
+      scales: {x: axis(figure.x_label, figure.x_min, figure.x_max, figure.x_scale), y: axis(figure.y_label, figure.y_min, figure.y_max, figure.y_scale)},
       plugins: {
         legend: {display: named.length > 1, labels: {color: ink2, boxWidth: 14, filter: item => figure.series[item.datasetIndex].legend}},
         tooltip: {
