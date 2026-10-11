@@ -23,7 +23,9 @@ class Settings(BaseSettings):
     rag_context_tokens: int = Field(default=3000, ge=300, le=20000)
     # Search results below this relevance score (0 to 1) are not sent.
     rag_min_score: float = Field(default=0.3, ge=0, le=1)
-    rag_max_output_tokens: int = Field(default=3000, ge=256, le=32000)
+    # Room for a worked explanation with figures and a set of practice questions; an
+    # answer cut short loses its last question.
+    rag_max_output_tokens: int = Field(default=4500, ge=256, le=32000)
     # Adds online context next to course materials; costs one search per question.
     rag_web_search: bool = True
     browser_mode: str = Field(default="local", pattern="^(local|cloud|mock)$")

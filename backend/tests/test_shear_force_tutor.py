@@ -91,7 +91,7 @@ def test_token_budget_defaults_are_small(tmp_path: Path) -> None:
 
     call = responses.calls[0]
     assert call["reasoning"] == {"effort": "low"}
-    assert call["max_output_tokens"] == 3000
+    assert call["max_output_tokens"] == 4500
     # Passages are sent in the input, so the model gets no file search of its own
     # and at most one web search.
     assert [tool["type"] for tool in call["tools"]] == ["web_search"]
