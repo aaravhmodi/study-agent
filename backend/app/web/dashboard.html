@@ -126,7 +126,21 @@ textarea:focus,select:focus{border-color:var(--ink);outline:none;box-shadow:inse
 .answer th{background:var(--sheet);font-weight:600}
 .answer code{font:.9em var(--mono);background:var(--sheet);border:1px solid var(--rule);border-radius:2px;padding:0 4px}
 .answer pre{background:var(--sheet);border:1px solid var(--rule);padding:12px;overflow-x:auto}
-.answer pre code{border:0;padding:0}
+.answer pre code{border:0;padding:0;background:none}
+.code-block{margin:14px 0;border:1px solid var(--rule-2);border-radius:3px;background:var(--sheet);max-width:80ch}
+.code-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:5px 8px 5px 12px;border-bottom:1px solid var(--rule);font:600 11.5px/1.4 var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+.code-copy{border:0;background:none;padding:2px 6px;font:500 12px var(--sans);letter-spacing:0;text-transform:none;color:var(--ink-2);cursor:pointer;border-radius:2px}
+.code-copy:hover{color:var(--ink);background:var(--paper)}
+.answer .code-block pre{margin:0;border:0;background:none;padding:12px 14px;font:13.5px/1.6 var(--mono);tab-size:2}
+.answer .code-block pre code{font:inherit}
+.code-block.output{background:var(--paper);border-style:dashed}
+.code-block.output pre{color:var(--ink-2)}
+.hljs-comment,.hljs-quote{color:var(--ink-3);font-style:italic}
+.hljs-keyword,.hljs-selector-tag,.hljs-meta{color:var(--pencil)}
+.hljs-string,.hljs-regexp,.hljs-attr{color:var(--ok)}
+.hljs-number,.hljs-literal,.hljs-symbol{color:#3d6a8a}
+.hljs-title,.hljs-built_in,.hljs-type,.hljs-name{color:#6b4f8a}
+.hljs-operator,.hljs-punctuation{color:var(--ink-2)}
 .answer hr{border:0;border-top:1px solid var(--rule);margin:24px 0}
 .answer .katex{font-size:1.05em}
 .answer .katex-display{overflow-x:auto;overflow-y:hidden;padding:6px 0;margin:12px 0}
@@ -591,6 +605,8 @@ function renderAnswer(text, citations = []) {
 const LIBRARIES = {
   chart: 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js',
   mermaid: 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js',
+  highlight: 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js',
+  matlab: 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/matlab.min.js',
 };
 const loadedLibraries = {};
 function loadLibrary(name) {
@@ -732,6 +748,43 @@ function drawSource(holder, figure) {
 }
 
 // The answer marks each figure's place with a ```figure block holding its index.
+// Code in an answer gets a heading naming its language, a Copy button and colours.
+// What a program printed (a block marked output, console or text) is set apart.
+const CODE_NAMES = {r: 'R', py: 'Python', python: 'Python', matlab: 'MATLAB', js: 'JavaScript', javascript: 'JavaScript', ts: 'TypeScript', c: 'C', cpp: 'C++', java: 'Java', sql: 'SQL', bash: 'Shell', sh: 'Shell', shell: 'Shell', json: 'JSON', latex: 'LaTeX', tex: 'LaTeX'};
+const OUTPUT_KINDS = new Set(['output', 'console', 'text', 'txt', 'plaintext', 'result', 'stdout']);
+async function formatCode(answer) {
+  if (!answer) return;
+  const blocks = [...answer.querySelectorAll('pre > code')].filter(code =>
+    !code.classList.contains('language-figure') && !code.closest('.code-block'));
+  const coloured = [];
+  for (const code of blocks) {
+    const language = ([...code.classList].find(name => name.startsWith('language-')) || '').slice(9).toLowerCase();
+    const output = OUTPUT_KINDS.has(language);
+    const wrap = document.createElement('div');
+    wrap.className = `code-block${output ? ' output' : ''}`;
+    const name = output ? 'Output' : CODE_NAMES[language] || language || 'Code';
+    wrap.innerHTML = `<div class="code-head"><span>${esc(name)}</span><button type="button" class="code-copy">Copy</button></div>`;
+    code.parentElement.replaceWith(wrap);
+    wrap.append(code.parentElement);
+    wrap.querySelector('.code-copy').addEventListener('click', async event => {
+      try { await navigator.clipboard.writeText(code.textContent) } catch (_) { return }
+      event.target.textContent = 'Copied';
+      setTimeout(() => { event.target.textContent = 'Copy' }, 1500);
+    });
+    if (language && !output) coloured.push([code, language]);
+  }
+  if (!coloured.length) return;
+  try {
+    await loadLibrary('highlight');
+    if (coloured.some(([, language]) => language === 'matlab')) await loadLibrary('matlab');
+  } catch (_) { return }  // the code is still readable without colours
+  for (const [code, language] of coloured) {
+    if (!window.hljs.getLanguage(language)) continue;
+    // highlight.js escapes the code itself and returns only span markup.
+    code.innerHTML = window.hljs.highlight(code.textContent, {language, ignoreIllegals: true}).value;
+  }
+}
+
 // A practice question: the student answers first, then sees how they did and why.
 // The server has already worked out which option, or which number, is right.
 let quizCount = 0;
@@ -928,6 +981,7 @@ function appendTurn(question, result, meta) {
       </div>
     </div>`;
   $('#chat-thread').append(turn);
+  formatCode(turn.querySelector('.answer'));
   drawFigures(turn.querySelector('.answer'), result.figures || []);
   turn.querySelector('[data-fresh]')?.addEventListener('click', () => askFresh(question));
   turn.querySelector('.turn-head').addEventListener('click', () => setTurnOpen(turn, turn.classList.contains('collapsed')));
