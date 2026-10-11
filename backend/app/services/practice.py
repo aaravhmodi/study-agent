@@ -34,7 +34,9 @@ _WHY = re.compile(r"^\s*(?:Why|Explanation|Because)\s*:\s*(.*)$", re.IGNORECASE)
 # "B", "(B)", "B)" or "B. the second option": the letter of a multiple-choice answer.
 _LETTER = re.compile(r"^\(?([A-Fa-f])(?:[).:]|\s|$)")
 # A number, then at most a short unit: "6 kN", "0.35", "-2.5e3 N/m", "40 %".
-_NUMBER = re.compile(r"^(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)\s*([^\d\s].{0,15})?$")
+_NUMBER = re.compile(r"^(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)\s*([A-Za-z%°µΩ$].{0,15})?$")
+# A probability is often an exact fraction: "2/11".
+_FRACTION = re.compile(r"^(-?\d+)\s*/\s*(\d+)$")
 
 
 class QuizError(ValueError):
@@ -73,13 +75,9 @@ def parse_quiz(text: str) -> QuizFigure:
         raise QuizError("a quiz needs a question and an answer")
     options = [_joined(option) for option in choices]
     if not options:
-        number = _NUMBER.match(given)
+        value, unit = _value(given)
         return QuizFigure(
-            question=asked,
-            answer=given,
-            number=float(number.group(1)) if number else None,
-            unit=(number.group(2) or "").strip() if number else "",
-            explanation=_joined(why),
+            question=asked, answer=given, number=value, unit=unit, explanation=_joined(why)
         )
     if not 2 <= len(options) <= MAX_CHOICES:
         raise QuizError("multiple choice needs two to six options")
@@ -88,6 +86,16 @@ def parse_quiz(text: str) -> QuizFigure:
     if not 0 <= correct < len(options):
         raise QuizError("the answer is not the letter of one of the options")
     return QuizFigure(question=asked, choices=options, correct=correct, explanation=_joined(why))
+
+
+def _value(answer: str) -> tuple[float | None, str]:
+    """The number an answer states and its unit, or (None, "") when it is in words."""
+
+    if (fraction := _FRACTION.match(answer)) and int(fraction.group(2)):
+        return int(fraction.group(1)) / int(fraction.group(2)), ""
+    if number := _NUMBER.match(answer):
+        return float(number.group(1)), (number.group(2) or "").strip()
+    return None, ""
 
 
 def _joined(lines: list[str]) -> str:

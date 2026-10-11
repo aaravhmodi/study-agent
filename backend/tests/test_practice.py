@@ -42,6 +42,14 @@ def test_a_numeric_answer_can_be_checked_and_keeps_its_unit() -> None:
 
     assert parse_quiz("Q: P(A)?\nAnswer: 0.35").number == 0.35
     assert parse_quiz("Q: Stiffness?\nAnswer: -2.5e3 N/m").unit == "N/m"
+    # An exact fraction is a number too: the student may type 2/11 or 0.18.
+    fraction = parse_quiz("Q: P(sum is 10 | a six)?\nAnswer: 2/11")
+    assert (fraction.answer, fraction.unit) == ("2/11", "")
+    assert fraction.number == pytest.approx(2 / 11)
+    assert parse_quiz("Q: Share late?\nAnswer: 40 %").unit == "%"
+    # A ratio of two readings is not one number, and nothing divides by zero.
+    assert parse_quiz("Q: Ratio?\nAnswer: 3:2").number is None
+    assert parse_quiz("Q: Limit?\nAnswer: 1/0").number is None
 
 
 def test_an_answer_in_words_is_shown_for_the_student_to_compare() -> None:

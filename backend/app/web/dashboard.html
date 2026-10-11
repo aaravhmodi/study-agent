@@ -824,8 +824,12 @@ function drawQuiz(holder, figure) {
     const field = event.target.querySelector('input, textarea');
     if (!field.value.trim()) { field.focus(); return }
     if (numeric) {
-      // "6", "6 kN" and "6.0" are the same answer; 2% covers rounding.
-      const given = Number((field.value.replace(/,/g, '').match(/-?\d*\.?\d+(?:[eE][-+]?\d+)?/) || [NaN])[0]);
+      // "6", "6 kN" and "6.0" are the same answer, and so are "2/11" and "0.18";
+      // 2% covers rounding.
+      const typed = field.value.replace(/,/g, '');
+      const fraction = typed.match(/^\s*(-?\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*$/);
+      const given = fraction ? Number(fraction[1]) / Number(fraction[2])
+        : Number((typed.match(/-?\d*\.?\d+(?:[eE][-+]?\d+)?/) || [NaN])[0]);
       const right = Math.abs(given - figure.number) <= Math.max(Math.abs(figure.number) * 0.02, 1e-9);
       reveal(right ? 'Correct' : 'Not quite', right);
     } else {
