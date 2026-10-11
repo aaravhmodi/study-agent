@@ -25,6 +25,7 @@ from app.services.figures import extract_figures
 from app.services.learn_links import viewer_url
 from app.services.lecture_scope import lecture_refs, matching_resource_ids
 from app.services.pdf_text import passage_pages, refresh_pdf_text_sidecar
+from app.services.practice import QUIZ_GUIDE
 from app.services.question_sources import SOURCE_GUIDE, SourceDocument, SourceResolver
 from app.services.retrieval import (
     Passage,
@@ -70,13 +71,7 @@ function, a diagram or a circuit, end with a figure of it.
 ## Common mistakes
 Two to four bullets.
 ## Check yourself
-Three short questions that test understanding, not recall, each followed by its answer \
-hidden like this:
-<details><summary>Answer</summary>
-
-One or two sentences.
-
-</details>
+Three short questions that test understanding, not recall, each as a quiz block.
 ## Study checklist
 Three to five prioritized bullets, including when to revisit (tomorrow, next week).
 
@@ -96,7 +91,7 @@ cite course files inline by exact filename and page, one file per bracket: \
 
 # One static prefix (cached by OpenAI after the first question): how to teach, how to
 # cite course questions, then how to draw.
-TUTOR_INSTRUCTIONS = TUTOR_GUIDE + "\n\n" + SOURCE_GUIDE + "\n\n" + FIGURE_GUIDE
+TUTOR_INSTRUCTIONS = "\n\n".join((TUTOR_GUIDE, SOURCE_GUIDE, QUIZ_GUIDE, FIGURE_GUIDE))
 
 
 class VectorFileError(RuntimeError):
@@ -461,7 +456,7 @@ class RagService:
             "note": hashlib.sha256((note or "").encode("utf-8")).hexdigest()[:16],
             # Bump when the saved response format changes (4: course questions shown
             # from the student's files).
-            "format": 5,
+            "format": 6,
         }
 
     def _passages(

@@ -105,8 +105,26 @@ class SourceFigure(BaseModel):
     whole_page: bool = False
 
 
+class QuizFigure(BaseModel):
+    """A practice question the student answers on the page before seeing the answer."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["quiz"] = "quiz"
+    question: str = Field(min_length=1, max_length=4000)
+    # Multiple choice: the options, and the position of the right one.
+    choices: list[str] = Field(default_factory=list, max_length=6)
+    correct: int | None = Field(default=None, ge=0, le=5)
+    # Otherwise the model answer, and its value and unit when it is a number.
+    answer: str = Field(default="", max_length=4000)
+    number: float | None = None
+    unit: str = Field(default="", max_length=20)
+    explanation: str = Field(default="", max_length=4000)
+
+
 ChatFigure = Annotated[
-    PlotFigure | DiagramFigure | SketchFigure | SourceFigure, Field(discriminator="kind")
+    PlotFigure | DiagramFigure | SketchFigure | SourceFigure | QuizFigure,
+    Field(discriminator="kind"),
 ]
 
 

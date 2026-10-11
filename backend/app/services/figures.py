@@ -20,6 +20,7 @@ from app.schemas.chat import (
 from app.services.circuit import CircuitError, render_circuit
 from app.services.fbd import FbdError, render_fbd
 from app.services.plot_math import Formula, FormulaError, compile_formula
+from app.services.practice import QuizError, parse_quiz
 from app.services.svg_safe import SvgError, sanitize_svg
 
 logger = logging.getLogger(__name__)
@@ -321,8 +322,10 @@ _PARSERS: dict[str, Callable[[str], ChatFigure]] = {
 MAX_FIGURES = 4
 # Course questions shown from the student's files; a practice set cites several.
 MAX_SOURCES = 6
+# Practice questions answered on the page; a practice set is mostly these.
+MAX_QUIZZES = 12
 _FIGURE_BLOCK = re.compile(
-    rf"^[ \t]*```[ \t]*({'|'.join(_PARSERS)}|source)[ \t]*\r?\n(.*?)\r?\n[ \t]*```[ \t]*$",
+    rf"^[ \t]*```[ \t]*({'|'.join(_PARSERS)}|source|quiz)[ \t]*\r?\n(.*?)\r?\n[ \t]*```[ \t]*$",
     flags=re.MULTILINE | re.DOTALL,
 )
 
@@ -335,13 +338,25 @@ def extract_figures(
     The placeholder holds the figure's index in the returned list. Blocks that
     cannot be drawn are removed so the student never sees raw JSON. A ```source
     block is resolved by ``source``, which knows the course files the answer may cite.
+    A ```quiz block that cannot be read stays in the answer as the text it was, so
+    the question is not lost.
     """
 
     figures: list[ChatFigure] = []
-    counts = {"source": 0, "drawn": 0}
+    counts = {"source": 0, "drawn": 0, "quiz": 0}
 
     def replace(match: re.Match[str]) -> str:
         kind, body = match.group(1), match.group(2)
+        if kind == "quiz":
+            try:
+                if counts["quiz"] >= MAX_QUIZZES:
+                    raise QuizError("too many questions in one answer")
+                figures.append(parse_quiz(body))
+            except (QuizError, ValidationError) as exc:
+                logger.warning("Showed a practice question as plain text: %s", exc)
+                return body
+            counts["quiz"] += 1
+            return f"```figure\n{len(figures) - 1}\n```"
         group, limit = ("source", MAX_SOURCES) if kind == "source" else ("drawn", MAX_FIGURES)
         parser = source if kind == "source" else _PARSERS[kind]
         if parser is None or counts[group] >= limit:
