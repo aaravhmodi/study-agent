@@ -7,7 +7,7 @@ import re
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 from openai import BadRequestError, NotFoundError, OpenAI
 from sqlalchemy import select
@@ -15,7 +15,7 @@ from sqlalchemy import select
 from app.config import Settings
 from app.db.database import SessionLocal, ensure_schema
 from app.models import Course, Resource
-from app.schemas.chat import ChatCitation, ChatResponse, ChatUsage
+from app.schemas.chat import ChatCitation, ChatResponse, ChatUsage, Depth
 from app.schemas.chat_session import ChatTurn
 from app.services.answer_cache import AnswerCache, cache_key, index_fingerprint
 from app.services.answer_format import clean_answer, clean_citations, display_filename
@@ -26,15 +26,17 @@ from app.services.figure_guide import FIGURE_GUIDE
 from app.services.figures import extract_figures
 from app.services.learn_links import viewer_url
 from app.services.lecture_scope import lecture_refs, matching_resource_ids
-from app.services.pdf_text import passage_pages, refresh_pdf_text_sidecar
+from app.services.pdf_text import page_range_text, passage_pages, refresh_pdf_text_sidecar
 from app.services.practice import QUIZ_GUIDE
 from app.services.question_sources import SOURCE_GUIDE, SourceDocument, SourceResolver
 from app.services.retrieval import (
+    CHARS_PER_TOKEN,
     Passage,
     cited_files,
     format_passages,
     from_search,
     select_passages,
+    tidy,
 )
 from app.services.saved_files import saved_file
 from app.services.textbook_toc import Chapter, chapters, describe, parse_contents
@@ -61,6 +63,9 @@ FOLLOW_UP_TURNS = 3
 CHUNK_TOKENS = 400
 CHUNK_OVERLAP_TOKENS = 100
 CHUNKING = f"static-{CHUNK_TOKENS}-{CHUNK_OVERLAP_TOKENS}"
+# How much of a study guide's course text may be the named chapter itself; search
+# fills the rest with slides and exercises.
+CHAPTER_SHARE = 0.75
 
 
 TUTOR_GUIDE = """\
@@ -70,41 +75,78 @@ add context the materials lack (intuition, real-world uses, a clearer derivation
 those sentences "(online)", and never let them contradict the course. If neither supports \
 a claim, say so instead of guessing.
 
-When asked to explain a topic or a lecture, find the chapter or lecture it belongs to and \
-teach it concept by concept. Use this Markdown layout:
-## Overview
-Two or three sentences: what it is, why it matters, which lecture or chapter covers it.
-## Key concepts
-One ### heading per concept (usually 3 to 6), in teaching order. For each: a \
-plain-language definition, the governing formula, and how it links to the others.
-## Worked example
-One short example in numbered steps, from the materials when possible. If its result is a \
-function, a diagram or a circuit, end with a figure of it.
-## Common mistakes
-Two to four bullets.
-## Check yourself
-Three short questions that test understanding, not recall, each as a quiz block.
-## Study checklist
-Three to five prioritized bullets, including when to revisit (tomorrow, next week).
-
 If the question looks like a graded assignment or lab problem, do not solve it: explain \
 the concepts and give the first step as a hint. Solve practice and self-study problems \
-fully: setup figure, steps, then solution figure. For other questions, answer directly \
-with only the sections that help. Instructor notes, when given, set exam scope and format: \
-say whether the topic is in scope, and write Check yourself questions in that format \
-(for multiple choice: four options, one correct). Work out every answer and calculation \
-before writing it, so answer keys never need a correction.
+with a setup figure, the steps, then a solution figure. Instructor notes, when given, set \
+exam scope and format: say whether the topic is in scope, and write practice questions in \
+that format (for multiple choice: four options, one correct). Work out every answer and \
+calculation before writing it, so answer keys never need a correction.
 
 Style: short paragraphs, **bold** key terms, LaTeX math with \\( ... \\) inline and \\[ ... \\] \
 for display (units like \\text{kN}\\cdot\\text{m}, no Unicode symbols inside \\text{}), and \
 cite course files by exact filename and page, one file per bracket: \
 [Textbook.pdf, p. 12]. Fence code with its language (```r) and what it prints as \
-```output. Be concise.\
+```output. The last section below says how long and how deep this answer should be.\
 """
 
-# One static prefix (cached by OpenAI after the first question): how to teach, how to
-# cite course questions, then how to draw.
-TUTOR_INSTRUCTIONS = "\n\n".join((TUTOR_GUIDE, SOURCE_GUIDE, QUIZ_GUIDE, FIGURE_GUIDE))
+QUICK_GUIDE = """\
+Depth of this answer: quick summary. The student wants the gist in under a minute of \
+reading: at most about 200 words and no section headings. Start with one or two sentences \
+that answer the question. Then give the key points as up to six bullets, each with the \
+formula or number it needs; for a chapter or lecture, one bullet per main idea in \
+teaching order. Leave out worked examples, common mistakes, checklists and quiz blocks \
+unless the question asks for them, and draw a figure only when the answer is a figure. \
+For a problem to solve, give the result and the steps that decide it, one line each.\
+"""
+
+DETAILED_GUIDE = """\
+Depth of this answer: study guide. The student is learning the material from this \
+answer, so teach it fully; never compress a concept into a sentence or two. Cover every \
+section and concept the passages show, in teaching order. If they leave out part of what \
+was asked for, teach what they cover and name what is missing in one closing line; do \
+not guess at it, and do not comment on the passages anywhere else.
+
+When asked to explain a topic, a lecture or a chapter, find the chapter or lecture it \
+belongs to and use this Markdown layout:
+## Overview
+A paragraph: what it is, why it matters, which lecture or chapter and pages cover it, and \
+how its parts fit together.
+## Key concepts
+One ### heading per concept or section, as many as the material has. For each, in \
+several paragraphs: a plain-language definition, the intuition behind it, the governing \
+formula with every symbol defined, a small example with numbers, and how it links to the \
+others.
+## Worked examples
+Two or three examples in numbered steps, from routine to exam level, from the materials \
+when possible. If a result is a function, a diagram or a circuit, end with a figure of it.
+## Common mistakes
+Three to six bullets, each with why it is wrong and what to do instead.
+## Check yourself
+Five questions that test understanding, not recall, each as a quiz block.
+## Study checklist
+Three to six prioritized bullets: the pages or problems to work through and when to \
+revisit (tomorrow, next week).
+
+For other questions (a single fact, a plan, a comparison, a problem to solve), answer \
+directly and thoroughly, with only the sections that help.\
+"""
+
+# Static prefixes, cached by OpenAI after the first question: how to teach, how to cite
+# course questions, how to draw, and last how deep to go, so both depths share the rest.
+_SHARED_GUIDES = (TUTOR_GUIDE, SOURCE_GUIDE, QUIZ_GUIDE, FIGURE_GUIDE)
+TUTOR_INSTRUCTIONS: dict[Depth, str] = {
+    "quick": "\n\n".join((*_SHARED_GUIDES, QUICK_GUIDE)),
+    "detailed": "\n\n".join((*_SHARED_GUIDES, DETAILED_GUIDE)),
+}
+
+
+class _Budget(NamedTuple):
+    """How much of the course one answer reads, and how long it may be."""
+
+    max_results: int
+    context_tokens: int
+    per_file: int
+    max_output_tokens: int
 
 
 class VectorFileError(RuntimeError):
@@ -289,10 +331,11 @@ class RagService:
         course_code: str | None = None,
         *,
         fresh: bool = False,
+        depth: Depth = "detailed",
         history: list[ChatTurn] | None = None,
         pictures: list[Picture] | None = None,
     ) -> ChatResponse:
-        """Answer a question from the course files.
+        """Answer a question from the course files, as a quick summary or a study guide.
 
         ``pictures`` are what the student attached, already read: the model looks at
         them, and what they say also steers the search of the course files.
@@ -319,8 +362,11 @@ class RagService:
         )
         note = tutor_notes(self.notes_path, note_course)
         graphs = course_figure_guide(note_course)
+        budget = self._budget(depth)
         key = cache_key(
-            question, normalized_course_code, settings=self._answer_shape(files, note, graphs)
+            question,
+            normalized_course_code,
+            settings=self._answer_shape(files, depth, note, graphs),
         )
         earlier = (history or [])[-FOLLOW_UP_TURNS:]
         # A follow-up depends on the conversation, and a question about a picture on
@@ -378,10 +424,26 @@ class RagService:
         search_text += "".join(f"\n{_brief(picture.text, 500)}" for picture in pictures)
         # "Chapter 3" means nothing to semantic search; its title and sections do.
         search_text += _chapter_search_terms(files, note_course, named_chapters)
-        found = self._passages(
-            search_text, str(vector_store_id), normalized_course_code, lecture_ids
+        # Search returns a few short pieces of a chapter; a study guide of a chapter is
+        # written from the chapter itself, and search adds what else the course has on it.
+        chapter_text = (
+            self._chapter_passages(
+                files, note_course, named_chapters, int(budget.context_tokens * CHAPTER_SHARE)
+            )
+            if depth == "detailed"
+            else []
         )
-        if not found and normalized_course_code and not earlier:
+        found = self._passages(
+            search_text,
+            str(vector_store_id),
+            normalized_course_code,
+            lecture_ids,
+            budget._replace(
+                context_tokens=budget.context_tokens - sum(p.tokens for p in chapter_text)
+            ),
+            already=" ".join(_one_line(passage.text) for passage in chapter_text),
+        )
+        if not found and not chapter_text and normalized_course_code and not earlier:
             # "What is this about?" with a course chosen matches no passage. What it is
             # about is the course, so the tutor gets the course's own outline to answer from.
             found = self._passages(
@@ -389,8 +451,9 @@ class RagService:
                 str(vector_store_id),
                 normalized_course_code,
                 [],
+                budget,
             )
-        passages, documents = self._located(found, files)
+        passages, documents = self._located(chapter_text + found, files)
         context.append("")
         context.append(format_passages(passages))
         tools: list[dict[str, Any]] = []
@@ -399,14 +462,14 @@ class RagService:
         response = self.client.responses.create(
             model=self.settings.openai_chat_model,
             # Static instructions form a stable prefix that OpenAI can cache.
-            instructions=TUTOR_INSTRUCTIONS,
+            instructions=TUTOR_INSTRUCTIONS[depth],
             input=_model_input("\n".join(context), pictures),
             tools=cast(Any, tools),
             # One web search at most; course passages are already in the input.
             max_tool_calls=1,
             prompt_cache_key=_CACHE_KEY,
             reasoning=cast(Any, {"effort": self.settings.openai_chat_reasoning_effort}),
-            max_output_tokens=self.settings.rag_max_output_tokens,
+            max_output_tokens=budget.max_output_tokens,
         )
         answer = clean_answer(str(getattr(response, "output_text", "")))
         if not answer:
@@ -422,6 +485,7 @@ class RagService:
             citations=[ChatCitation.model_validate(citation) for citation in citations],
             figures=figures,
             usage=_usage(response),
+            depth=depth,
         )
         if not earlier and not pictures:
             cache.put(key, result)
@@ -505,24 +569,99 @@ class RagService:
             document.pages += [page for page in pages if page not in document.pages]
         return located, list(documents.values())
 
+    def _chapter_passages(
+        self,
+        files: dict[str, Any],
+        course_code: str | None,
+        wanted: set[int],
+        budget_tokens: int,
+    ) -> list[Passage]:
+        """The pages of the chapters a question names, the longest account first."""
+
+        root = self.downloads_dir.resolve()
+        found: list[tuple[str, dict[str, Any], Chapter, str]] = []
+        for resource_id, entry in files.items():
+            filename = str(entry.get("filename") or "")
+            if not filename or (
+                course_code and str(entry.get("course_code", "")).upper() != course_code
+            ):
+                continue
+            sidecar = (root / filename).with_suffix(".txt").resolve()
+            if not sidecar.is_relative_to(root):
+                continue
+            for raw in entry.get("chapters") or []:
+                chapter = Chapter.model_validate(raw)
+                if chapter.number not in wanted:
+                    continue
+                text = tidy(page_range_text(sidecar, chapter.first_page, chapter.last_page))
+                if text:
+                    found.append((str(resource_id), entry, chapter, text))
+        passages: list[Passage] = []
+        left = budget_tokens
+        for resource_id, entry, chapter, text in sorted(
+            found, key=lambda item: len(item[3]), reverse=True
+        ):
+            # Too little room left to teach from; search can still find its best parts.
+            if left < 500:
+                break
+            if len(text) > left * CHARS_PER_TOKEN:
+                until = f" to p. {chapter.last_page}" if chapter.last_page else ""
+                text = (
+                    text[: left * CHARS_PER_TOKEN].rstrip()
+                    + f"\n[Chapter {chapter.number} continues{until}; the rest did not fit here.]"
+                )
+            passage = Passage(
+                filename=display_filename(str(entry["filename"])),
+                file_id=str(entry.get("file_id") or ""),
+                text=text,
+                score=1.0,
+                resource_id=resource_id,
+            )
+            passages.append(passage)
+            left -= passage.tokens
+        return passages
+
     @property
     def notes_path(self) -> Path:
         return self.manifest_path.with_name(NOTES_FILE)
 
+    def _budget(self, depth: Depth) -> _Budget:
+        settings = self.settings
+        if depth == "quick":
+            return _Budget(
+                settings.rag_max_results,
+                settings.rag_context_tokens,
+                3,
+                settings.rag_max_output_tokens,
+            )
+        # A chapter lives in one file, so a study guide may draw most of its passages from it.
+        return _Budget(
+            settings.rag_detailed_max_results,
+            settings.rag_detailed_context_tokens,
+            10,
+            settings.rag_detailed_max_output_tokens,
+        )
+
     def _answer_shape(
-        self, files: dict[str, Any], note: str | None = None, graphs: str | None = None
+        self,
+        files: dict[str, Any],
+        depth: Depth = "detailed",
+        note: str | None = None,
+        graphs: str | None = None,
     ) -> dict[str, Any]:
         """Everything besides the question that changes what an answer looks like."""
 
         settings = self.settings
+        budget = self._budget(depth)
+        prompt = TUTOR_INSTRUCTIONS[depth]
         return {
             "model": settings.openai_chat_model,
             "effort": settings.openai_chat_reasoning_effort,
-            "max_output": settings.rag_max_output_tokens,
-            "passages": [settings.rag_max_results, settings.rag_context_tokens],
+            "max_output": budget.max_output_tokens,
+            "passages": [budget.max_results, budget.context_tokens, budget.per_file],
             "min_score": settings.rag_min_score,
             "web": settings.rag_web_search,
-            "prompt": hashlib.sha256(TUTOR_INSTRUCTIONS.encode("utf-8")).hexdigest()[:16],
+            "prompt": hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16],
             "index": index_fingerprint(files),
             "note": hashlib.sha256((note or "").encode("utf-8")).hexdigest()[:16],
             # Only courses with graphing guidance of their own, so other saved answers stay.
@@ -542,13 +681,18 @@ class RagService:
         vector_store_id: str,
         course_code: str | None,
         lecture_ids: list[str],
+        budget: _Budget,
+        already: str = "",
     ) -> list[Passage]:
-        """Search the course index once and keep the best distinct passages."""
+        """Search the course index once and keep the best distinct passages.
+
+        ``already`` is course text the answer has in hand, so it is not sent twice.
+        """
 
         search: dict[str, Any] = {
             "query": question,
             # Over-fetch: duplicates and repeats from one file are dropped below.
-            "max_num_results": min(self.settings.rag_max_results * 3, 50),
+            "max_num_results": min(budget.max_results * 3, 50),
             "rewrite_query": True,
             "ranking_options": {"score_threshold": self.settings.rag_min_score},
         }
@@ -557,9 +701,14 @@ class RagService:
             search["filters"] = filters
         results = self.client.vector_stores.search(vector_store_id, **search)
         return select_passages(
-            from_search(results.data),
-            budget_tokens=self.settings.rag_context_tokens,
-            max_passages=self.settings.rag_max_results,
+            [
+                passage
+                for passage in from_search(results.data)
+                if not already or _one_line(passage.text) not in already
+            ],
+            budget_tokens=budget.context_tokens,
+            max_passages=budget.max_results,
+            per_file=budget.per_file,
         )
 
     def _create_vector_store(self) -> str:
@@ -680,6 +829,10 @@ def _chapter_search_terms(files: dict[str, Any], course_code: str | None, wanted
         + ", ".join(section.split(" ", 1)[-1] for section in chapter.sections)
         for _book, chapter in found[:3]
     )
+
+
+def _one_line(text: str) -> str:
+    return " ".join(text.split())
 
 
 def _upload_hash(path: Path) -> str | None:

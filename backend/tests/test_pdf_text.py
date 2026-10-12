@@ -94,6 +94,21 @@ def test_a_passage_is_placed_on_the_pages_it_was_cut_from(tmp_path: Path) -> Non
     assert pdf_text.passage_pages(tmp_path / "missing.txt", "anything") == []
 
 
+def test_a_chapter_is_read_by_its_printed_pages(tmp_path: Path) -> None:
+    sidecar = tmp_path / "book.txt"
+    sidecar.write_text(
+        "[Front matter, PDF page 1]\nContents\n\n[Page 1]\nIntro.\n\n[Page 2]\nSampling.\n\n"
+        "[Page 3]\nBias.\n\n[Page 4]\nProbability.",
+        encoding="utf-8",
+    )
+
+    assert pdf_text.page_range_text(sidecar, 2, 3) == "[Page 2]\nSampling.\n\n[Page 3]\nBias."
+    # The last chapter has no next one to stop at.
+    assert pdf_text.page_range_text(sidecar, 4, None) == "[Page 4]\nProbability."
+    assert pdf_text.page_range_text(sidecar, 7, 9) == ""
+    assert pdf_text.page_range_text(tmp_path / "missing.txt", 1, 2) == ""
+
+
 def test_a_passage_indexed_before_pages_were_labelled_is_still_placed(tmp_path: Path) -> None:
     first = "The first page explains what a population is. " * 4
     second = "The second page explains what a sample is. " * 4

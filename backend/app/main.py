@@ -121,6 +121,7 @@ def chat(request: ChatRequest) -> ChatResponse:
             request.question,
             request.course_code,
             fresh=request.fresh,
+            depth=request.depth,
             history=session.turns if session else None,
             pictures=pictures,
         )

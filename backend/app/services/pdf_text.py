@@ -144,6 +144,24 @@ def passage_pages(sidecar: Path, passage: str) -> list[int]:
     return sorted(set(numbers[max(first, 0) : last + 1])) if last >= 0 else []
 
 
+def page_range_text(sidecar: Path, first: int, last: int | None) -> str:
+    """The labelled text of printed pages ``first`` to ``last``, or to the end without one."""
+
+    try:
+        text = sidecar.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return ""
+    start: int | None = None
+    for label in _PAGE_LABEL.finditer(text):
+        number = int(label.group(1))
+        if start is None:
+            if number >= first and (last is None or number <= last):
+                start = label.start()
+        elif last is not None and number > last:
+            return text[start : label.start()].strip()
+    return text[start:].strip() if start is not None else ""
+
+
 @lru_cache(maxsize=16)
 def _labelled_text(sidecar: str, _modified: int) -> tuple[str, list[int], list[int]]:
     """A sidecar's text on one line, with where each page label sits and its number."""

@@ -102,7 +102,7 @@ def test_the_tutor_shows_the_course_question_it_cites(tmp_path: Path) -> None:
     assert figure.images[0].startswith(f"/course-resources/{RESOURCE_ID}/pages/1?top=0.")
     assert "```figure\n0\n```" in result.answer and "```source" not in result.answer
     assert [citation.title for citation in result.citations] == ["Problem Set 2"]
-    assert SOURCE_GUIDE in TUTOR_INSTRUCTIONS
+    assert all(SOURCE_GUIDE in guide for guide in TUTOR_INSTRUCTIONS.values())
 
 
 @pytest.fixture()

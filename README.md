@@ -239,19 +239,28 @@ uv run study-agent rag-index
 
 Start the dashboard and ask questions in the “Ask your course materials” box, or call `POST /chat` with `{"question":"Get me up to speed for SYDE 252 tomorrow.","course_code":"SYDE 252"}`. Answers are grounded in your course files and list the files they cite. Re-run `rag-index` after future syncs; unchanged files are skipped.
 
+Each question is answered at one of two depths, chosen beside the Ask button (the page remembers your choice) or sent as `"depth"`:
+
+| Depth | What you get | What it reads | Typical cost |
+| --- | --- | --- | --- |
+| **Study guide** (`detailed`, the default) | Every concept taught in full: definition, intuition, formula, a small example; two or three worked examples, common mistakes, five practice questions and a checklist | Up to 14 passages (16,000 tokens). When you name a textbook chapter, the chapter's own pages come first and search adds slides and exercises | about 2,000 words in 40 s |
+| **Quick summary** (`quick`) | The gist in about 200 words: a direct answer and up to six bullets | The best 6 passages (3,000 tokens) | under 10 s |
+
+A chapter longer than the study guide's budget is read from its start; the answer says where it stopped.
+
 The index is persistent: each file is uploaded and embedded once, and only new or changed files are processed again. Each question then costs:
 
-- **One search, no repeats.** The app searches the index once, drops duplicate and overlapping passages, keeps at most three per file, and sends the best ones up to `RAG_CONTEXT_TOKENS` (default 3,000). The model never runs its own file searches.
+- **One search, no repeats.** The app searches the index once, drops duplicate and overlapping passages, keeps at most three per file (ten for a study guide), and sends the best ones up to `RAG_CONTEXT_TOKENS` (default 3,000; `RAG_DETAILED_CONTEXT_TOKENS`, default 16,000, for a study guide). The model never runs its own file searches.
 - **Small chunks.** Files are indexed in 400-token chunks overlapping by 100, not OpenAI's default 800/400, so the budget holds more distinct passages.
-- **A cached prefix.** The teaching and figure guides are one fixed prompt prefix that OpenAI caches after the first question (cached input is billed at a discount).
-- **Nothing for repeats.** A question already asked with the same course, settings and index is answered from `data/answer_cache.json`; the dashboard says "saved answer" and offers "ask fresh".
+- **A cached prefix.** The teaching and figure guides are one fixed prompt prefix that OpenAI caches after the first question (cached input is billed at a discount). Both depths share it; only the last paragraph, which sets the depth, differs.
+- **Nothing for repeats.** A question already asked with the same course, depth, settings and index is answered from `data/answer_cache.json`; the dashboard says "saved answer" and offers "ask fresh".
 
-Each answer shows its token count, e.g. "9.3k tokens (5.7k cached)". For fewer tokens still, lower `RAG_CONTEXT_TOKENS`, or set `RAG_WEB_SEARCH=false` (web search adds a few thousand tokens when the model uses it).
+Each answer shows its token count, e.g. "9.3k tokens (5.7k cached)". For fewer tokens still, ask for a quick summary, lower `RAG_CONTEXT_TOKENS` or `RAG_DETAILED_CONTEXT_TOKENS`, or set `RAG_WEB_SEARCH=false` (web search adds a few thousand tokens when the model uses it).
 
-Chat answers use the lighter `OPENAI_CHAT_MODEL` (default `gpt-6-luna`) with low reasoning effort and a 4,500-token output cap; handwritten-PDF transcription keeps `OPENAI_MODEL`. The tutor is built around study techniques with strong evidence:
+Chat answers use the lighter `OPENAI_CHAT_MODEL` (default `gpt-6-luna`) with low reasoning effort and an output cap of 4,500 tokens (12,000 for a study guide, `RAG_DETAILED_MAX_OUTPUT_TOKENS`); handwritten-PDF transcription keeps `OPENAI_MODEL`. The tutor is built around study techniques with strong evidence:
 
-- **Concept by concept:** "Explain ..." questions get an Overview, one subsection per key concept in the chapter, a Worked example, and Common mistakes.
-- **Practice testing:** every explanation ends with "Check yourself" questions you answer on the page before seeing the answer.
+- **Concept by concept:** as a study guide, "Explain ..." questions get an Overview, one subsection per key concept in the chapter, Worked examples, and Common mistakes.
+- **Practice testing:** every study guide ends with "Check yourself" questions you answer on the page before seeing the answer.
 - **Spacing:** the Study checklist says when to revisit the topic.
 - **No answer-copying:** questions that look like graded assignment or lab problems get concepts and a first-step hint, not a full solution.
 - **Any lecture:** naming "Lecture 7", "week 3", "chapter 5" or "tutorial 4" narrows the search to the matching course files.

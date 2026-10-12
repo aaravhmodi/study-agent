@@ -347,6 +347,7 @@ button.row:hover b{text-decoration:underline;text-decoration-color:var(--pencil)
           <div class="attached" id="chat-images" aria-label="Attached pictures"></div>
           <div class="ask-row">
             <select id="chat-course" aria-label="Course"><option value="">All courses</option></select>
+            <select id="chat-depth" aria-label="Answer length" title="Quick summary: the gist in a few bullets. Study guide: every concept taught in full, with worked examples and practice questions."><option value="detailed">Study guide</option><option value="quick">Quick summary</option></select>
             <button class="primary-button" id="chat-ask"><span data-label>Ask</span></button>
             <button type="button" class="quiet-button" id="chat-attach" title="Or paste a screenshot, or drop a picture on the box">Add a picture</button>
             <input type="file" id="chat-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
@@ -969,10 +970,12 @@ async function drawFigures(answer, figures, course = null) {
 
 // /chat returns one response with no progress events, so show only what is
 // true: what is being searched and how long it has taken.
-function startWaiting(container, course, pictures = 0) {
+function startWaiting(container, course, pictures = 0, depth = 'detailed') {
   const scope = course ? `${course} files` : 'files from every course';
   const reading = pictures ? `Reading your picture${pictures > 1 ? 's' : ''}, searching` : 'Searching';
-  container.innerHTML = `<p class="waiting" role="status">${reading} ${esc(scope)} and the web, then writing <span data-time>0 s</span><span class="slow hidden" data-slow>Long answers with worked examples can take a minute or two.</span></p>`;
+  const writing = depth === 'quick' ? 'a quick summary' : 'a study guide';
+  const slowNote = depth === 'quick' ? 'Still writing; this is taking longer than usual.' : 'A full study guide can take a minute or two.';
+  container.innerHTML = `<p class="waiting" role="status">${reading} ${esc(scope)} and the web, then writing ${writing} <span data-time>0 s</span><span class="slow hidden" data-slow>${slowNote}</span></p>`;
   const time = container.querySelector('[data-time]');
   const slow = container.querySelector('[data-slow]');
   const started = Date.now();
@@ -1195,8 +1198,15 @@ $('#review-close').addEventListener('click', closeReview);
 // The open conversation; follow-ups are sent with its id so the tutor sees earlier turns.
 let currentSession = null;
 
+// How deep answers go: remembered on this device, and shown on each answer.
+const DEPTHS = {quick: 'quick summary', detailed: 'study guide'};
+try { if (DEPTHS[localStorage.getItem('chat-depth')]) $('#chat-depth').value = localStorage.getItem('chat-depth') } catch (_) {}
+$('#chat-depth').addEventListener('change', event => {
+  try { localStorage.setItem('chat-depth', event.target.value) } catch (_) {}
+});
+
 function turnMeta(result, course, seconds) {
-  const where = course ? esc(course) : '';
+  const where = [course ? esc(course) : '', DEPTHS[result.depth] || ''].filter(Boolean).join(' · ');
   if (result.cached) return [where, 'saved answer, no tokens used · <button type="button" class="quiet-button" data-fresh>ask fresh</button>'].filter(Boolean).join(' · ');
   const tokens = tokenNote(result.usage).replace(/^ · /, '');
   return [where, seconds == null ? '' : `answered in ${seconds} s`, tokens].filter(Boolean).join(' · ');
@@ -1301,13 +1311,14 @@ async function askChat(fresh = false, questionText = null) {
     || (pictures.length ? 'Explain what this shows and how to work through it.' : '');
   if (!question) { $('#chat-question').focus(); toast('Type a question first.'); return }
   const course = $('#chat-course').value || null;
+  const depth = $('#chat-depth').value;
   const done = setBusy(button, currentSession ? 'Asking follow-up' : 'Asking');
   const pending = document.createElement('div');
   $('#chat-thread').append(pending);
-  const progress = startWaiting(pending, course, pictures.length);
+  const progress = startWaiting(pending, course, pictures.length, depth);
   pending.scrollIntoView({behavior: 'smooth', block: 'nearest'});
   try {
-    const result = await getJson('/chat', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question, course_code: course, fresh, session_id: currentSession, images: pictures.map(data_url => ({data_url}))})});
+    const result = await getJson('/chat', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question, course_code: course, depth, fresh, session_id: currentSession, images: pictures.map(data_url => ({data_url}))})});
     progress.stop();
     pending.remove();
     setConversation(result.session_id || null);

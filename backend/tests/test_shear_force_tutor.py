@@ -9,7 +9,13 @@ from app.schemas.chat import ChatResponse, PlotFigure, SketchFigure
 from app.services.answer_quality import assess_answer
 from app.services.figure_guide import FIGURE_GUIDE
 from app.services.figures import extract_figures
-from app.services.rag import TUTOR_GUIDE, TUTOR_INSTRUCTIONS, RagService
+from app.services.rag import (
+    DETAILED_GUIDE,
+    QUICK_GUIDE,
+    TUTOR_GUIDE,
+    TUTOR_INSTRUCTIONS,
+    RagService,
+)
 from app.services.rag_eval import (
     COURSE_QUESTIONS,
     EVAL_QUESTIONS,
@@ -73,7 +79,7 @@ def test_chat_model_and_budget_are_configurable(tmp_path: Path) -> None:
         rag_max_output_tokens=1200,
     )
 
-    service.ask("Explain shear force.", SHEAR_COURSE)
+    service.ask("Explain shear force.", SHEAR_COURSE, depth="quick")
 
     call = responses.calls[0]
     assert call["model"] == "gpt-6.1-sol"
@@ -83,11 +89,11 @@ def test_chat_model_and_budget_are_configurable(tmp_path: Path) -> None:
     assert call["max_output_tokens"] == 1200
 
 
-def test_token_budget_defaults_are_small(tmp_path: Path) -> None:
+def test_a_quick_summary_keeps_the_token_budget_small(tmp_path: Path) -> None:
     responses = FakeResponses()
     service = _service(tmp_path, responses)
 
-    service.ask("Explain shear force.", SHEAR_COURSE)
+    service.ask("Explain shear force.", SHEAR_COURSE, depth="quick")
 
     call = responses.calls[0]
     assert call["reasoning"] == {"effort": "low"}
@@ -103,6 +109,44 @@ def test_token_budget_defaults_are_small(tmp_path: Path) -> None:
     assert Settings().rag_context_tokens == 3000
 
 
+def test_a_study_guide_reads_more_of_the_course_and_may_run_longer(tmp_path: Path) -> None:
+    responses = FakeResponses()
+    passages = [
+        search_result(LECTURE_7, f"Section {n} of the chapter covers its own idea {n}.", 0.9)
+        for n in range(8)
+    ]
+    service = _service(tmp_path, responses)
+    service.client.vector_stores = FakeVectorStores(passages)  # type: ignore[attr-defined]
+
+    service.ask("Explain chapter 3.", SHEAR_COURSE, depth="quick")
+    service.ask("Explain chapter 3.", SHEAR_COURSE)
+
+    quick, detailed = responses.calls
+    assert quick["max_output_tokens"] == 4500 and detailed["max_output_tokens"] == 12000
+    searches = service.client.vector_stores.calls  # type: ignore[attr-defined]
+    assert [search["max_num_results"] for search in searches] == [18, 42]
+    # A chapter lives in one file: a summary takes three passages from it, a guide all eight.
+    assert quick["input"].count("covers its own idea") == 3
+    assert detailed["input"].count("covers its own idea") == 8
+
+
+def test_each_depth_has_its_own_instructions_and_saved_answers(tmp_path: Path) -> None:
+    responses = FakeResponses()
+    service = _service(tmp_path, responses)
+
+    quick = service.ask("Explain shear force.", SHEAR_COURSE, depth="quick")
+    detailed = service.ask("Explain shear force.", SHEAR_COURSE)
+    again = service.ask("Explain shear force.", SHEAR_COURSE, depth="quick")
+
+    # The study guide is not answered from the summary saved a moment before.
+    assert [call["instructions"] for call in responses.calls] == [
+        TUTOR_INSTRUCTIONS["quick"],
+        TUTOR_INSTRUCTIONS["detailed"],
+    ]
+    assert (quick.depth, detailed.depth) == ("quick", "detailed")
+    assert again.cached and again.depth == "quick"
+
+
 def test_instructions_are_static_and_input_holds_only_the_question(tmp_path: Path) -> None:
     responses = FakeResponses()
     service = _service(tmp_path, responses)
@@ -112,29 +156,38 @@ def test_instructions_are_static_and_input_holds_only_the_question(tmp_path: Pat
 
     first, second = responses.calls
     # An identical instruction prefix on every call lets OpenAI cache it.
-    assert first["instructions"] == second["instructions"] == TUTOR_INSTRUCTIONS
+    assert first["instructions"] == second["instructions"] == TUTOR_INSTRUCTIONS["detailed"]
     assert first["input"].startswith(
         "Course: SYDE 286\nQuestion: Explain shear force.\n\nCourse passages (cite by file name;"
     )
     assert f"[{LECTURE_7}]\nShear force V is the internal transverse force." in first["input"]
 
 
-def test_instructions_ask_for_concept_by_concept_chapter_explanations() -> None:
+def test_a_study_guide_teaches_a_chapter_concept_by_concept() -> None:
     for section in (
         "## Overview",
         "## Key concepts",
-        "## Worked example",
+        "## Worked examples",
         "## Check yourself",
         "## Study checklist",
     ):
-        assert section in TUTOR_INSTRUCTIONS
-    assert "chapter or lecture" in TUTOR_INSTRUCTIONS
-    assert "### heading per concept" in TUTOR_INSTRUCTIONS
-    # The teaching guide stays short; the figure guide is separate and both are a
-    # static, cacheable prefix, so they cost little after the first question.
+        assert section in DETAILED_GUIDE and section not in TUTOR_INSTRUCTIONS["quick"]
+    assert "chapter or lecture" in DETAILED_GUIDE
+    assert "### heading per concept" in DETAILED_GUIDE
+    assert "never compress a concept" in DETAILED_GUIDE
+    assert "200 words" in QUICK_GUIDE and "no section headings" in QUICK_GUIDE
+
+
+def test_both_depths_share_one_cacheable_prefix() -> None:
+    # The guides stay short and static, so they cost little after the first question.
     assert len(TUTOR_GUIDE.split()) < 360
     assert len(FIGURE_GUIDE.split()) < 500
-    assert TUTOR_INSTRUCTIONS.startswith(TUTOR_GUIDE) and TUTOR_INSTRUCTIONS.endswith(FIGURE_GUIDE)
+    assert len(DETAILED_GUIDE.split()) < 300 and len(QUICK_GUIDE.split()) < 150
+    quick, detailed = TUTOR_INSTRUCTIONS["quick"], TUTOR_INSTRUCTIONS["detailed"]
+    shared = quick.removesuffix(QUICK_GUIDE)
+    # Only the depth differs, and it comes last: everything before it is cached once.
+    assert shared.startswith(TUTOR_GUIDE) and shared.endswith(FIGURE_GUIDE + "\n\n")
+    assert detailed == shared + DETAILED_GUIDE
 
 
 def test_every_figure_example_in_the_guide_renders() -> None:
@@ -535,6 +588,72 @@ def test_chapters_in_course_notes_are_outlined_too(tmp_path: Path) -> None:
     assert "Chapter 3: Descriptive Statistics" in sent and "Chapter 4: Probability" in sent
     # Only chapters the question itself names change the search.
     assert service.client.vector_stores.calls[0]["query"] == "What is on the midterm?"  # type: ignore[attr-defined]
+
+
+def _book_on_disk(tmp_path: Path, service: RagService, pages: dict[int, str]) -> None:
+    """Give the course text a saved copy whose extracted text has these printed pages."""
+
+    service.downloads_dir = tmp_path / "downloads"
+    service.downloads_dir.mkdir()
+    (service.downloads_dir / "book_Course-text.txt").write_text(
+        "\n\n".join(f"[Page {number}]\n{text}" for number, text in pages.items()),
+        encoding="utf-8",
+    )
+    manifest = json.loads(service.manifest_path.read_text(encoding="utf-8"))
+    manifest["files"]["book"] |= {"filename": "book_Course-text.pdf", "file_id": "file-book"}
+    service.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def test_a_study_guide_of_a_chapter_is_written_from_the_chapter_itself(tmp_path: Path) -> None:
+    responses = FakeResponses()
+    service = _service_with_book(tmp_path, responses)
+    _book_on_disk(
+        tmp_path,
+        service,
+        {
+            20: "End of chapter two.",
+            21: "The mean is the balance point of the data.",
+            58: "A boxplot shows the five-number summary.",
+            59: "Probability starts here.",
+        },
+    )
+    service.client.vector_stores = FakeVectorStores(  # type: ignore[attr-defined]
+        [
+            # Search finds a piece of the chapter again, and a slide the chapter does not hold.
+            search_result("book_Course-text.txt", "The mean is the balance point of the data."),
+            search_result(LECTURE_7, "Slides: the median resists outliers.", 0.7),
+        ]
+    )
+
+    service.ask("Explain chapter 3.", SHEAR_COURSE)
+    service.ask("Explain chapter 3.", SHEAR_COURSE, depth="quick")
+
+    guide, summary = (call["input"] for call in responses.calls)
+    assert (
+        "[book_Course-text.pdf]\n[Page 21]\nThe mean is the balance point of the data.\n"
+        "[Page 58]\nA boxplot shows the five-number summary." in guide
+    )
+    assert "chapter two" not in guide and "Probability starts here" not in guide
+    # The chapter is sent once; search adds only what it does not already hold.
+    assert guide.count("The mean is the balance point") == 1
+    assert "Slides: the median resists outliers." in guide
+    # A quick summary stays cheap: it reads what search returns, not the whole chapter.
+    assert "five-number summary" not in summary
+
+
+def test_a_chapter_longer_than_the_budget_says_where_it_stops(tmp_path: Path) -> None:
+    responses = FakeResponses()
+    service = _service_with_book(tmp_path, responses)
+    service.settings.rag_detailed_context_tokens = 1000
+    _book_on_disk(tmp_path, service, {21: "Histograms. " * 400, 58: "The chapter summary."})
+
+    service.ask("Explain chapter 3.", SHEAR_COURSE)
+
+    sent = responses.calls[0]["input"]
+    assert "[Chapter 3 continues to p. 58; the rest did not fit here.]" in sent
+    assert "The chapter summary." not in sent
+    # Three quarters of the course text may be the chapter; search keeps the rest.
+    assert 2900 < sent.count("Histograms.") * len("Histograms. ") <= 3000
 
 
 class OutlineOnlyStores(FakeVectorStores):

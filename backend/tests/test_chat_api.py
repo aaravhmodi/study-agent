@@ -11,6 +11,7 @@ class FakeRag:
     """Records what the tutor was asked and with which earlier turns."""
 
     calls: list[dict[str, Any]] = []
+    depths: list[Any] = []
 
     def __init__(self, settings: Any) -> None:
         pass
@@ -18,6 +19,7 @@ class FakeRag:
     def ask(self, question: str, course_code: str | None, **kwargs: Any) -> ChatResponse:
         history = kwargs.get("history") or []
         FakeRag.calls.append({"question": question, "history": [t.question for t in history]})
+        FakeRag.depths.append(kwargs.get("depth"))
         if question == "fail":
             raise RuntimeError("No indexed materials found for SYDE 999.")
         return ChatResponse(answer=f"Answer to {question}")
@@ -26,6 +28,7 @@ class FakeRag:
 @pytest.fixture()
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     FakeRag.calls = []
+    FakeRag.depths = []
     monkeypatch.setattr(main, "_sessions_path", lambda: tmp_path / "sessions.json")
     monkeypatch.setattr(main, "RagService", FakeRag)
     return TestClient(main.app)
@@ -64,6 +67,17 @@ def test_unknown_session_and_failed_answers_do_not_create_sessions(client: TestC
     assert missing.status_code == 404
     assert failed.status_code == 503
     assert client.get("/chat/sessions").json() == []
+
+
+def test_a_question_gets_a_study_guide_unless_a_quick_summary_is_asked_for(
+    client: TestClient,
+) -> None:
+    client.post("/chat", json={"question": "Explain Bayes"})
+    client.post("/chat", json={"question": "Explain Bayes", "depth": "quick"})
+    unknown = client.post("/chat", json={"question": "Explain Bayes", "depth": "essay"})
+
+    assert FakeRag.depths == ["detailed", "quick"]
+    assert unknown.status_code == 422
 
 
 def test_session_ids_must_look_like_ids(client: TestClient) -> None:

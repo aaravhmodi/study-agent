@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     # Room for a worked explanation with figures and a set of practice questions; an
     # answer cut short loses its last question.
     rag_max_output_tokens: int = Field(default=4500, ge=256, le=32000)
+    # A study-guide answer reads more of the course and has room to teach a whole chapter.
+    rag_detailed_max_results: int = Field(default=14, ge=1, le=50)
+    # Enough for most of a textbook chapter, which a study guide of it is written from.
+    rag_detailed_context_tokens: int = Field(default=16000, ge=300, le=40000)
+    rag_detailed_max_output_tokens: int = Field(default=12000, ge=256, le=32000)
     # Adds online context next to course materials; costs one search per question.
     rag_web_search: bool = True
     browser_mode: str = Field(default="local", pattern="^(local|cloud|mock)$")

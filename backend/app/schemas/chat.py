@@ -12,10 +12,15 @@ class ChatImage(BaseModel):
     data_url: str = Field(min_length=30, max_length=6_000_000)
 
 
+# How much of an answer the student wants: the gist, or a study guide to learn from.
+Depth = Literal["quick", "detailed"]
+
+
 class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     question: str = Field(min_length=2, max_length=4000)
+    depth: Depth = "detailed"
     # Pictures the question is about: pasted, dropped or chosen.
     images: list[ChatImage] = Field(default_factory=list, max_length=4)
     course_code: str | None = Field(default=None, max_length=100)
@@ -171,6 +176,8 @@ class ChatResponse(BaseModel):
     # Answers mark each figure's place with a ```figure block holding its index here.
     figures: list[ChatFigure] = Field(default_factory=list)
     usage: ChatUsage | None = None
+    # The depth it was written at; None on answers saved before there were two.
+    depth: Depth | None = None
     # True when this is a saved answer to the same question; it cost no tokens.
     cached: bool = False
     # The conversation this answer belongs to; send it back to ask a follow-up.
