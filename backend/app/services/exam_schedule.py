@@ -20,6 +20,7 @@ _SOURCE = TypeAdapter(AnyHttpUrl).validate_python(SCHEDULE_URL)
 
 _COURSE = re.compile(r"[A-Z]{2,8} \d{3}[A-Z]{0,2}")
 _FINAL_TITLE = re.compile(r"\bfinal\b", re.IGNORECASE)
+_EXAM_WORD = re.compile(r"\bexam", re.IGNORECASE)
 
 
 class FinalExam(BaseModel):
@@ -95,8 +96,10 @@ def apply_final_exam(
     finals = [
         item
         for item in assessments
+        # "Final exam", "Final Examination" or just "Final"; not a "Final Report", which
+        # Study Agent also files under exams.
         if _FINAL_TITLE.search(item.title)
-        and (item.assessment_type == "exam" or item.title.strip().casefold() == "final")
+        and (_EXAM_WORD.search(item.title) or item.title.strip().casefold() == "final")
     ]
     for item in finals:
         item.due_at = exam.starts_at

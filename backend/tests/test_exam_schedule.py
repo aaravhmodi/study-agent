@@ -81,3 +81,17 @@ def test_no_exam_listed_changes_nothing() -> None:
     outline = [AssessmentExtraction(title="Final exam", assessment_type="exam")]
 
     assert apply_final_exam(outline, None, TZ)[0].due_at is None
+
+
+def test_a_final_report_is_not_the_final_exam() -> None:
+    # SYDE 212's "Final Report" was given the exam's date: Study Agent files it as an exam.
+    exam = parse_schedule(PAGE, TZ)["SYDE 212"]
+    outline = [
+        AssessmentExtraction(title="Final Report", assessment_type="exam"),
+        AssessmentExtraction(title="Final exam", assessment_type="exam"),
+    ]
+
+    result = apply_final_exam(outline, exam, TZ)
+
+    assert result[0].due_at is None
+    assert result[1].due_at == exam.starts_at
