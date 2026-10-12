@@ -69,6 +69,12 @@ class Settings(BaseSettings):
         name = "demo-downloads" if self.browser_mode == "mock" else "downloads"
         return self.data_dir / name
 
+    @property
+    def pages_dir(self) -> Path:
+        """The text of the pages the last sync read, for checking how they were parsed."""
+        name = "demo-pages" if self.browser_mode == "mock" else "pages"
+        return self.data_dir / name
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

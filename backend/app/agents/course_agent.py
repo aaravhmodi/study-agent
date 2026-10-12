@@ -139,6 +139,7 @@ class CourseAgent:
             resources=resources,
             topics=[],
             warnings=warnings,
+            pages=snapshots,
         )
 
     async def _inspect_outline(

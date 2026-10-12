@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
 
+from app.schemas.browser import BrowserPageSnapshot
+
 
 class AssessmentExtraction(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -52,3 +54,5 @@ class CourseScanResult(BaseModel):
     resources: list[ResourceExtraction] = Field(default_factory=list)
     topics: list[TopicExtraction] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    # The pages the scan read, kept so a misread deadline can be checked against them.
+    pages: list[BrowserPageSnapshot] = Field(default_factory=list)

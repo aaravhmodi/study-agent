@@ -24,6 +24,7 @@ from app.services.exam_schedule import (
     apply_final_exam,
     parse_schedule,
 )
+from app.services.page_archive import save_pages
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,7 @@ class SyncService:
                     self.progress(f"Scanning {course.name}...")
                     try:
                         scan = await agent.scan_course(course_summary)
+                        save_pages(self.settings.pages_dir, course.code or course.name, scan.pages)
                         scan.assessments = apply_final_exam(
                             scan.assessments,
                             final_exams.get(course.code or ""),
@@ -134,6 +136,7 @@ class SyncService:
             return {}
         finally:
             await self.browser.close_spare_tabs()
+        save_pages(self.settings.pages_dir, "exam-schedule", [page])
         exams = parse_schedule(page.text, self.settings.timezone)
         if exams:
             self.progress(f"Final exam schedule: {len(exams)} courses listed")
