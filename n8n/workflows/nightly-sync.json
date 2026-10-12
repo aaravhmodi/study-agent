@@ -174,7 +174,7 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ ...$json, topic: $env.NTFY_TOPIC }) }}",
+        "jsonBody": "={{ JSON.stringify({ topic: $env.NTFY_TOPIC, title: $json.title, message: $json.message, priority: $json.priority, tags: $json.tags, click: $json.click }) }}",
         "options": {
           "timeout": 15000
         }

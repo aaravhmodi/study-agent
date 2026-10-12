@@ -9,11 +9,11 @@ the API with `AUTOMATION_TOKEN` as a bearer token, so it never needs the dashboa
 | Study Agent: nightly LEARN sync | 3:30 AM | Starts a sync (which also indexes new files), checks every 5 minutes until it ends, and pushes only if it didn't work. If LEARN signed the server's browser out, the push opens the sign-in window. |
 | Study Agent: morning brief | 7:30 AM | One push: what's due in the next 7 days (or what's next if the week is clear), anything past due and not marked done, what's new on LEARN, practice questions due, and whether the sync worked. |
 | Study Agent: due tomorrow | 7 PM | Pushes only when something not marked done is due by the end of tomorrow. |
-| Study Agent: data check | 5 AM | Looks over what the sync read: junk titles (like an announcement's "posted on" line), courses with no dated deadlines, gaps such as Assignment 1, 2, 4, exams with no date, duplicates, and a stale or failed sync. Pushes only problems it hasn't reported before. |
+| Study Agent: data check | 5 AM | Looks over what the sync read: junk titles (like an announcement's "posted on" line), courses with no dated deadlines, gaps such as Assignment 1, 2, 4, exams with no date, duplicates, and a stale or failed sync. Pushes only problems it hasn't reported before, and hands new ones a misread page could cause to Claude through `claude-harness/`, which pushes back a branch to review. |
 
 They read no secrets from the workflow files: n8n's `compose.yaml` on the server passes
 `STUDY_AGENT_URL`, `STUDY_AGENT_TOKEN` (the same value as this app's `AUTOMATION_TOKEN`),
-`STUDY_AGENT_PAGE`, `NTFY_SERVER` and `NTFY_TOPIC`.
+`STUDY_AGENT_PAGE`, `NTFY_SERVER`, `NTFY_TOPIC`, `HARNESS_URL` and `HARNESS_TOKEN`.
 
 ## Changing them
 

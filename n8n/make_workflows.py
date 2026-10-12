@@ -91,8 +91,38 @@ def push(name: str, x: int, y: int = 300) -> Node:
             "sendBody": True,
             "contentType": "json",
             "specifyBody": "json",
-            "jsonBody": "={{ JSON.stringify({ ...$json, topic: $env.NTFY_TOPIC }) }}",
+            # Only ntfy's fields: an item can carry more (the data check's report for Claude).
+            "jsonBody": "={{ JSON.stringify({ topic: $env.NTFY_TOPIC, title: $json.title, "
+            "message: $json.message, priority: $json.priority, tags: $json.tags, "
+            "click: $json.click }) }}",
             "options": {"timeout": 15000},
+        },
+    }
+
+
+def ask_claude(name: str, job: str, x: int, y: int = 300) -> Node:
+    """Start a claude-harness job with the item's report as its context."""
+    return {
+        "id": _id(name),
+        "name": name,
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [x, y],
+        "parameters": {
+            "method": "POST",
+            "url": "={{ $env.HARNESS_URL }}/jobs/" + job,
+            "sendHeaders": True,
+            "headerParameters": {
+                "parameters": [
+                    {"name": "Authorization", "value": "=Bearer {{ $env.HARNESS_TOKEN }}"}
+                ]
+            },
+            "sendBody": True,
+            "contentType": "json",
+            "specifyBody": "json",
+            "jsonBody": "={{ JSON.stringify({ context: $json.report }) }}",
+            # Busy, over its daily limit or down: the push already went out, so carry on.
+            "options": {"timeout": 15000, "response": {"response": {"neverError": True}}},
         },
     }
 
@@ -411,18 +441,21 @@ const items = $('Deadlines').all().map((i) => i.json).filter((a) => a && a.title
 const courses = $('Courses').all().map((i) => i.json).filter((c) => c && c.id);
 const job = $('Last sync').first().json;
 const problems = [];
+// Problems a misread page could cause; Claude is asked to look at new ones.
+const forClaude = new Set();
+const readingBug = (text) => { problems.push(text); forClaude.add(text); };
 
 // 1. Titles that are page furniture, not work ("Reem Roufail posted").
 for (const a of items) {
   if (/\b(posted|edited|published|updated)$/i.test(a.title) || a.title.length > 90) {
-    problems.push(`${a.course}: "${a.title.slice(0, 60)}" doesn't look like real coursework.`);
+    readingBug(`${a.course}: "${a.title.slice(0, 60)}" doesn't look like real coursework.`);
   }
 }
 
 // 2. A course with nothing dated at all was probably not read properly.
 for (const c of courses) {
   const dated = items.filter((a) => a.course_id === c.id && a.due_at);
-  if (!dated.length) problems.push(`${c.code || c.name}: no deadlines with dates were found.`);
+  if (!dated.length) readingBug(`${c.code || c.name}: no deadlines with dates were found.`);
 }
 
 // 3. Gaps in a numbered series: Assignment 1, 2 and 4 means 3 was missed.
@@ -442,7 +475,7 @@ for (const { course, kind, numbers } of Object.values(series)) {
   for (let n = 1; n < top; n++) if (!numbers.has(n)) missing.push(n);
   if (missing.length && missing.length <= 5) {
     const verb = missing.length === 1 ? 'is' : 'are';
-    problems.push(`${course}: ${kind} ${missing.join(', ')} ${verb} missing ` +
+    readingBug(`${course}: ${kind} ${missing.join(', ')} ${verb} missing ` +
                   `(found up to ${kind} ${top}).`);
   }
 }
@@ -465,7 +498,7 @@ for (const [key, times] of Object.entries(byKey)) {
   const sorted = times.sort((x, y) => x - y);
   if (sorted.some((t, i) => i && t - sorted[i - 1] < 2 * day)) {
     const [course, title] = key.split('|');
-    problems.push(`${course}: "${title}" is saved more than once.`);
+    readingBug(`${course}: "${title}" is saved more than once.`);
   }
 }
 
@@ -494,6 +527,7 @@ return [{ json: {
     (still ? `\n(${still} from earlier still open.)` : '') +
     '\n\n👉 Check these against LEARN or the Outline, and ask Claude to fix how they\'re read.',
   priority: 3, tags: ['mag'], click: $env.STUDY_AGENT_PAGE,
+  report: fresh.filter((p) => forClaude.has(p)).join('\n'),
 } }];
 """
 
@@ -514,14 +548,24 @@ def data_check() -> dict:
         study_agent(names[3], "GET", "/jobs", 660),
         code(names[4], CHECK_JS, 880),
         push(names[5], 1100),
+        condition("Could a page be misread?", "$json.report !== ''", 1100, 500),
+        ask_claude("Ask Claude to look", "study-agent-data-check", 1320, 500),
     ]
+    connections = chain(*names)
+    connections[names[4]]["main"][0].append(
+        {"node": "Could a page be misread?", "type": "main", "index": 0}
+    )
+    connections["Could a page be misread?"] = {
+        "main": [[{"node": "Ask Claude to look", "type": "main", "index": 0}], []]
+    }
     return workflow(
         "Study Agent: data check",
         nodes,
-        chain(*names),
+        connections,
         "After the nightly sync, checks what was read from LEARN and the Outlines: junk "
         "titles, courses with no dated deadlines, gaps like Assignment 1, 2, 4, exams with no "
-        "date, duplicates, and a stale or failed sync. Pushes only when something looks off.",
+        "date, duplicates, and a stale or failed sync. Pushes only when something looks off, "
+        "and asks Claude (claude-harness) to look at new problems a misread page could cause.",
     )
 
 
