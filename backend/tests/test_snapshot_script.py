@@ -94,3 +94,33 @@ def test_the_tab_is_brought_to_the_front_only_in_a_browser_kept_for_the_sync(
     kept = FakeBrowser([HOME])
     _read(CALENDAR, kept, capsys)
     assert kept.fronted == [CALENDAR]
+
+
+OUTLINE_252 = "https://outline.uwaterloo.ca/viewer/view/nrzht7"
+SEARCH_286 = "https://outline.uwaterloo.ca/viewer/?q=SYDE%20286"
+
+
+def test_an_outline_search_is_not_answered_by_another_courses_outline(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # SYDE 252's Outline was open, and the search for SYDE 286's ("/viewer/?q=...") was
+    # read from it because "/viewer/view/nrzht7" starts with "/viewer/". SYDE 286 then
+    # got SYDE 252's assignments and phases.
+    monkeypatch.delenv("BU_CDP_URL", raising=False)
+    browser = FakeBrowser([OUTLINE_252])
+
+    _read(SEARCH_286, browser, capsys)
+
+    assert browser.opened == [SEARCH_286]
+
+
+def test_the_same_search_is_still_reused(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("BU_CDP_URL", raising=False)
+    browser = FakeBrowser([OUTLINE_252, SEARCH_286])
+
+    _read(SEARCH_286, browser, capsys)
+
+    assert browser.opened == []
+    assert browser.current is not None and browser.current["url"] == SEARCH_286

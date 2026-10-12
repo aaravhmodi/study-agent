@@ -410,10 +410,16 @@ if target_url:
     target = urlsplit(target_url)
     tabs = list_tabs()
     target_ou = parse_qs(target.query).get('ou', [None])[0]
+    # Anything asked for besides the course (Outline's ?q=SYDE 286) must match too, or
+    # an open SYDE 252 Outline ("/viewer/view/...") would answer a search for SYDE 286.
+    target_terms = {{k: v for k, v in parse_qs(target.query).items() if k != 'ou'}}
     matching = []
     for tab in tabs:
         current = urlsplit(str(tab.get('url', '')))
         if current.netloc != target.netloc:
+            continue
+        current_terms = parse_qs(current.query)
+        if any(current_terms.get(k) != v for k, v in target_terms.items()):
             continue
         if target_ou and current.path == target.path and target_ou in parse_qs(
             current.query
