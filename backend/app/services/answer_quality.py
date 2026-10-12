@@ -19,7 +19,7 @@ _INLINE_CITATION = re.compile(
     r"\[[^\]\n]+\.(?:pdf|txt|docx?|pptx|md|html|tex)(?:,\s*(?:pp?\.|\u00a7\u00a7?|ch(?:apter|\.)?)\s*[\d.\u2013-]+)?\]",
     re.IGNORECASE,
 )
-_LEFTOVER_MARKER = re.compile(r"filecite|turn\d+file\d+|[\ue000-\uf8ff]")
+_LEFTOVER_MARKER = re.compile(r"filecite|turn\d+[a-z]+\d+|[\ue000-\uf8ff]")
 _DISPLAY_MATH = re.compile(r"\\\[[\s\S]+?\\\]|\$\$[\s\S]+?\$\$")
 _INLINE_MATH = re.compile(r"\\\([\s\S]+?\\\)")
 # KaTeX rejects math-only symbols such as "·" or "×" inside \text{...}.

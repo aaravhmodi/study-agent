@@ -2,9 +2,10 @@
 
 import re
 
-# File-search answers can embed citation markers such as
-# "fileciteturn0file3" that only OpenAI's own UI renders.
-_CITATION_MARKER = re.compile(r"[-]*filecite(?:[-]*turn\d+file\d+)+[-]*")
+# Answers can embed citation markers that only OpenAI's own UI renders:
+# "filecite turn0file3" for a course file and "cite turn0search0" for a web page,
+# with private-use characters where the spaces are.
+_CITATION_MARKER = re.compile(r"[-]*(?:file)?cite(?:[-]*turn\d+[a-z]+\d+)+[-]*")
 _PRIVATE_USE = re.compile(r"[-]")
 _SPACE_BEFORE_PUNCTUATION = re.compile(r"[ \t]+([.,;:!?])")
 _TRAILING_SPACE = re.compile(r"[ \t]+$", flags=re.MULTILINE)

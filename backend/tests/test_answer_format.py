@@ -16,6 +16,20 @@ def test_hosted_citation_markers_are_removed() -> None:
     )
 
 
+def test_web_citation_markers_are_removed() -> None:
+    answer = (
+        "It is covered in Chapter 4.5, p. 85. \ue200cite\ue202turn0search0\ue201\n"
+        "Two pages agree. \ue200cite\ue202turn0search1\ue202turn1news2\ue201\n"
+        "Recite the rule, then cite your source."
+    )
+
+    assert clean_answer(answer) == (
+        "It is covered in Chapter 4.5, p. 85.\n"
+        "Two pages agree.\n"
+        "Recite the rule, then cite your source."
+    )
+
+
 def test_latex_and_markdown_are_left_intact() -> None:
     answer = "**Energy**\n\n\\[\nE_x=\\int_0^1 t^2\\,dt=\\frac13.\n\\]\n\nwhere \\(x(t)\\) is real."
 
