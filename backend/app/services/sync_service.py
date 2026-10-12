@@ -9,7 +9,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.agents.course_agent import CourseAgent
-from app.browser.client import BrowserClient, BrowserUseClient
+from app.browser.client import BrowserClient, BrowserClientError, BrowserUseClient
 from app.config import Settings
 from app.db.database import SessionLocal, ensure_schema
 from app.models import Announcement, Assessment, Course, Resource, SyncRun
@@ -17,6 +17,13 @@ from app.schemas.course import CourseSummary
 from app.schemas.extraction import CourseScanResult
 from app.schemas.sync import SyncSummary
 from app.services.document_collector import DocumentCollector
+from app.services.exam_schedule import (
+    SCHEDULE_URL,
+    SIGN_IN_URL,
+    FinalExam,
+    apply_final_exam,
+    parse_schedule,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +68,7 @@ class SyncService:
                     resources_found=0,
                     changes_found=0,
                 )
+                final_exams = await self._final_exams()
                 discovered_urls = {str(course.url) for course in discovery.courses}
                 for existing_course in session.scalars(select(Course)).all():
                     existing_course.active = existing_course.url in discovered_urls
@@ -70,6 +78,11 @@ class SyncService:
                     self.progress(f"Scanning {course.name}...")
                     try:
                         scan = await agent.scan_course(course_summary)
+                        scan.assessments = apply_final_exam(
+                            scan.assessments,
+                            final_exams.get(course.code or ""),
+                            self.settings.timezone,
+                        )
                         counts = _persist_scan(session, course, scan)
                         downloaded, failed_downloads = await DocumentCollector(
                             self.settings, self.browser
@@ -105,6 +118,28 @@ class SyncService:
                 sync_run.finished_at = datetime.now(UTC)
                 session.commit()
                 raise
+
+    async def _final_exams(self) -> dict[str, FinalExam]:
+        """Every course's final from UWaterloo's exam schedule, or nothing if it can't be read.
+
+        The schedule site signs in through UWaterloo's single sign-on, which the browser
+        already has from LEARN, so following its sign-in link is enough.
+        """
+
+        try:
+            await self.browser.inspect_page(SIGN_IN_URL, wait_seconds=8)
+            page = await self.browser.inspect_page(SCHEDULE_URL, wait_seconds=8)
+        except BrowserClientError as exc:
+            self.progress(f"WARNING final exam schedule could not be read: {exc}")
+            return {}
+        finally:
+            await self.browser.close_spare_tabs()
+        exams = parse_schedule(page.text, self.settings.timezone)
+        if exams:
+            self.progress(f"Final exam schedule: {len(exams)} courses listed")
+        else:
+            self.progress("WARNING the final exam schedule listed no exams (signed out?)")
+        return exams
 
 
 def _upsert_course(session: Session, summary: CourseSummary) -> Course:
