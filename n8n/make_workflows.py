@@ -402,12 +402,136 @@ def nightly_sync() -> dict:
     )
 
 
+# ---- 4. Data check ------------------------------------------------------------------------
+
+CHECK_JS = r"""
+const now = Date.now();
+const day = 24 * 60 * 60 * 1000;
+const items = $('Deadlines').all().map((i) => i.json).filter((a) => a && a.title);
+const courses = $('Courses').all().map((i) => i.json).filter((c) => c && c.id);
+const job = $('Last sync').first().json;
+const problems = [];
+
+// 1. Titles that are page furniture, not work ("Reem Roufail posted").
+for (const a of items) {
+  if (/\b(posted|edited|published|updated)$/i.test(a.title) || a.title.length > 90) {
+    problems.push(`${a.course}: "${a.title.slice(0, 60)}" doesn't look like real coursework.`);
+  }
+}
+
+// 2. A course with nothing dated at all was probably not read properly.
+for (const c of courses) {
+  const dated = items.filter((a) => a.course_id === c.id && a.due_at);
+  if (!dated.length) problems.push(`${c.code || c.name}: no deadlines with dates were found.`);
+}
+
+// 3. Gaps in a numbered series: Assignment 1, 2 and 4 means 3 was missed.
+const numbered = new RegExp(
+  '^(Assignment|Quiz|Lab|Phase|Homework|Problem Set|Tutorial|TM|Test)\\s*#?\\s*(\\d{1,2})\\b', 'i');
+const series = {};
+for (const a of items) {
+  const m = a.title.match(numbered);
+  if (!m) continue;
+  const key = `${a.course}|${m[1].toLowerCase()}`;
+  series[key] = series[key] || { course: a.course, kind: m[1], numbers: new Set() };
+  series[key].numbers.add(+m[2]);
+}
+for (const { course, kind, numbers } of Object.values(series)) {
+  const top = Math.max(...numbers);
+  const missing = [];
+  for (let n = 1; n < top; n++) if (!numbers.has(n)) missing.push(n);
+  if (missing.length && missing.length <= 5) {
+    const verb = missing.length === 1 ? 'is' : 'are';
+    problems.push(`${course}: ${kind} ${missing.join(', ')} ${verb} missing ` +
+                  `(found up to ${kind} ${top}).`);
+  }
+}
+
+// 4. Exams without a date.
+for (const a of items) {
+  if (!a.due_at && /\b(midterm|final)\b/i.test(a.title)) {
+    problems.push(`${a.course}: "${a.title}" has no date yet.`);
+  }
+}
+
+// 5. The same thing saved twice.
+const byKey = {};
+for (const a of items) {
+  if (!a.due_at) continue;
+  const key = `${a.course}|${a.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()}`;
+  (byKey[key] = byKey[key] || []).push(Date.parse(a.due_at));
+}
+for (const [key, times] of Object.entries(byKey)) {
+  const sorted = times.sort((x, y) => x - y);
+  if (sorted.some((t, i) => i && t - sorted[i - 1] < 2 * day)) {
+    const [course, title] = key.split('|');
+    problems.push(`${course}: "${title}" is saved more than once.`);
+  }
+}
+
+// 6. Stale or failed sync.
+const scanned = courses.map((c) => Date.parse(c.last_scanned_at)).filter(Boolean);
+if (scanned.length && now - Math.max(...scanned) > 36 * 60 * 60 * 1000) {
+  problems.push('LEARN hasn\'t been read in over a day and a half.');
+}
+if (job.name === 'sync' && job.state === 'failed') {
+  problems.push(`Last sync failed: ${job.message}`);
+}
+
+// Push only what's new since the last check, so the same list doesn't arrive every day.
+// (n8n keeps this between scheduled runs; a manual test run always reports everything.)
+const memory = $getWorkflowStaticData('global');
+const before = new Set(memory.reported || []);
+memory.reported = problems;
+const fresh = problems.filter((p) => !before.has(p));
+if (!fresh.length) return [];
+const shown = fresh.slice(0, 12);
+const still = problems.length - fresh.length;
+return [{ json: {
+  title: `🧐 Study Agent: ${fresh.length} new thing${fresh.length === 1 ? '' : 's'} to check`,
+  message: shown.map((p) => `• ${p}`).join('\n') +
+    (fresh.length > shown.length ? `\n…and ${fresh.length - shown.length} more` : '') +
+    (still ? `\n(${still} from earlier still open.)` : '') +
+    '\n\n👉 Check these against LEARN or the Outline, and ask Claude to fix how they\'re read.',
+  priority: 3, tags: ['mag'], click: $env.STUDY_AGENT_PAGE,
+} }];
+"""
+
+
+def data_check() -> dict:
+    names = [
+        "Every morning at 5",
+        "Deadlines",
+        "Courses",
+        "Last sync",
+        "Look for anything wrong",
+        "Send to phone",
+    ]
+    nodes = [
+        schedule(names[0], "0 5 * * *", 0),
+        study_agent(names[1], "GET", "/assessments", 220),
+        study_agent(names[2], "GET", "/courses", 440),
+        study_agent(names[3], "GET", "/jobs", 660),
+        code(names[4], CHECK_JS, 880),
+        push(names[5], 1100),
+    ]
+    return workflow(
+        "Study Agent: data check",
+        nodes,
+        chain(*names),
+        "After the nightly sync, checks what was read from LEARN and the Outlines: junk "
+        "titles, courses with no dated deadlines, gaps like Assignment 1, 2, 4, exams with no "
+        "date, duplicates, and a stale or failed sync. Pushes only when something looks off.",
+    )
+
+
 if __name__ == "__main__":
     OUT.mkdir(exist_ok=True)
     for build, file in (
         (morning_brief, "morning-brief.json"),
         (due_tomorrow, "due-tomorrow.json"),
         (nightly_sync, "nightly-sync.json"),
+        (data_check, "data-check.json"),
     ):
         flow = build()
         (OUT / file).write_text(

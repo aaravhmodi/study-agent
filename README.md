@@ -48,7 +48,7 @@ On a single computer there is no Vercel and no browser container: the dashboard 
 | Command line | `backend/app/cli/commands.py` | The same sync, index and notes from a terminal, plus setup and diagnostics. |
 | Server browser | `browser/` | Chromium on a virtual screen, shown as a web page (noVNC) so you can sign in to LEARN in it, and driven by the sync over its debugging port. |
 | Scripts | `scripts/` | `deploy-frontend.sh` puts the page on Vercel; `server-sync.sh` syncs from your own computer and hands the result to the server. |
-| Schedules | `n8n/` | Three n8n workflows on the home server: a nightly LEARN sync that pushes when it fails (for example when LEARN signs the server browser out), a 7:30 AM brief of what is due and new, and a 7 PM reminder for anything due tomorrow. They call the API with `AUTOMATION_TOKEN`. |
+| Schedules | `n8n/` | Four n8n workflows on the home server: a nightly LEARN sync that pushes when it fails (for example when LEARN signs the server browser out), a 7:30 AM brief of what is due and new, a 7 PM reminder for anything due tomorrow, and a 5 AM check that pushes when something looks misread. They call the API with `AUTOMATION_TOKEN`. |
 
 ### What is stored, and where
 

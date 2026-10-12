@@ -1,0 +1,238 @@
+{
+  "id": "a93ad43a6a02530d",
+  "name": "Study Agent: data check",
+  "active": true,
+  "nodes": [
+    {
+      "id": "9a71dbdd-7a2d-576c-858f-3cf18ded14b4",
+      "name": "Run it now",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        500
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "d78a7908-602b-5fb4-8b4e-b19763ac4680",
+      "name": "Every morning at 5",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 5 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "afdf287f-68d1-54ec-8319-05757853933c",
+      "name": "Deadlines",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        300
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.STUDY_AGENT_URL }}/assessments",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.STUDY_AGENT_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "eee5f4b4-b8c3-5c5d-a89d-13be63cb2d98",
+      "name": "Courses",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        300
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.STUDY_AGENT_URL }}/courses",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.STUDY_AGENT_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "4b383b4d-b7cd-5b45-81ce-822cdcd386b2",
+      "name": "Last sync",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        300
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.STUDY_AGENT_URL }}/jobs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.STUDY_AGENT_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "e022e7b9-9547-5d89-9b1e-518d110268fd",
+      "name": "Look for anything wrong",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "\nconst now = Date.now();\nconst day = 24 * 60 * 60 * 1000;\nconst items = $('Deadlines').all().map((i) => i.json).filter((a) => a && a.title);\nconst courses = $('Courses').all().map((i) => i.json).filter((c) => c && c.id);\nconst job = $('Last sync').first().json;\nconst problems = [];\n\n// 1. Titles that are page furniture, not work (\"Reem Roufail posted\").\nfor (const a of items) {\n  if (/\\b(posted|edited|published|updated)$/i.test(a.title) || a.title.length > 90) {\n    problems.push(`${a.course}: \"${a.title.slice(0, 60)}\" doesn't look like real coursework.`);\n  }\n}\n\n// 2. A course with nothing dated at all was probably not read properly.\nfor (const c of courses) {\n  const dated = items.filter((a) => a.course_id === c.id && a.due_at);\n  if (!dated.length) problems.push(`${c.code || c.name}: no deadlines with dates were found.`);\n}\n\n// 3. Gaps in a numbered series: Assignment 1, 2 and 4 means 3 was missed.\nconst numbered = new RegExp(\n  '^(Assignment|Quiz|Lab|Phase|Homework|Problem Set|Tutorial|TM|Test)\\\\s*#?\\\\s*(\\\\d{1,2})\\\\b', 'i');\nconst series = {};\nfor (const a of items) {\n  const m = a.title.match(numbered);\n  if (!m) continue;\n  const key = `${a.course}|${m[1].toLowerCase()}`;\n  series[key] = series[key] || { course: a.course, kind: m[1], numbers: new Set() };\n  series[key].numbers.add(+m[2]);\n}\nfor (const { course, kind, numbers } of Object.values(series)) {\n  const top = Math.max(...numbers);\n  const missing = [];\n  for (let n = 1; n < top; n++) if (!numbers.has(n)) missing.push(n);\n  if (missing.length && missing.length <= 5) {\n    const verb = missing.length === 1 ? 'is' : 'are';\n    problems.push(`${course}: ${kind} ${missing.join(', ')} ${verb} missing ` +\n                  `(found up to ${kind} ${top}).`);\n  }\n}\n\n// 4. Exams without a date.\nfor (const a of items) {\n  if (!a.due_at && /\\b(midterm|final)\\b/i.test(a.title)) {\n    problems.push(`${a.course}: \"${a.title}\" has no date yet.`);\n  }\n}\n\n// 5. The same thing saved twice.\nconst byKey = {};\nfor (const a of items) {\n  if (!a.due_at) continue;\n  const key = `${a.course}|${a.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()}`;\n  (byKey[key] = byKey[key] || []).push(Date.parse(a.due_at));\n}\nfor (const [key, times] of Object.entries(byKey)) {\n  const sorted = times.sort((x, y) => x - y);\n  if (sorted.some((t, i) => i && t - sorted[i - 1] < 2 * day)) {\n    const [course, title] = key.split('|');\n    problems.push(`${course}: \"${title}\" is saved more than once.`);\n  }\n}\n\n// 6. Stale or failed sync.\nconst scanned = courses.map((c) => Date.parse(c.last_scanned_at)).filter(Boolean);\nif (scanned.length && now - Math.max(...scanned) > 36 * 60 * 60 * 1000) {\n  problems.push('LEARN hasn\\'t been read in over a day and a half.');\n}\nif (job.name === 'sync' && job.state === 'failed') {\n  problems.push(`Last sync failed: ${job.message}`);\n}\n\n// Push only what's new since the last check, so the same list doesn't arrive every day.\n// (n8n keeps this between scheduled runs; a manual test run always reports everything.)\nconst memory = $getWorkflowStaticData('global');\nconst before = new Set(memory.reported || []);\nmemory.reported = problems;\nconst fresh = problems.filter((p) => !before.has(p));\nif (!fresh.length) return [];\nconst shown = fresh.slice(0, 12);\nconst still = problems.length - fresh.length;\nreturn [{ json: {\n  title: `🧐 Study Agent: ${fresh.length} new thing${fresh.length === 1 ? '' : 's'} to check`,\n  message: shown.map((p) => `• ${p}`).join('\\n') +\n    (fresh.length > shown.length ? `\\n…and ${fresh.length - shown.length} more` : '') +\n    (still ? `\\n(${still} from earlier still open.)` : '') +\n    '\\n\\n👉 Check these against LEARN or the Outline, and ask Claude to fix how they\\'re read.',\n  priority: 3, tags: ['mag'], click: $env.STUDY_AGENT_PAGE,\n} }];\n"
+      }
+    },
+    {
+      "id": "8812c532-dcd6-54fc-8721-43ff6510c1d9",
+      "name": "Send to phone",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.NTFY_SERVER }}",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ...$json, topic: $env.NTFY_TOPIC }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Run it now": {
+      "main": [
+        [
+          {
+            "node": "Deadlines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every morning at 5": {
+      "main": [
+        [
+          {
+            "node": "Deadlines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deadlines": {
+      "main": [
+        [
+          {
+            "node": "Courses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Courses": {
+      "main": [
+        [
+          {
+            "node": "Last sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Last sync": {
+      "main": [
+        [
+          {
+            "node": "Look for anything wrong",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Look for anything wrong": {
+      "main": [
+        [
+          {
+            "node": "Send to phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "notes": "After the nightly sync, checks what was read from LEARN and the Outlines: junk titles, courses with no dated deadlines, gaps like Assignment 1, 2, 4, exams with no date, duplicates, and a stale or failed sync. Pushes only when something looks off."
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Toronto",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all"
+  },
+  "tags": []
+}

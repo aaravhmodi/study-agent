@@ -1,6 +1,6 @@
 # n8n workflows
 
-Three [n8n](https://n8n.io) workflows that run Study Agent on a schedule and push to your phone
+Four [n8n](https://n8n.io) workflows that run Study Agent on a schedule and push to your phone
 through ntfy. n8n runs on the home server (http://100.76.57.23:5678, Tailscale only) and calls
 the API with `AUTOMATION_TOKEN` as a bearer token, so it never needs the dashboard password.
 
@@ -9,6 +9,7 @@ the API with `AUTOMATION_TOKEN` as a bearer token, so it never needs the dashboa
 | Study Agent: nightly LEARN sync | 3:30 AM | Starts a sync (which also indexes new files), checks every 5 minutes until it ends, and pushes only if it didn't work. If LEARN signed the server's browser out, the push opens the sign-in window. |
 | Study Agent: morning brief | 7:30 AM | One push: what's due in the next 7 days (or what's next if the week is clear), anything past due and not marked done, what's new on LEARN, practice questions due, and whether the sync worked. |
 | Study Agent: due tomorrow | 7 PM | Pushes only when something not marked done is due by the end of tomorrow. |
+| Study Agent: data check | 5 AM | Looks over what the sync read: junk titles (like an announcement's "posted on" line), courses with no dated deadlines, gaps such as Assignment 1, 2, 4, exams with no date, duplicates, and a stale or failed sync. Pushes only problems it hasn't reported before. |
 
 They read no secrets from the workflow files: n8n's `compose.yaml` on the server passes
 `STUDY_AGENT_URL`, `STUDY_AGENT_TOKEN` (the same value as this app's `AUTOMATION_TOKEN`),
