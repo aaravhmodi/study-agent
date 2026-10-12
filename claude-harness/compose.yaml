@@ -1,0 +1,29 @@
+# Run from this folder on the server:  docker compose up -d --build
+# Secrets live outside the repo, in ~/homelab/claude-harness/: .env (HARNESS_TOKEN,
+# CLAUDE_CODE_OAUTH_TOKEN, NTFY_TOPIC) and deploy_key (push access for claude/* branches).
+services:
+  harness:
+    build: .
+    restart: unless-stopped
+    env_file: /home/aaravmodi/homelab/claude-harness/.env
+    environment:
+      GIT_AUTHOR_NAME: Aarav Modi
+      GIT_AUTHOR_EMAIL: aaravmodi20@gmail.com
+      GIT_COMMITTER_NAME: Aarav Modi
+      GIT_COMMITTER_EMAIL: aaravmodi20@gmail.com
+      GIT_SSH_COMMAND: >-
+        ssh -i /keys/deploy_key -o IdentitiesOnly=yes
+        -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/work/known_hosts
+    volumes:
+      # Its own copies of the repos, the Python it downloads and its run counter.
+      - work:/work
+      - /home/aaravmodi/homelab/claude-harness/deploy_key:/keys/deploy_key:ro
+      # The pages the last sync read, so Claude can check how they were parsed. Read-only;
+      # nothing else from the live app (its .env, database or LEARN browser) is visible.
+      - /home/aaravmodi/projects/study-agent/data/pages:/pages:ro
+    ports:
+      - "100.76.57.23:8790:8790"
+    mem_limit: 3g
+
+volumes:
+  work:

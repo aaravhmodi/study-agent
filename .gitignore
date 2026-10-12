@@ -23,3 +23,5 @@ data/.sending
 browser-profile/
 data/practice.json
 data/practice.tmp
+data/pages/
+data/demo-pages/
