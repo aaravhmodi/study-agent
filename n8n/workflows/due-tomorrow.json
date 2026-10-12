@@ -1,0 +1,160 @@
+{
+  "id": "ec52731c1d2e5651",
+  "name": "Study Agent: due tomorrow",
+  "active": true,
+  "nodes": [
+    {
+      "id": "1c36dc85-bc30-5237-bc1f-23ed13c2af25",
+      "name": "Run it now",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        500
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "48ae9af2-854b-5f0d-bb35-71d031e8f44e",
+      "name": "Every evening at 7",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 19 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "afdf287f-68d1-54ec-8319-05757853933c",
+      "name": "Deadlines",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        300
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.STUDY_AGENT_URL }}/assessments",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.STUDY_AGENT_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "5b31b350-abc5-5115-b5a9-ba0ae58be7d0",
+      "name": "Anything due by tomorrow?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "\nconst tz = 'America/Toronto';\nconst when = (iso) => new Date(iso).toLocaleString('en-CA', {\n  timeZone: tz, weekday: 'short', hour: 'numeric', minute: '2-digit' });\nconst line = (a) => `• ${when(a.due_at)} · ${a.course} · ${a.title}`;\nconst list = (node) => $(node).all().map((item) => item.json)\n  .filter((x) => x && Object.keys(x).length);\nconst page = $env.STUDY_AGENT_PAGE;\n\nconst now = Date.now();\n// Runs at 7 PM: everything due before the end of tomorrow.\nconst soon = list('Deadlines').filter((a) => {\n  if (!a.due_at || a.status === 'COMPLETED') return false;\n  const t = Date.parse(a.due_at);\n  return t >= now && t - now <= 29 * 60 * 60 * 1000;\n});\nif (!soon.length) return [];\nconst title = soon.length === 1\n  ? `⏰ Due soon: ${soon[0].course} ${soon[0].title}`.slice(0, 120)\n  : `⏰ ${soon.length} things due by tomorrow night`;\nconst message = soon.map(line).join('\\n') +\n  '\\n\\n👉 Already handed in? Mark it done in Study Agent and it stops reminding you.';\nreturn [{ json: { title, message, priority: 4, tags: ['alarm_clock'], click: page } }];\n"
+      }
+    },
+    {
+      "id": "8812c532-dcd6-54fc-8721-43ff6510c1d9",
+      "name": "Send to phone",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.NTFY_SERVER }}",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ...$json, topic: $env.NTFY_TOPIC }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Run it now": {
+      "main": [
+        [
+          {
+            "node": "Deadlines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every evening at 7": {
+      "main": [
+        [
+          {
+            "node": "Deadlines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deadlines": {
+      "main": [
+        [
+          {
+            "node": "Anything due by tomorrow?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything due by tomorrow?": {
+      "main": [
+        [
+          {
+            "node": "Send to phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "notes": "A push at 7 PM only when something not marked done is due by the end of tomorrow."
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Toronto",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all"
+  },
+  "tags": []
+}

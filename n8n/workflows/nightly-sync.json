@@ -1,0 +1,282 @@
+{
+  "id": "2865d6c3e87a5239",
+  "name": "Study Agent: nightly LEARN sync",
+  "active": true,
+  "nodes": [
+    {
+      "id": "53346206-6a32-595e-9e04-bf1101cad339",
+      "name": "Run it now",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        500
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "e6e41247-c2c2-53f7-8614-d0275f8a6418",
+      "name": "Every night at 3:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 3 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "799333cf-7000-53a4-ac1e-8ca6a2dde4bb",
+      "name": "Start the sync",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        300
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.STUDY_AGENT_URL }}/jobs/sync",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.STUDY_AGENT_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "e0dc58e9-56cc-57e4-874b-4519e7c2a76f",
+      "name": "Wait 5 minutes",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        300
+      ],
+      "webhookId": "5880921f-0de8-57a1-91b5-66ad775f603d",
+      "parameters": {
+        "amount": 5,
+        "unit": "minutes"
+      }
+    },
+    {
+      "id": "39f8c2f1-4729-59d5-b36b-2dd1e95da079",
+      "name": "Check on it",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        300
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.STUDY_AGENT_URL }}/jobs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.STUDY_AGENT_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "a64bf99b-f358-5a51-b2f6-886e169ffc1e",
+      "name": "Still running?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "713a7eb3-7c3f-5c80-b727-68818697ecb3",
+              "leftValue": "={{ $json.state === 'running' && $runIndex < 36 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b8b1e649-4fe0-5e68-94f8-f72225cf66a5",
+      "name": "Explain if it didn't work",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        400
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "\nconst job = $input.first().json;\nconst signin = job.signin_url || $env.STUDY_AGENT_PAGE;\nif (job.state === 'done') return [];\nlet push;\nif (job.state === 'failed' && /sign.?in|not authenticated/i.test(job.message || '')) {\n  push = {\n    title: '🔑 LEARN signed you out',\n    message: \"Last night's LEARN sync couldn't run because the server's browser is signed out \" +\n      \"of LEARN. New files, announcements and deadlines won't show up until you sign in again.\" +\n      '\\n\\n👉 Tap to open the sign-in window, log in to LEARN (password and Duo), then press ' +\n      'Sync in Study Agent.',\n    priority: 4, tags: ['key'], click: signin,\n  };\n} else if (job.state === 'running') {\n  push = {\n    title: \"🐢 Last night's LEARN sync is still going\",\n    message: 'It started over 3 hours ago; a normal sync takes about 40 minutes. It may be stuck ' +\n      'on a slow page.\\n\\n👉 Open Study Agent: if the sync button still shows it running, ' +\n      'restart it with: cd ~/projects/study-agent && docker compose restart dashboard',\n    priority: 3, tags: ['turtle'], click: $env.STUDY_AGENT_PAGE,\n  };\n} else if (job.state === 'failed') {\n  push = {\n    title: \"⚠️ Last night's LEARN sync failed\",\n    message: `It stopped with: ${job.message}\\n\\n👉 Press Sync in Study Agent to try again. ` +\n      'If it fails again, ask Claude to look.',\n    priority: 3, tags: ['warning'], click: $env.STUDY_AGENT_PAGE,\n  };\n} else {\n  push = {\n    title: \"⚠️ Last night's LEARN sync was cut off\",\n    message: 'Study Agent restarted in the middle of it (usually a deploy or a reboot), so ' +\n      \"some courses weren't checked.\\n\\n👉 Press Sync in Study Agent to run it again.\",\n    priority: 3, tags: ['warning'], click: $env.STUDY_AGENT_PAGE,\n  };\n}\nreturn [{ json: push }];\n"
+      }
+    },
+    {
+      "id": "8812c532-dcd6-54fc-8721-43ff6510c1d9",
+      "name": "Send to phone",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        400
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.NTFY_SERVER }}",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ...$json, topic: $env.NTFY_TOPIC }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Run it now": {
+      "main": [
+        [
+          {
+            "node": "Start the sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every night at 3:30": {
+      "main": [
+        [
+          {
+            "node": "Start the sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start the sync": {
+      "main": [
+        [
+          {
+            "node": "Wait 5 minutes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 5 minutes": {
+      "main": [
+        [
+          {
+            "node": "Check on it",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check on it": {
+      "main": [
+        [
+          {
+            "node": "Still running?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Still running?": {
+      "main": [
+        [
+          {
+            "node": "Wait 5 minutes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Explain if it didn't work",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Explain if it didn't work": {
+      "main": [
+        [
+          {
+            "node": "Send to phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "notes": "Syncs LEARN at 3:30 AM (which also indexes new files), checks every 5 minutes until it finishes, and pushes only if it didn't work, e.g. when LEARN signed the server's browser out."
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Toronto",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all"
+  },
+  "tags": []
+}
