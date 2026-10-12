@@ -83,7 +83,7 @@ OpenAI holds a copy of the course files' text in a vector store, and sees each q
 
 - **LEARN is only read.** The sync navigates and downloads; it never submits or edits. Your Waterloo password and Duo codes are typed by you into the browser and never pass through the app.
 - **The model's output is data.** Figures, citations and source references are parsed and checked; nothing the model writes is run.
-- **One password guards a server.** The dashboard will not listen beyond its own computer without one.
+- **One password guards a server.** The dashboard will not listen beyond its own computer without one. Automations such as n8n use a separate `AUTOMATION_TOKEN` in an `Authorization: Bearer` header, so they never need the password.
 - **The sign-in window is private.** It has no password and is your LEARN session, so it is published on the Tailscale address only.
 - **Secrets stay in `.env`**, which is not in git, and logs redact keys, cookies and tokens.
 

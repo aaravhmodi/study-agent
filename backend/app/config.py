@@ -36,11 +36,14 @@ class Settings(BaseSettings):
     timezone: str = "America/Toronto"
     # Needed to serve the dashboard beyond this computer; every request then needs it.
     dashboard_password: str | None = Field(default=None, min_length=12)
+    # Lets a program on your own network (n8n) call the API with an
+    # "Authorization: Bearer <token>" header instead of signing in with the password.
+    automation_token: str | None = Field(default=None, min_length=32)
     # Where to sign in to LEARN when the browser runs on a server: the address of its
     # sign-in window. The dashboard links to it beside the sync button.
     learn_signin_url: str | None = None
 
-    @field_validator("dashboard_password", mode="before")
+    @field_validator("dashboard_password", "automation_token", mode="before")
     @classmethod
     def _blank_is_no_password(cls, value: object) -> object:
         return None if isinstance(value, str) and not value.strip() else value

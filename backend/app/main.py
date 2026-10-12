@@ -22,6 +22,7 @@ from app.services.access import (
     SESSION_COOKIE,
     SESSION_SECONDS,
     LoginAttempts,
+    bearer_matches,
     password_matches,
     session_token,
     valid_session,
@@ -57,13 +58,17 @@ _jobs = JobRunner()
 async def require_sign_in(
     request: Request, call_next: Callable[[Request], Awaitable[Response]]
 ) -> Response:
-    """With DASHBOARD_PASSWORD set, answer only signed-in requests."""
+    """With DASHBOARD_PASSWORD set, answer only signed-in requests (or ones with the
+    automation token, for n8n)."""
 
-    password = get_settings().dashboard_password
+    settings = get_settings()
+    password = settings.dashboard_password
+    token = settings.automation_token
     if (
         password
         and request.url.path not in _OPEN_PATHS
         and not valid_session(request.cookies.get(SESSION_COOKIE), password, time.time())
+        and not (token and bearer_matches(request.headers.get("authorization"), token))
     ):
         return JSONResponse({"detail": "Sign in to continue."}, status_code=401)
     return await call_next(request)

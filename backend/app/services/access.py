@@ -19,6 +19,13 @@ def password_matches(given: str, password: str) -> bool:
     return hmac.compare_digest(given.encode(), password.encode())
 
 
+def bearer_matches(authorization: str | None, token: str) -> bool:
+    """Whether an Authorization header carries the automation token."""
+
+    scheme, _, given = (authorization or "").partition(" ")
+    return scheme.lower() == "bearer" and password_matches(given.strip(), token)
+
+
 def session_token(password: str, now: float) -> str:
     """A cookie value that proves the password was given, good for SESSION_SECONDS."""
 

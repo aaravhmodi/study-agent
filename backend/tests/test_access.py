@@ -10,6 +10,7 @@ from app.services.access import (
     SESSION_COOKIE,
     SESSION_SECONDS,
     LoginAttempts,
+    bearer_matches,
     password_matches,
     session_token,
     valid_session,
@@ -19,6 +20,7 @@ from pydantic import ValidationError
 from typer.testing import CliRunner
 
 PASSWORD = "correct horse battery"
+TOKEN = "an automation token that is long enough"
 NOW = 1_800_000_000.0
 
 
@@ -61,6 +63,19 @@ def test_a_blank_password_means_none_and_a_short_one_is_refused() -> None:
     assert Settings(_env_file=None, dashboard_password="  ").dashboard_password is None
     with pytest.raises(ValidationError):
         Settings(_env_file=None, dashboard_password="hunter2")
+
+
+def test_the_automation_token_is_read_only_from_a_bearer_header() -> None:
+    assert bearer_matches(f"Bearer {TOKEN}", TOKEN)
+    assert bearer_matches(f"bearer  {TOKEN} ", TOKEN)
+    for junk in (None, "", TOKEN, f"Basic {TOKEN}", f"Bearer {TOKEN[:-1]}", "Bearer "):
+        assert not bearer_matches(junk, TOKEN)
+
+
+def test_a_short_automation_token_is_refused() -> None:
+    assert Settings(_env_file=None, automation_token=" ").automation_token is None
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, automation_token="too-short")
 
 
 @pytest.fixture()
@@ -138,3 +153,24 @@ def test_the_dashboard_is_not_served_beyond_this_computer_without_a_password(
     monkeypatch.setattr(commands, "get_settings", lambda: protected)
     served = CliRunner().invoke(cli, ["dashboard", "--host", "0.0.0.0", "--no-open"])
     assert served.exit_code == 0 and calls == ["0.0.0.0"]
+
+
+def test_the_automation_token_opens_the_api_without_a_cookie(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = Settings(_env_file=None, dashboard_password=PASSWORD, automation_token=TOKEN)
+    monkeypatch.setattr(main, "get_settings", lambda: settings)
+    client = TestClient(main.app)
+
+    def status(authorization: str) -> int:
+        return client.get("/openapi.json", headers={"Authorization": authorization}).status_code
+
+    assert status(f"Bearer {TOKEN}") == 200
+    assert status(f"Bearer {PASSWORD}") == 401
+    assert status("Bearer not-the-token-but-long-enough-to-count") == 401
+
+
+def test_without_a_token_set_a_bearer_header_opens_nothing(locked: TestClient) -> None:
+    for authorization in ("Bearer ", f"Bearer {TOKEN}"):
+        response = locked.get("/openapi.json", headers={"Authorization": authorization})
+        assert response.status_code == 401
