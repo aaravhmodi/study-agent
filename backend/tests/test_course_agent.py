@@ -239,6 +239,38 @@ def test_announced_assessment_is_extracted_from_news_detail() -> None:
     assert assessments[0].title == "Quiz 2"
 
 
+def test_an_announcements_posted_by_line_is_not_a_deadline() -> None:
+    from app.agents.course_agent import _extract_announced_assessments
+
+    # LEARN puts "<name> posted on <date>" at the top of every announcement. With a
+    # coursework word in the title, that line used to become a deadline called
+    # "Reem Roufail posted", due the day it was posted.
+    snapshot = BrowserPageSnapshot(
+        url="https://learn.uwaterloo.ca/d2l/le/news/1292394/1146084/view",
+        title="Quiz 2 reminder",
+        text=(
+            "Reem Roufail posted on Oct 9, 2026 3:45 PM\n"
+            "Edited on Oct 10, 2026 9:02 AM\n"
+            "Quiz 2 is due Friday, October 23, 2026 at 11:59 PM.\n"
+            "Assignment 3 is posted on LEARN and due October 30, 2026 at 11:59 PM.\n"
+            "Published: Oct 9, 2026\n"
+        ),
+    )
+    assessments = _extract_announced_assessments([snapshot], "America/Toronto")
+    assert [item.title for item in assessments] == ["Quiz 2", "Assignment 3"]
+
+
+def test_a_deadline_is_not_dated_from_the_posted_by_line_below_it() -> None:
+    from app.agents.course_agent import _extract_announced_assessments
+
+    snapshot = BrowserPageSnapshot(
+        url="https://learn.uwaterloo.ca/d2l/le/news/1296009/1144040/view",
+        title="Lab update",
+        text="The lab report is due on\nOrion Bruckman posted on Oct 1, 2026 5:13 PM\n",
+    )
+    assert _extract_announced_assessments([snapshot], "America/Toronto") == []
+
+
 def test_content_documents_are_classified_as_resources() -> None:
     snapshot = BrowserPageSnapshot(
         url="https://learn.uwaterloo.ca/d2l/le/content/123/Home",

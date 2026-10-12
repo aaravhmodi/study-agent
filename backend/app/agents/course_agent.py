@@ -578,6 +578,13 @@ def _news_detail_url(href: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
 
 
+_POSTED_LINE = re.compile(
+    r"^(?:.{0,80}\b)?(?:posted|published|edited|updated|last modified)\b:?\s*(?:on\b|:)?\s*"
+    r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|Mon|Tue|Wed|Thu|Fri|Sat|Sun|\d)",
+    re.IGNORECASE,
+)
+
+
 def _extract_announced_assessments(
     snapshots: list[BrowserPageSnapshot], timezone_name: str
 ) -> list[AssessmentExtraction]:
@@ -589,7 +596,13 @@ def _extract_announced_assessments(
         if not _is_news_detail_url(snapshot.url):
             continue
         announcement_title = _news_title(snapshot)
-        lines = [" ".join(line.split()) for line in snapshot.text.splitlines() if line.strip()]
+        # "<name> posted on Oct 9, 2026 3:45 PM" and similar lines date the announcement,
+        # never the work, so they are neither a deadline nor the date of one.
+        lines = [
+            line
+            for line in (" ".join(raw.split()) for raw in snapshot.text.splitlines())
+            if line and not _POSTED_LINE.search(line)
+        ]
         for index, line in enumerate(lines):
             if not re.search(
                 r"\b(assignment|quiz|test|exam|midterm|final|lab|project|report|activity|assessment)\b",
@@ -630,6 +643,8 @@ def _news_title(snapshot: BrowserPageSnapshot) -> str:
 
 
 def _clean_announced_title(line: str, fallback: str) -> str:
+    # "Assignment 3 is posted on LEARN and due ..." is about "Assignment 3".
+    line = re.sub(r"\s+(?:is|are|will be|has been|have been)\b.*$", "", line, flags=re.I)
     title = re.sub(
         r"\s+(?:is\s+)?(?:due|deadline|scheduled|held|takes place|on)\b.*$",
         "",
