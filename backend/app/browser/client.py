@@ -23,6 +23,19 @@ class BrowserClientError(RuntimeError):
     """Raised when the Browser Use harness cannot complete a safe operation."""
 
 
+class SignedOutError(BrowserClientError):
+    """Raised when a LEARN page turned out to be the school's sign-in page."""
+
+
+def is_sign_in_page(url: str) -> bool:
+    """Whether the browser ended up on UWaterloo's or LEARN's sign-in instead of a page."""
+
+    address = url.lower()
+    return (
+        "//adfs.uwaterloo.ca/" in address or "/d2l/login" in address or "sessionexpired" in address
+    )
+
+
 class BrowserClient(ABC):
     @abstractmethod
     async def run_task(

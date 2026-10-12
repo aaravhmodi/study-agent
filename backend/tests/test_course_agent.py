@@ -422,3 +422,27 @@ def test_recording_resources_are_marked_as_video() -> None:
     resources = _extract_resources([snapshot])
 
     assert resources[0].resource_type == "VIDEO"
+
+
+SIGN_IN_PAGE = {
+    "url": "https://adfs.uwaterloo.ca/adfs/ls/",
+    "title": "Sign In",
+    "text": "Sign in with username@uwaterloo.ca\nNext",
+}
+
+
+@pytest.mark.asyncio
+async def test_a_course_that_opens_the_sign_in_page_is_not_scanned() -> None:
+    from app.browser.client import SignedOutError
+
+    # LEARN had signed the browser out; every course page was UWaterloo's sign-in page,
+    # and the sync "completed" having read nothing.
+    course = CourseSummary(
+        name="SYDE 286 - Fall 2026",
+        code="SYDE 286",
+        url="https://learn.uwaterloo.ca/d2l/lp/ouHome/home.d2l?ou=1292394",
+    )
+    agent = CourseAgent(MockBrowserClient(SIGN_IN_PAGE), get_settings())
+
+    with pytest.raises(SignedOutError, match="not authenticated"):
+        await agent.scan_course(course)

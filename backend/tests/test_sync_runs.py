@@ -144,3 +144,24 @@ def test_an_announcement_linked_two_ways_is_read_and_saved_once(
         saved = session.scalars(select(Announcement)).all()
         assert [(row.title, row.source_url) for row in saved] == [("Midterm Details", page)]
         assert saved[0].body == "The midterm covers chapters 1 to 6."
+
+
+@pytest.mark.asyncio
+async def test_a_sync_stops_as_failed_when_learn_has_signed_the_browser_out(
+    sessions: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.browser.client import SignedOutError
+
+    monkeypatch.setattr(sync_service, "SessionLocal", sessions)
+    monkeypatch.setattr(sync_service, "ensure_schema", lambda: None)
+    signed_out = MockBrowserClient(
+        {"url": "https://adfs.uwaterloo.ca/adfs/ls/", "title": "Sign In", "text": "Sign in"}
+    )
+
+    with pytest.raises(SignedOutError):
+        await SyncService(Settings(_env_file=None), browser=signed_out).run()
+
+    with sessions() as session:
+        run = session.scalars(select(SyncRun)).one()
+    # Failed, not completed with nothing read: that is what tells you to sign in again.
+    assert run.status == "FAILED" and "not authenticated" in (run.error or "")

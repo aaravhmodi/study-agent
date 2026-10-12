@@ -5,7 +5,12 @@ from zoneinfo import ZoneInfo
 
 from pydantic import AnyHttpUrl, TypeAdapter
 
-from app.browser.client import BrowserClient, BrowserClientError
+from app.browser.client import (
+    BrowserClient,
+    BrowserClientError,
+    SignedOutError,
+    is_sign_in_page,
+)
 from app.config import Settings
 from app.schemas.browser import BrowserPageSnapshot
 from app.schemas.course import CourseDiscoveryResult, CourseSummary
@@ -81,6 +86,11 @@ class CourseAgent:
         snapshots: list[BrowserPageSnapshot] = []
         if ou is not None:
             home = await self.browser.inspect_page(course_url, wait_seconds=4)
+            if is_sign_in_page(home.url):
+                # Reading on would save sign-in pages as the course and find no deadlines.
+                raise SignedOutError(
+                    f"LEARN is not authenticated: {course.name} opened the sign-in page."
+                )
             snapshots.append(home)
 
             content_url = f"{self.settings.learn_url.rstrip('/')}/d2l/le/content/{ou}/Home"

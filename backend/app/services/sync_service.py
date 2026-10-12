@@ -9,7 +9,12 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.agents.course_agent import CourseAgent
-from app.browser.client import BrowserClient, BrowserClientError, BrowserUseClient
+from app.browser.client import (
+    BrowserClient,
+    BrowserClientError,
+    BrowserUseClient,
+    SignedOutError,
+)
 from app.config import Settings
 from app.db.database import SessionLocal, ensure_schema
 from app.models import Announcement, Assessment, Course, Resource, SyncRun
@@ -101,6 +106,10 @@ class SyncService:
                                 f"WARNING {course.name}: {failed_downloads} resources "
                                 "could not be saved"
                             )
+                    except SignedOutError:
+                        # Every other course would be the sign-in page too: stop, so the
+                        # sync fails and says to sign in, instead of "completing" empty.
+                        raise
                     except Exception as exc:
                         failures.append(f"{course.name}: {exc}")
                         logger.exception("Course scan failed for %s", course.name)
