@@ -124,3 +124,20 @@ def test_the_same_search_is_still_reused(
 
     assert browser.opened == []
     assert browser.current is not None and browser.current["url"] == SEARCH_286
+
+
+EXAMS = "https://uwaterloo.ca/final-examination-schedule/"
+PROFILE = "https://uwaterloo.ca/final-examination-schedule/users/a27modi"
+
+
+def test_a_page_below_the_one_asked_for_is_not_read_outside_learn(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Signing in to the exam schedule lands on your profile page; the schedule itself
+    # was then read from that tab because its address starts with the schedule's.
+    monkeypatch.delenv("BU_CDP_URL", raising=False)
+    browser = FakeBrowser([PROFILE])
+
+    _read(EXAMS, browser, capsys)
+
+    assert browser.opened == [EXAMS]

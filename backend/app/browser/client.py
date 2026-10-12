@@ -433,8 +433,13 @@ if target_url:
             matching.append(tab)
         elif target.path in ('', '/') and current.path == '/d2l/home':
             matching.append(tab)
-        elif target.path not in ('', '/', '/d2l/home') and current.path.startswith(
-            target.path.rstrip('/') + '/'
+        elif (
+            # LEARN sends some pages on to a deeper address (a calendar to its list
+            # view), so a tab below the one asked for is that page. Elsewhere it's not:
+            # the exam schedule's /users/... is your profile, not the schedule.
+            target.path.startswith('/d2l/')
+            and target.path != '/d2l/home'
+            and current.path.startswith(target.path.rstrip('/') + '/')
         ):
             matching.append(tab)
         elif target.path not in ('', '/') and current.path == target.path:
