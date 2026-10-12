@@ -13,6 +13,7 @@ from app.browser.client import BrowserClient, BrowserClientError, BrowserUseClie
 from app.config import Settings
 from app.db.database import SessionLocal, ensure_schema
 from app.models import Announcement, Assessment, Course, Resource, SyncRun
+from app.schemas.browser import BrowserPageSnapshot
 from app.schemas.course import CourseSummary
 from app.schemas.extraction import CourseScanResult
 from app.schemas.sync import SyncSummary
@@ -79,7 +80,7 @@ class SyncService:
                     self.progress(f"Scanning {course.name}...")
                     try:
                         scan = await agent.scan_course(course_summary)
-                        save_pages(self.settings.pages_dir, course.code or course.name, scan.pages)
+                        self._keep_pages(course.code or course.name, scan.pages)
                         scan.assessments = apply_final_exam(
                             scan.assessments,
                             final_exams.get(course.code or ""),
@@ -121,6 +122,13 @@ class SyncService:
                 session.commit()
                 raise
 
+    def _keep_pages(self, label: str, pages: list[BrowserPageSnapshot]) -> None:
+        # Only a record for checking parsing later, so it can never stop a sync.
+        try:
+            save_pages(self.settings.pages_dir, label, pages)
+        except OSError as exc:
+            self.progress(f"WARNING could not keep the pages read for {label}: {exc}")
+
     async def _final_exams(self) -> dict[str, FinalExam]:
         """Every course's final from UWaterloo's exam schedule, or nothing if it can't be read.
 
@@ -136,7 +144,7 @@ class SyncService:
             return {}
         finally:
             await self.browser.close_spare_tabs()
-        save_pages(self.settings.pages_dir, "exam-schedule", [page])
+        self._keep_pages("exam-schedule", [page])
         exams = parse_schedule(page.text, self.settings.timezone)
         if exams:
             self.progress(f"Final exam schedule: {len(exams)} courses listed")
