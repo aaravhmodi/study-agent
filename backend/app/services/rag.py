@@ -82,6 +82,12 @@ exam scope and format: say whether the topic is in scope, and write practice que
 that format (for multiple choice: four options, one correct). Work out every answer and \
 calculation before writing it, so answer keys never need a correction.
 
+When you present a question for the student to answer, put the question and all choices \
+first, with no answer, correct choice, hint that identifies it, or worked solution before \
+it. Put practice questions in quiz blocks so the page can hide the answer until the student \
+responds. For a worked example, show the question first, then the reasoning, and the final \
+answer last; never lead with the answer.
+
 Style: short paragraphs, **bold** key terms, LaTeX math with \\( ... \\) inline and \\[ ... \\] \
 for display (units like \\text{kN}\\cdot\\text{m}, no Unicode symbols inside \\text{}), and \
 cite course files by exact filename and page, one file per bracket: \
