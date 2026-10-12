@@ -1,8 +1,95 @@
+<div align="center">
+
+<img src="docs/images/logo.svg" width="76" alt="">
+
 # StudyAgent
 
-StudyAgent keeps track of your University of Waterloo courses and tutors you from their own materials. It reads LEARN (D2L Brightspace) and Outline through a browser you are signed in to, never changing anything there: active courses, announcements, due dates and every file posted. Then it answers questions from those files, citing the page and showing the original question when it gives one.
+**A tutor that has read your course.**
 
-It runs on one computer, or on an always-on home server that you reach from any device.
+It reads Waterloo LEARN and Outline through a browser you are signed in to, never changing anything there,<br>
+then answers your questions from the files your instructors posted.
+
+![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)
+![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?style=flat-square&logo=docker&logoColor=white)
+![LEARN: read-only](https://img.shields.io/badge/LEARN-read--only-b23a26?style=flat-square)
+![Local-first](https://img.shields.io/badge/local--first-1d1b18?style=flat-square)
+
+[What it does](#what-it-does) · [Try the demo](#try-it-without-learn) · [Architecture](#architecture) · [Setup](#setup) · [Home server](#run-it-on-a-home-server)
+
+<img src="docs/images/demo.gif" width="880" alt="Asking the tutor a question, answering its practice questions, then opening the Practice and Coming up screens">
+
+<sub>A question, its practice cards, then the Practice and Coming up screens. Recorded in demo mode: the courses and due dates are made up.</sub>
+
+</div>
+
+## What it does
+
+StudyAgent keeps track of your University of Waterloo courses and tutors you from their own materials: active courses, announcements, due dates and every file posted. It runs on one computer, or on an always-on home server that you reach from any device.
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**Answers from your course files**
+
+Every answer cites the file and page it came from, and says so when a point comes from the web instead.
+
+<img src="docs/images/answer.png" alt="An answer with headed sections, formulas and sources">
+
+</td>
+<td width="50%" valign="top">
+
+**Draws the picture**
+
+Beams, circuits, graphs and concept diagrams are drawn beside the text they explain.
+
+<img src="docs/images/diagram.png" alt="A free-body diagram of a simply supported beam, drawn for a worked example">
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+**Graphs the course is taught with**
+
+Shear and moment diagrams, distributions with the tail shaded, signals, cash flows.
+
+<img src="docs/images/graphs.png" alt="A shear-force diagram and a bending-moment diagram">
+
+</td>
+<td width="50%" valign="top">
+
+**Practice marked on the page**
+
+Options and numbers are marked for you, with the answer and the reason.
+
+<img src="docs/images/practice-cards.png" alt="Two practice questions, one answered right and one wrong">
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+**Practice that remembers**
+
+Missed questions come back, weak topics are listed first, and a practice midterm is one click.
+
+<img src="docs/images/practice.png" alt="The Practice screen: each course's next test, topics and what is due">
+
+</td>
+<td width="50%" valign="top">
+
+**Everything due, in one list**
+
+Assessments from the LEARN calendar, announcements and each course outline, merged.
+
+<img src="docs/images/coming-up.png" alt="The Coming up screen: assessments in date order with their status">
+
+</td>
+</tr>
+</table>
 
 ## Architecture
 
