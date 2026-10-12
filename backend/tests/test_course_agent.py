@@ -152,6 +152,81 @@ def test_outline_explicit_deliverable_deadlines_are_extracted() -> None:
     assert assessments[0].due_at.astimezone(ZoneInfo("America/Toronto")).day == 30
 
 
+# The SYDE 252 deliverables schedule as Outline shows it: one cell per line, the five
+# assignments as "#1".."#5" under an "Assignments due / at 11:59 PM" column.
+SYDE_252_SCHEDULE = (
+    "Deliverables schedule\nWeek\nWeek of\nAssignments due\nat 11:59 PM\nProject\n"
+    "1\n09-07\n2\n09-14\n3\n09-21\nTeam composition due: September 21, 11:59 PM\n"
+    "Project Kick off: September 23\n4\n09-28\n#1\nOctober 2, 2026\nat 11:59 PM\n"
+    "5\n10-05\n#2\nOctober 9, 2026\nat 11:59 PM\n6\n10-12\nREADING WEEK\n"
+    "7\n10-19\nMIDTERM WEEK\n8\n10-26\nPhase 1 due: October 30, 11:59 PM\n"
+    "9\n11-02\n10\n11-09\n11\n11-16\n#3\nNovember 16, 2026\nat 11:59 PM\n"
+    "12\n11-23\nPhase 2 due: November 23, 11:59 PM\n13\n11-30\n#4\nNovember 30, 2026\n"
+    "at 11:59 PM\n14\n12-07\n#5\nDecember 7, 2026\nPhase 3 due: December 8, 11:59 PM\n"
+    "at 11:59 PM\nTentative lecture and reading schedule\n"
+)
+
+
+def test_outline_numbered_assignments_in_a_deliverables_schedule_are_extracted() -> None:
+    # These were missed, so Assignment 2 (due October 9) never reached the reminders.
+    snapshot = BrowserPageSnapshot(
+        url="https://outline.uwaterloo.ca/viewer/view/nrzht7",
+        title="Fall 2026: SYDE 252",
+        text=SYDE_252_SCHEDULE,
+    )
+    assessments = _extract_outline_assessments(snapshot, "America/Toronto")
+    toronto = ZoneInfo("America/Toronto")
+    due = {
+        a.title: a.due_at.astimezone(toronto).strftime("%b %d %H:%M")
+        for a in assessments
+        if a.due_at is not None
+    }
+
+    assert due == {
+        "Team composition": "Sep 21 23:59",
+        "Assignment 1": "Oct 02 23:59",
+        "Assignment 2": "Oct 09 23:59",
+        "Phase 1": "Oct 30 23:59",
+        "Assignment 3": "Nov 16 23:59",
+        "Phase 2": "Nov 23 23:59",
+        "Assignment 4": "Nov 30 23:59",
+        "Assignment 5": "Dec 07 23:59",
+        "Phase 3": "Dec 08 23:59",
+    }
+    assignment = next(a for a in assessments if a.title == "Assignment 2")
+    assert assignment.assessment_type == "assignment"
+
+
+def test_numbered_items_are_read_from_a_tab_separated_schedule_too() -> None:
+    snapshot = BrowserPageSnapshot(
+        url="https://outline.uwaterloo.ca/viewer/view/abc123",
+        title="Winter 2027: SYDE 999",
+        text=(
+            "Week\tQuizzes due at 10:00 AM\tNotes\n"
+            "3\t#1\tJanuary 23, 2027\t\n"
+            "5\t#2\tFebruary 6, 2027 at 10:00 AM\tbring a calculator\n"
+            "6\t#3\tTBD\t\n"
+        ),
+    )
+    toronto = ZoneInfo("America/Toronto")
+    due = {
+        a.title: a.due_at.astimezone(toronto).strftime("%b %d %H:%M")
+        for a in _extract_outline_assessments(snapshot, "America/Toronto")
+        if a.due_at is not None
+    }
+
+    assert due == {"Quiz 1": "Jan 23 10:00", "Quiz 2": "Feb 06 10:00"}
+
+
+def test_numbers_outside_a_due_column_are_not_assignments() -> None:
+    snapshot = BrowserPageSnapshot(
+        url="https://outline.uwaterloo.ca/viewer/view/abc123",
+        title="Fall 2026: SYDE 999",
+        text="Lecture schedule\n#1\nOctober 2, 2026\nTopic: Fourier series\n",
+    )
+    assert _extract_outline_assessments(snapshot, "America/Toronto") == []
+
+
 def test_outline_keeps_unknown_midterm_and_final_rows() -> None:
     snapshot = BrowserPageSnapshot(
         url="https://outline.uwaterloo.ca/viewer/view/syde252",

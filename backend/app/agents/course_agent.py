@@ -439,7 +439,73 @@ def _extract_outline_assessments(
                 source_url=_HTTP_URL.validate_python(snapshot.url),
             )
         )
+    assessments.extend(
+        _extract_numbered_deliverables(snapshot.text, default_year, timezone_name, snapshot.url)
+    )
     return _dedupe_assessments(assessments)
+
+
+_DUE_COLUMN = re.compile(
+    r"^(?P<kind>assignments?|quiz(?:zes)?|labs?|homeworks?|problem sets?|reports?)\s+due\b"
+    r"(?P<rest>.*)$",
+    re.IGNORECASE,
+)
+_CLOCK_TIME = re.compile(r"\b\d{1,2}:\d{2}\s*(?:AM|PM)\b", re.IGNORECASE)
+# How far past its heading a schedule column's "#N" entries are read.
+_SCHEDULE_CELLS = 150
+
+
+def _extract_numbered_deliverables(
+    text: str, default_year: int, timezone_name: str, url: object
+) -> list[AssessmentExtraction]:
+    """Read schedules that list work only by number under a due column.
+
+    SYDE 252's deliverables table has a column headed "Assignments due / at 11:59 PM"
+    whose cells are just "#2" followed by "October 9, 2026". Outline renders a table one
+    cell per line (or tab-separated), so this walks the cells in order.
+    """
+
+    cells = [" ".join(cell.split()) for line in text.splitlines() for cell in line.split("\t")]
+    cells = [cell for cell in cells if cell]
+    assessments: list[AssessmentExtraction] = []
+    seen: set[str] = set()
+    kind: str | None = None
+    column_time: str | None = None
+    column_end = 0
+    for index, cell in enumerate(cells):
+        column = _DUE_COLUMN.match(cell)
+        if column:
+            plural = column.group("kind").lower()
+            kind = re.sub(r"(?:zes|s)$", "", plural).title()
+            # The column's time is in its heading or the cell under it ("at 11:59 PM").
+            following = cells[index + 1] if index + 1 < len(cells) else ""
+            time_match = _CLOCK_TIME.search(f"{column.group('rest')} {following}")
+            column_time = time_match.group(0) if time_match else None
+            column_end = index + _SCHEDULE_CELLS
+            continue
+        number = re.fullmatch(r"#\s*(\d{1,2})", cell)
+        if kind is None or number is None or index > column_end:
+            continue
+        title = f"{kind} {int(number.group(1))}"
+        date_cell = cells[index + 1] if index + 1 < len(cells) else ""
+        due_text = re.sub(r"\bat\b", " ", date_cell, flags=re.IGNORECASE)
+        if column_time and not _CLOCK_TIME.search(due_text):
+            due_text = f"{due_text} {column_time}"
+        due_at = _parse_outline_due(due_text, default_year, timezone_name)
+        if due_at is None or title in seen:
+            continue
+        seen.add(title)
+        assessments.append(
+            AssessmentExtraction(
+                title=title,
+                assessment_type=_assessment_type(title),
+                due_at=due_at,
+                description=f"Outline deliverables schedule: {kind} #{number.group(1)} "
+                f"due {date_cell}",
+                source_url=_HTTP_URL.validate_python(url),
+            )
+        )
+    return assessments
 
 
 def _clean_outline_title(title: str) -> str:
