@@ -6,6 +6,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:0.8 /uv /usr/local/bin/uv
 RUN npm install -g @anthropic-ai/claude-code
+# The work volume takes this folder's owner when it's first created.
+RUN mkdir /work && chown node:node /work
 
 # The image's "node" user (uid 1000, the same as yours on the server, so it can read the
 # mounted deploy key); Claude Code is never run as root.
