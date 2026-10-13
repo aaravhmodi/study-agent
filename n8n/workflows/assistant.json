@@ -1,0 +1,467 @@
+{
+  "id": "61445ca10d7e5460",
+  "name": "Home server assistant",
+  "active": true,
+  "nodes": [
+    {
+      "id": "eb5a0bf6-5ad7-52cd-a1e3-9a6592c65b53",
+      "name": "Run it now",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        500
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "610ea9f1-ef88-587f-bd57-356109da94b1",
+      "name": "Chat",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "cca9aad8-2fab-5011-b2ef-39ee6f2504c6",
+      "parameters": {
+        "public": true,
+        "mode": "hostedChat",
+        "authentication": "n8nUserAuth",
+        "initialMessages": "Ask me what's due, what today's plan is, how the last LEARN sync went, or who has replied to your internship emails.",
+        "availableInChat": true,
+        "agentName": "Home server assistant",
+        "agentDescription": "Looks things up in Study Agent and the internship tracker. It cannot send, apply or change anything.",
+        "options": {
+          "title": "Home server assistant",
+          "subtitle": "Study Agent and the internship tracker",
+          "inputPlaceholder": "What's due this week?",
+          "responseMode": "streaming"
+        }
+      }
+    },
+    {
+      "id": "b3268fcb-0abe-5488-91eb-b465de9f40e4",
+      "name": "Test question",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "return [{ json: { chatInput: 'What is due in the next 7 days?', sessionId: 'self-test' } }];"
+      }
+    },
+    {
+      "id": "2313d08c-459b-5d6c-b869-be4048740a10",
+      "name": "Assistant",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "promptType": "auto",
+        "text": "={{ $json.chatInput }}",
+        "options": {
+          "systemMessage": "=You are the assistant for Aarav's home server. It is {{ $now.setZone('America/Toronto').toFormat(\"cccc d LLLL yyyy, h:mm a\") }} in Toronto.\n\nAnswer only from what the tools return in this conversation. Never guess a date, a name, a status or a number. If a tool fails or returns nothing, say which one in plain words and what Aarav can do about it. If a question is not about his coursework or his internship search, say that is all you can look up.\n\nStudy Agent holds his University of Waterloo coursework:\n- Deadlines lists every piece of coursework. due_local is already Toronto time; use it as written and do not convert it. A status of COMPLETED means he marked it done, and OVERDUE means the time has passed and he has not.\n- Today's study plan says how many minutes to spend on what today.\n- Today's check-up says whether today's questions are ready and how many he has answered.\n- Last sync says whether the last read of LEARN worked. If it failed because LEARN signed the browser out, give him the sign-in link it returns.\n- Start a LEARN sync starts a new read of LEARN. Call it only when he asks for a sync in his latest message, never on your own, and tell him it takes several minutes.\n\nThe internship tracker holds the people and postings he is following for a Winter 2027 internship:\n- Internship leads lists them. A status of contacted means his first email was sent; replied_at is set once they answered.\n- Follow-ups preview shows who would get an automatic follow-up next, who has replied and whose address bounced. It is a preview and sends nothing.\n\nTimes other than due_local are UTC; Toronto is UTC{{ $now.setZone('America/Toronto').toFormat('ZZ') }} today.\n\nYou cannot send email, message anyone, apply to anything, or change or delete data, and no tool here does. If he asks for one of those, say it is done from Study Agent ({{ $env.STUDY_AGENT_PAGE }}) or the tracker ({{ $env.INTERN_AGENT_URL }}).\n\nKeep answers short: a few lines or a short list, most urgent first, with the day and time.",
+          "maxIterations": 6
+        }
+      }
+    },
+    {
+      "id": "a4d2d8d6-83c2-5620-b023-88c02234007b",
+      "name": "OpenAI",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        220,
+        540
+      ],
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "id",
+          "value": "gpt-5-mini"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "homeAssistantKey",
+          "name": "OpenAI (home server assistant)"
+        }
+      }
+    },
+    {
+      "id": "56e22360-05b4-5a11-a4e4-f511e09aa222",
+      "name": "This conversation",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        440,
+        540
+      ],
+      "parameters": {
+        "sessionIdType": "fromInput",
+        "sessionKey": "={{ $json.sessionId }}",
+        "contextWindowLength": 6
+      }
+    },
+    {
+      "id": "f78dc9b7-f3aa-53f4-9d86-6b41380ccf2d",
+      "name": "Deadlines",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        540
+      ],
+      "parameters": {
+        "toolDescription": "Every assignment, quiz, test, lab, project and exam in his courses, with when it is due in Toronto time and whether it is done. Use for anything about what is due, overdue or coming up.",
+        "method": "GET",
+        "url": "={{ $env.STUDY_AGENT_URL }}/assessments",
+        "options": {
+          "timeout": 60000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.STUDY_AGENT_TOKEN }}"
+            }
+          ]
+        },
+        "optimizeResponse": true,
+        "responseType": "json",
+        "dataField": "",
+        "fieldsToInclude": "selected",
+        "fields": "course,title,type,due_local,status"
+      }
+    },
+    {
+      "id": "b187adca-63fc-5003-abce-ab85439b37fe",
+      "name": "Today's study plan",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        540
+      ],
+      "parameters": {
+        "toolDescription": "How many minutes to spend on which coursework today, and why.",
+        "method": "GET",
+        "url": "={{ $env.STUDY_AGENT_URL }}/practice/plan",
+        "options": {
+          "timeout": 60000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.STUDY_AGENT_TOKEN }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "50b03c36-5bbf-5c16-a690-88533440ea85",
+      "name": "Today's check-up",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        540
+      ],
+      "parameters": {
+        "toolDescription": "Whether today's practice questions are ready, how many are answered and how many were right.",
+        "method": "GET",
+        "url": "={{ $env.STUDY_AGENT_URL }}/practice/checkup",
+        "options": {
+          "timeout": 60000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.STUDY_AGENT_TOKEN }}"
+            }
+          ]
+        },
+        "optimizeResponse": true,
+        "responseType": "json",
+        "dataField": "",
+        "fieldsToInclude": "selected",
+        "fields": "day,prepared,answered,right"
+      }
+    },
+    {
+      "id": "51c1421e-ca0a-5869-91ef-9d244def2279",
+      "name": "Last sync",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        540
+      ],
+      "parameters": {
+        "toolDescription": "The last read of LEARN: whether it is running, worked or failed, when, and the link to sign the server's browser in to LEARN.",
+        "method": "GET",
+        "url": "={{ $env.STUDY_AGENT_URL }}/jobs",
+        "options": {
+          "timeout": 60000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.STUDY_AGENT_TOKEN }}"
+            }
+          ]
+        },
+        "optimizeResponse": true,
+        "responseType": "json",
+        "dataField": "",
+        "fieldsToInclude": "selected",
+        "fields": "name,state,message,started_at,finished_at,signin_url"
+      }
+    },
+    {
+      "id": "e8a9e500-50dc-5010-a2cb-8eb6ff3102d0",
+      "name": "Start a LEARN sync",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        540
+      ],
+      "parameters": {
+        "toolDescription": "Starts a new read of LEARN, which takes several minutes. Only when he asks for a sync in his latest message.",
+        "method": "POST",
+        "url": "={{ $env.STUDY_AGENT_URL }}/jobs/sync",
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.STUDY_AGENT_TOKEN }}"
+            }
+          ]
+        },
+        "optimizeResponse": true,
+        "responseType": "json",
+        "dataField": "",
+        "fieldsToInclude": "selected",
+        "fields": "name,state,message,detail"
+      }
+    },
+    {
+      "id": "435276c0-c887-5657-a468-8cfd5e9d7a1b",
+      "name": "Internship leads",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        540
+      ],
+      "parameters": {
+        "toolDescription": "Every founder and posting in the internship tracker: company, who, status, when the first email was sent and when they replied.",
+        "method": "GET",
+        "url": "={{ $env.INTERN_AGENT_URL }}/api/leads",
+        "options": {
+          "timeout": 60000
+        },
+        "optimizeResponse": true,
+        "responseType": "json",
+        "dataField": "leads",
+        "fieldsToInclude": "selected",
+        "fields": "company,kind,contact_name,contact_role,status,sent_at,replied_at,followups_stopped,round,location,posting_title,deadline"
+      }
+    },
+    {
+      "id": "7a8e2098-3cae-5f87-95e8-3a6f52fdb04d",
+      "name": "Follow-ups preview",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        1980,
+        540
+      ],
+      "parameters": {
+        "toolDescription": "Who would get an automatic follow-up email next, who has replied and whose address bounced. A preview: it sends nothing.",
+        "method": "POST",
+        "url": "={{ $env.INTERN_AGENT_URL }}/api/followups/run",
+        "options": {
+          "timeout": 60000
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "{\"dry_run\": true}"
+      }
+    }
+  ],
+  "connections": {
+    "Run it now": {
+      "main": [
+        [
+          {
+            "node": "Test question",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat": {
+      "main": [
+        [
+          {
+            "node": "Assistant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test question": {
+      "main": [
+        [
+          {
+            "node": "Assistant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Assistant",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "This conversation": {
+      "ai_memory": [
+        [
+          {
+            "node": "Assistant",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deadlines": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistant",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Today's study plan": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistant",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Today's check-up": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistant",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Last sync": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistant",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start a LEARN sync": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistant",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Internship leads": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistant",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Follow-ups preview": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistant",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "notes": "A chat agent that answers from Study Agent and the internship tracker: deadlines, today's plan and check-up, the last LEARN sync, leads and who replied. It can start a LEARN sync when asked and preview follow-ups; it cannot send, apply, change or delete anything."
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Toronto",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all"
+  },
+  "tags": []
+}
