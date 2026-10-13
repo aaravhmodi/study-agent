@@ -38,9 +38,10 @@ def study_agent(
     y: int = 300,
     once: bool = True,
     never_error: bool = False,
+    timeout_seconds: int = 30,
 ) -> Node:
     """A call to the Study Agent API with the automation token."""
-    options: dict[str, Any] = {"timeout": 30000}
+    options: dict[str, Any] = {"timeout": timeout_seconds * 1000}
     if never_error:  # e.g. 409 "another task is running" is fine
         options["response"] = {"response": {"neverError": True}}
     return {
@@ -237,8 +238,32 @@ const fresh = list('New on LEARN')
   .filter((c) => c.detected_at && now - Date.parse(c.detected_at) <= day);
 const practice = list('Practice due').filter((q) => q.id || q.question);
 const job = $('Last sync').first().json;
+const plan = $("Today's plan").first().json;
+const checkup = $('Check-up').first().json;
+const span = (m) => (m >= 60
+  ? `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`
+  : `${m} min`);
 
 const parts = [];
+// Today first: the check-up to do, then how long to spend on what.
+const questions = (checkup.questions || []).length;
+const waiting = questions - (checkup.answered || 0);
+if (checkup.prepared && waiting > 0) {
+  parts.push(`🧠 Check-up ready: ${waiting} question${waiting === 1 ? '' : 's'}, about ` +
+             `${Math.max(2, Math.round(waiting * 0.8))} minutes. Do it first; the plan below ` +
+             'changes with how it goes.');
+} else if (checkup.prepared) {
+  parts.push(`🧠 Check-up done: ${checkup.right} of ${questions} right.`);
+}
+const blocks = plan.blocks || [];
+if (blocks.length || plan.review_due) {
+  const rows = blocks.slice(0, 7).map((b) => `• ${span(b.minutes)} · ${b.course} · ${b.title}` +
+    (b.topics && b.topics.length ? ` (work on ${b.topics.slice(0, 2).join(', ')})` : ''));
+  if (plan.review_due) rows.push(`• ${span(plan.review_minutes)} · review ${plan.review_due} due`);
+  parts.push(`Today's plan, ${span(plan.minutes)}:\n${rows.join('\n')}`);
+} else if (plan.blocks) {
+  parts.push('Nothing needs studying today.');
+}
 if (week.length) {
   parts.push(`Due in the next 7 days:\n${week.slice(0, 8).map(line).join('\n')}` +
              (week.length > 8 ? `\n…and ${week.length - 8} more` : ''));
@@ -255,7 +280,7 @@ if (fresh.length) {
   parts.push(`New on LEARN since yesterday (${fresh.length}):\n` +
              fresh.slice(0, 4).map((c) => `• ${c.description}`).join('\n'));
 }
-if (practice.length) {
+if (practice.length && !plan.review_due) {
   parts.push(`🧠 ${practice.length === 10 ? '10+' : practice.length} practice question` +
              `${practice.length === 1 ? ' is' : 's are'} due for review.`);
 }
@@ -263,8 +288,9 @@ if (job.name === 'sync' && job.state === 'failed') {
   parts.push("⚠️ Last night's LEARN sync failed, so this may be missing new things.");
 } else if (job.name === 'sync' && job.state === 'done' && job.finished_at &&
            now - Date.parse(job.finished_at) <= day) {
+  // "3:50 a.m." already ends in a full stop.
   parts.push(`✓ LEARN checked at ${new Date(job.finished_at).toLocaleTimeString('en-CA', {
-    timeZone: tz, hour: 'numeric', minute: '2-digit' })}.`);
+    timeZone: tz, hour: 'numeric', minute: '2-digit' })}`);
 }
 
 const next = week[0];
@@ -279,7 +305,7 @@ const title = next
       })()
     : '📚 Nothing due this week';
 const message = parts.join('\n\n');
-return [{ json: { title, message, priority: 3, tags: ['books'], click: page } }];
+return [{ json: { title, message, priority: 3, tags: ['books'], click: `${page}/#today` } }];
 """
 )
 
@@ -291,6 +317,8 @@ def morning_brief() -> dict:
         "New on LEARN",
         "Practice due",
         "Last sync",
+        "Today's plan",
+        "Check-up",
         "Write the brief",
         "Send to phone",
     ]
@@ -300,15 +328,83 @@ def morning_brief() -> dict:
         study_agent(names[2], "GET", "/changes", 440),
         study_agent(names[3], "GET", "/practice/due?limit=10", 660),
         study_agent(names[4], "GET", "/jobs", 880),
-        code(names[5], BRIEF_JS, 1100),
-        push(names[6], 1320),
+        study_agent(names[5], "GET", "/practice/plan", 1100),
+        study_agent(names[6], "GET", "/practice/checkup", 1320),
+        code(names[7], BRIEF_JS, 1540),
+        push(names[8], 1760),
     ]
     return workflow(
         "Study Agent: morning brief",
         nodes,
         chain(*names),
-        "One push at 7:30 AM: what's due this week, anything past due, what's new on "
-        "LEARN, practice questions due, and whether last night's sync worked.",
+        "One push at 7:30 AM: today's check-up and study plan, what's due this week, "
+        "anything past due, what's new on LEARN, and whether last night's sync worked.",
+    )
+
+
+# ---- 1b. Daily check-up -------------------------------------------------------------------
+
+CHECKUP_FAILED_JS = r"""
+const made = $input.first().json;
+if (made.prepared) return [];  // the 7:30 brief tells you it is ready
+return [{ json: {
+  title: "⚠️ Today's check-up couldn't be prepared",
+  message: `${made.detail || 'Study Agent did not answer.'}\n\n` +
+    '👉 Open Study Agent, go to Today and press "Prepare it now". Today\'s plan still works ' +
+    'from your earlier answers.',
+  priority: 3, tags: ['warning'], click: `${$env.STUDY_AGENT_PAGE}/#today`,
+} }];
+"""
+
+CHECKUP_NUDGE_JS = r"""
+const checkup = $input.first().json;
+const total = (checkup.questions || []).length;
+const waiting = total - (checkup.answered || 0);
+if (!checkup.prepared || waiting <= 0) return [];
+return [{ json: {
+  title: "🧠 Today's check-up is still waiting",
+  message: `${waiting} question${waiting === 1 ? '' : 's'}, about ` +
+    `${Math.max(2, Math.round(waiting * 0.8))} minutes. Tonight's study time is set from how ` +
+    'it goes.\n\n👉 Tap to do it now.',
+  priority: 3, tags: ['brain'], click: `${$env.STUDY_AGENT_PAGE}/#today`,
+} }];
+"""
+
+
+def daily_checkup() -> dict:
+    names = ["Every morning at 7", "Prepare today's check-up", "Did it work?", "Send to phone"]
+    nodes = [
+        schedule(names[0], "0 7 * * *", 0),
+        # The tutor writes the new questions from the course files; allow it a few minutes.
+        study_agent(
+            names[1], "POST", "/practice/checkup", 220, never_error=True, timeout_seconds=420
+        ),
+        code(names[2], CHECKUP_FAILED_JS, 440),
+        push(names[3], 660),
+    ]
+    return workflow(
+        "Study Agent: daily check-up",
+        nodes,
+        chain(*names),
+        "At 7 AM, has Study Agent prepare today's check-up: a few questions for the courses "
+        "with a test coming, one you missed before plus new ones from the course files. "
+        "Pushes only if it couldn't; the 7:30 brief tells you it's ready.",
+    )
+
+
+def checkup_nudge() -> dict:
+    names = ["Every afternoon at 4", "Check-up", "Still waiting?", "Send to phone"]
+    nodes = [
+        schedule(names[0], "0 16 * * *", 0),
+        study_agent(names[1], "GET", "/practice/checkup", 220),
+        code(names[2], CHECKUP_NUDGE_JS, 440),
+        push(names[3], 660),
+    ]
+    return workflow(
+        "Study Agent: check-up reminder",
+        nodes,
+        chain(*names),
+        "At 4 PM, a push if today's check-up hasn't been finished. Nothing if it has.",
     )
 
 
@@ -576,6 +672,8 @@ if __name__ == "__main__":
         (due_tomorrow, "due-tomorrow.json"),
         (nightly_sync, "nightly-sync.json"),
         (data_check, "data-check.json"),
+        (daily_checkup, "daily-checkup.json"),
+        (checkup_nudge, "checkup-reminder.json"),
     ):
         flow = build()
         (OUT / file).write_text(

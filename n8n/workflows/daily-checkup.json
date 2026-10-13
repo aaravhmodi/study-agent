@@ -1,0 +1,165 @@
+{
+  "id": "6a1485f13b5d50f1",
+  "name": "Study Agent: daily check-up",
+  "active": true,
+  "nodes": [
+    {
+      "id": "648f8a17-3945-5c67-860a-2739fd422040",
+      "name": "Run it now",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        500
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "71b1dcea-f5ea-5240-b3d5-ca54c778cff2",
+      "name": "Every morning at 7",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ad809e95-538a-5a7c-8748-9b1911718e4d",
+      "name": "Prepare today's check-up",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        300
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.STUDY_AGENT_URL }}/practice/checkup",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.STUDY_AGENT_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 420000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "43a64227-eeb9-5bd3-8360-1283bedba34f",
+      "name": "Did it work?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "\nconst made = $input.first().json;\nif (made.prepared) return [];  // the 7:30 brief tells you it is ready\nreturn [{ json: {\n  title: \"⚠️ Today's check-up couldn't be prepared\",\n  message: `${made.detail || 'Study Agent did not answer.'}\\n\\n` +\n    '👉 Open Study Agent, go to Today and press \"Prepare it now\". Today\\'s plan still works ' +\n    'from your earlier answers.',\n  priority: 3, tags: ['warning'], click: `${$env.STUDY_AGENT_PAGE}/#today`,\n} }];\n"
+      }
+    },
+    {
+      "id": "8812c532-dcd6-54fc-8721-43ff6510c1d9",
+      "name": "Send to phone",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.NTFY_SERVER }}",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ topic: $env.NTFY_TOPIC, title: $json.title, message: $json.message, priority: $json.priority, tags: $json.tags, click: $json.click }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Run it now": {
+      "main": [
+        [
+          {
+            "node": "Prepare today's check-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every morning at 7": {
+      "main": [
+        [
+          {
+            "node": "Prepare today's check-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare today's check-up": {
+      "main": [
+        [
+          {
+            "node": "Did it work?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Did it work?": {
+      "main": [
+        [
+          {
+            "node": "Send to phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "notes": "At 7 AM, has Study Agent prepare today's check-up: a few questions for the courses with a test coming, one you missed before plus new ones from the course files. Pushes only if it couldn't; the 7:30 brief tells you it's ready."
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Toronto",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all"
+  },
+  "tags": []
+}

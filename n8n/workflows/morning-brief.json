@@ -147,18 +147,74 @@
       }
     },
     {
+      "id": "eef4d793-55c5-5dfb-b972-685413f1c933",
+      "name": "Today's plan",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        300
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.STUDY_AGENT_URL }}/practice/plan",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.STUDY_AGENT_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "09a43e6f-f43e-53cb-a46d-044344c2d83b",
+      "name": "Check-up",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        300
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.STUDY_AGENT_URL }}/practice/checkup",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.STUDY_AGENT_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
       "id": "b2a97801-a1b0-514b-92a2-9a40e4b3b0a2",
       "name": "Write the brief",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1100,
+        1540,
         300
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "\nconst tz = 'America/Toronto';\nconst when = (iso) => new Date(iso).toLocaleString('en-CA', {\n  timeZone: tz, weekday: 'short', hour: 'numeric', minute: '2-digit' });\nconst line = (a) => `• ${when(a.due_at)} · ${a.course} · ${a.title}`;\nconst list = (node) => $(node).all().map((item) => item.json)\n  .filter((x) => x && Object.keys(x).length);\nconst page = $env.STUDY_AGENT_PAGE;\n\nconst now = Date.now();\nconst day = 24 * 60 * 60 * 1000;\nconst open = list('Deadlines').filter((a) => a.due_at && a.status !== 'COMPLETED');\nconst ahead = (a) => Date.parse(a.due_at) - now;\nconst week = open.filter((a) => ahead(a) >= 0 && ahead(a) <= 7 * day);\nconst overdue = open.filter((a) => ahead(a) < 0 && ahead(a) >= -7 * day);\nconst fresh = list('New on LEARN')\n  .filter((c) => c.detected_at && now - Date.parse(c.detected_at) <= day);\nconst practice = list('Practice due').filter((q) => q.id || q.question);\nconst job = $('Last sync').first().json;\n\nconst parts = [];\nif (week.length) {\n  parts.push(`Due in the next 7 days:\\n${week.slice(0, 8).map(line).join('\\n')}` +\n             (week.length > 8 ? `\\n…and ${week.length - 8} more` : ''));\n} else {\n  const later = open.filter((a) => ahead(a) > 7 * day).slice(0, 3);\n  parts.push('Nothing due in the next 7 days.' +\n             (later.length ? `\\nComing up after that:\\n${later.map(line).join('\\n')}` : ''));\n}\nif (overdue.length) {\n  parts.push(`Past due and not marked done:\\n${overdue.slice(0, 4).map(line).join('\\n')}` +\n             '\\n(Mark them done in Study Agent if you handed them in.)');\n}\nif (fresh.length) {\n  parts.push(`New on LEARN since yesterday (${fresh.length}):\\n` +\n             fresh.slice(0, 4).map((c) => `• ${c.description}`).join('\\n'));\n}\nif (practice.length) {\n  parts.push(`🧠 ${practice.length === 10 ? '10+' : practice.length} practice question` +\n             `${practice.length === 1 ? ' is' : 's are'} due for review.`);\n}\nif (job.name === 'sync' && job.state === 'failed') {\n  parts.push(\"⚠️ Last night's LEARN sync failed, so this may be missing new things.\");\n} else if (job.name === 'sync' && job.state === 'done' && job.finished_at &&\n           now - Date.parse(job.finished_at) <= day) {\n  parts.push(`✓ LEARN checked at ${new Date(job.finished_at).toLocaleTimeString('en-CA', {\n    timeZone: tz, hour: 'numeric', minute: '2-digit' })}.`);\n}\n\nconst next = week[0];\nconst title = next\n  ? `📚 ${week.length} due this week · next: ${next.course} ${next.title}`.slice(0, 120)\n  : open.some((a) => ahead(a) > 7 * day)\n    ? (() => {\n        const soonest = open.find((a) => ahead(a) > 7 * day);\n        const days = Math.round(ahead(soonest) / day);\n        return `📚 Clear week · next: ${soonest.course} ${soonest.title} in ${days} days`\n          .slice(0, 120);\n      })()\n    : '📚 Nothing due this week';\nconst message = parts.join('\\n\\n');\nreturn [{ json: { title, message, priority: 3, tags: ['books'], click: page } }];\n"
+        "jsCode": "\nconst tz = 'America/Toronto';\nconst when = (iso) => new Date(iso).toLocaleString('en-CA', {\n  timeZone: tz, weekday: 'short', hour: 'numeric', minute: '2-digit' });\nconst line = (a) => `• ${when(a.due_at)} · ${a.course} · ${a.title}`;\nconst list = (node) => $(node).all().map((item) => item.json)\n  .filter((x) => x && Object.keys(x).length);\nconst page = $env.STUDY_AGENT_PAGE;\n\nconst now = Date.now();\nconst day = 24 * 60 * 60 * 1000;\nconst open = list('Deadlines').filter((a) => a.due_at && a.status !== 'COMPLETED');\nconst ahead = (a) => Date.parse(a.due_at) - now;\nconst week = open.filter((a) => ahead(a) >= 0 && ahead(a) <= 7 * day);\nconst overdue = open.filter((a) => ahead(a) < 0 && ahead(a) >= -7 * day);\nconst fresh = list('New on LEARN')\n  .filter((c) => c.detected_at && now - Date.parse(c.detected_at) <= day);\nconst practice = list('Practice due').filter((q) => q.id || q.question);\nconst job = $('Last sync').first().json;\nconst plan = $(\"Today's plan\").first().json;\nconst checkup = $('Check-up').first().json;\nconst span = (m) => (m >= 60\n  ? `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`\n  : `${m} min`);\n\nconst parts = [];\n// Today first: the check-up to do, then how long to spend on what.\nconst questions = (checkup.questions || []).length;\nconst waiting = questions - (checkup.answered || 0);\nif (checkup.prepared && waiting > 0) {\n  parts.push(`🧠 Check-up ready: ${waiting} question${waiting === 1 ? '' : 's'}, about ` +\n             `${Math.max(2, Math.round(waiting * 0.8))} minutes. Do it first; the plan below ` +\n             'changes with how it goes.');\n} else if (checkup.prepared) {\n  parts.push(`🧠 Check-up done: ${checkup.right} of ${questions} right.`);\n}\nconst blocks = plan.blocks || [];\nif (blocks.length || plan.review_due) {\n  const rows = blocks.slice(0, 7).map((b) => `• ${span(b.minutes)} · ${b.course} · ${b.title}` +\n    (b.topics && b.topics.length ? ` (work on ${b.topics.slice(0, 2).join(', ')})` : ''));\n  if (plan.review_due) rows.push(`• ${span(plan.review_minutes)} · review ${plan.review_due} due`);\n  parts.push(`Today's plan, ${span(plan.minutes)}:\\n${rows.join('\\n')}`);\n} else if (plan.blocks) {\n  parts.push('Nothing needs studying today.');\n}\nif (week.length) {\n  parts.push(`Due in the next 7 days:\\n${week.slice(0, 8).map(line).join('\\n')}` +\n             (week.length > 8 ? `\\n…and ${week.length - 8} more` : ''));\n} else {\n  const later = open.filter((a) => ahead(a) > 7 * day).slice(0, 3);\n  parts.push('Nothing due in the next 7 days.' +\n             (later.length ? `\\nComing up after that:\\n${later.map(line).join('\\n')}` : ''));\n}\nif (overdue.length) {\n  parts.push(`Past due and not marked done:\\n${overdue.slice(0, 4).map(line).join('\\n')}` +\n             '\\n(Mark them done in Study Agent if you handed them in.)');\n}\nif (fresh.length) {\n  parts.push(`New on LEARN since yesterday (${fresh.length}):\\n` +\n             fresh.slice(0, 4).map((c) => `• ${c.description}`).join('\\n'));\n}\nif (practice.length && !plan.review_due) {\n  parts.push(`🧠 ${practice.length === 10 ? '10+' : practice.length} practice question` +\n             `${practice.length === 1 ? ' is' : 's are'} due for review.`);\n}\nif (job.name === 'sync' && job.state === 'failed') {\n  parts.push(\"⚠️ Last night's LEARN sync failed, so this may be missing new things.\");\n} else if (job.name === 'sync' && job.state === 'done' && job.finished_at &&\n           now - Date.parse(job.finished_at) <= day) {\n  // \"3:50 a.m.\" already ends in a full stop.\n  parts.push(`✓ LEARN checked at ${new Date(job.finished_at).toLocaleTimeString('en-CA', {\n    timeZone: tz, hour: 'numeric', minute: '2-digit' })}`);\n}\n\nconst next = week[0];\nconst title = next\n  ? `📚 ${week.length} due this week · next: ${next.course} ${next.title}`.slice(0, 120)\n  : open.some((a) => ahead(a) > 7 * day)\n    ? (() => {\n        const soonest = open.find((a) => ahead(a) > 7 * day);\n        const days = Math.round(ahead(soonest) / day);\n        return `📚 Clear week · next: ${soonest.course} ${soonest.title} in ${days} days`\n          .slice(0, 120);\n      })()\n    : '📚 Nothing due this week';\nconst message = parts.join('\\n\\n');\nreturn [{ json: { title, message, priority: 3, tags: ['books'], click: `${page}/#today` } }];\n"
       }
     },
     {
@@ -167,7 +223,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1320,
+        1760,
         300
       ],
       "parameters": {
@@ -243,6 +299,28 @@
       "main": [
         [
           {
+            "node": "Today's plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Today's plan": {
+      "main": [
+        [
+          {
+            "node": "Check-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check-up": {
+      "main": [
+        [
+          {
             "node": "Write the brief",
             "type": "main",
             "index": 0
@@ -264,7 +342,7 @@
   },
   "pinData": {},
   "meta": {
-    "notes": "One push at 7:30 AM: what's due this week, anything past due, what's new on LEARN, practice questions due, and whether last night's sync worked."
+    "notes": "One push at 7:30 AM: today's check-up and study plan, what's due this week, anything past due, what's new on LEARN, and whether last night's sync worked."
   },
   "settings": {
     "executionOrder": "v1",

@@ -1,0 +1,160 @@
+{
+  "id": "daf6e53dc00a53f9",
+  "name": "Study Agent: check-up reminder",
+  "active": true,
+  "nodes": [
+    {
+      "id": "db5c269b-1500-53f5-ac46-6541d3ba9abc",
+      "name": "Run it now",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        500
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "7d1f896a-21b9-52d5-810b-af275c8499b4",
+      "name": "Every afternoon at 4",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 16 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "09a43e6f-f43e-53cb-a46d-044344c2d83b",
+      "name": "Check-up",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        300
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.STUDY_AGENT_URL }}/practice/checkup",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.STUDY_AGENT_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "565b2aa5-8be8-57ba-84ff-c13dee26c850",
+      "name": "Still waiting?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "\nconst checkup = $input.first().json;\nconst total = (checkup.questions || []).length;\nconst waiting = total - (checkup.answered || 0);\nif (!checkup.prepared || waiting <= 0) return [];\nreturn [{ json: {\n  title: \"🧠 Today's check-up is still waiting\",\n  message: `${waiting} question${waiting === 1 ? '' : 's'}, about ` +\n    `${Math.max(2, Math.round(waiting * 0.8))} minutes. Tonight's study time is set from how ` +\n    'it goes.\\n\\n👉 Tap to do it now.',\n  priority: 3, tags: ['brain'], click: `${$env.STUDY_AGENT_PAGE}/#today`,\n} }];\n"
+      }
+    },
+    {
+      "id": "8812c532-dcd6-54fc-8721-43ff6510c1d9",
+      "name": "Send to phone",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.NTFY_SERVER }}",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ topic: $env.NTFY_TOPIC, title: $json.title, message: $json.message, priority: $json.priority, tags: $json.tags, click: $json.click }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Run it now": {
+      "main": [
+        [
+          {
+            "node": "Check-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every afternoon at 4": {
+      "main": [
+        [
+          {
+            "node": "Check-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check-up": {
+      "main": [
+        [
+          {
+            "node": "Still waiting?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Still waiting?": {
+      "main": [
+        [
+          {
+            "node": "Send to phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "notes": "At 4 PM, a push if today's check-up hasn't been finished. Nothing if it has."
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Toronto",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all"
+  },
+  "tags": []
+}
