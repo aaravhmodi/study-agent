@@ -26,8 +26,10 @@ PREPARATION: dict[str, tuple[float, int]] = {
 }
 # Work that tests what you know, so practice results change how long it needs.
 TESTED = frozenset({"exam", "test", "quiz"})
-# Fewer answers than this say too little about a course to change its time.
-MIN_EVIDENCE = 3
+# Fewer answers than this say too little about a course to change its time. A daily
+# check-up asks two questions of each course it covers, so one day's is enough to count;
+# the week's answers then add to it.
+MIN_EVIDENCE = 2
 # With a day or two left, the usual share is not enough.
 LAST_DAYS = 2
 LAST_DAYS_PUSH = 1.5
@@ -153,6 +155,11 @@ def make_plan(
         for block in blocks:
             block.minutes = max(SHORTEST_BLOCK, _round(block.minutes * scale))
         review = max(5, _round(review * scale)) if review else 0
+        # Rounding each block to five minutes can leave the day a little over.
+        over = sum(block.minutes for block in blocks) + review - limit_minutes
+        if over > 0 and blocks:
+            longest = max(blocks, key=lambda block: block.minutes)
+            longest.minutes = max(SHORTEST_BLOCK, longest.minutes - over)
     return StudyPlan(
         blocks=blocks,
         review_due=review_due,

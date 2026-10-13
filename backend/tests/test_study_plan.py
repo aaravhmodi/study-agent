@@ -45,10 +45,12 @@ def test_what_practice_shows_changes_how_long_a_test_gets() -> None:
     assert block.topics == ["Torsion", "Shear", "Strain"]
 
 
-def test_two_answers_are_too_few_to_change_anything() -> None:
+def test_one_answer_is_too_few_but_a_days_check_up_counts() -> None:
     midterm = [work("SYDE 286", "Midterm Test", "test", 8.5)]
 
-    assert minutes(midterm, {"SYDE 286": Knowledge(asked=2, right=0)}) == {"Midterm Test": 60}
+    assert minutes(midterm, {"SYDE 286": Knowledge(asked=1, right=0)}) == {"Midterm Test": 60}
+    # Two questions is what one check-up asks of a course.
+    assert minutes(midterm, {"SYDE 286": Knowledge(asked=2, right=0)}) == {"Midterm Test": 90}
 
 
 def test_an_assignment_gets_its_time_whatever_practice_says() -> None:
@@ -103,3 +105,17 @@ def test_due_practice_questions_are_on_the_plan_even_on_a_free_day() -> None:
 
     assert (plan.blocks, plan.review_minutes, plan.minutes) == ([], 5, 5)
     assert make_plan([], {}, 0, NOW, limit_minutes=180).minutes == 0
+
+
+def test_rounding_never_takes_a_scaled_day_over_the_limit() -> None:
+    busy = [
+        work("SYDE 252", "Homework 2", "assignment", 1.5),
+        work("SYDE 292L", "Lab 3 report", "lab", 2.5),
+        work("SYDE 286", "Assignment 3", "assignment", 3.5),
+        work("SYDE 286", "Midterm test", "test", 8.5),
+    ]
+    weak = {"SYDE 286": Knowledge(asked=2, right=0)}
+
+    plan = make_plan(busy, weak, 2, NOW, limit_minutes=180)
+
+    assert plan.wanted_minutes > 180 and plan.minutes <= 180

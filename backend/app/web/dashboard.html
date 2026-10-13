@@ -230,6 +230,7 @@ textarea:focus,select:focus{border-color:var(--ink);outline:none;box-shadow:inse
 .practice-topics .count{font:12px var(--mono);color:var(--ink-3);text-align:right}
 .practice-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 .practice-actions button{padding:7px 13px;font-size:13.5px}
+.today-time{float:right;margin-left:12px;font:500 14px/1.6 var(--mono);color:var(--ink-2)}
 .review-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:6px}
 .review-head p{margin:0;font:13px var(--mono);color:var(--ink-2)}
 .figure.source .source-where{display:block;font:12.5px/1.5 var(--mono);color:var(--ink-2);margin-top:3px;overflow-wrap:anywhere}
@@ -332,6 +333,7 @@ button.row:hover b{text-decoration:underline;text-decoration-color:var(--pencil)
 
   <nav class="screen-nav" id="screen-nav" aria-label="Dashboard screens">
     <button type="button" data-screen="ask">Ask</button>
+    <button type="button" data-screen="today">Today</button>
     <button type="button" data-screen="upcoming">Coming up</button>
     <button type="button" data-screen="practice">Practice</button>
     <button type="button" data-screen="courses">Courses</button>
@@ -374,6 +376,12 @@ button.row:hover b{text-decoration:underline;text-decoration-color:var(--pencil)
       </section>
       <section id="courses-detail" class="detail hidden" aria-live="polite"><div id="courses-detail-content"></div></section>
     </div>
+    <div id="screen-today" class="screen hidden">
+      <section class="section" aria-labelledby="today-title">
+        <div class="section-head"><h2 id="today-title">Today</h2></div>
+        <div id="today"><p class="loading">Loading…</p></div>
+      </section>
+    </div>
     <div id="screen-practice" class="screen hidden">
       <section class="section" aria-labelledby="practice-title">
         <div class="section-head"><h2 id="practice-title">Practice</h2><button type="button" class="quiet-button hidden" id="review-close">Back to all courses</button></div>
@@ -410,7 +418,7 @@ button.row:hover b{text-decoration:underline;text-decoration-color:var(--pencil)
 <script>
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const $ = selector => document.querySelector(selector);
-const screenNames = new Set(['ask', 'upcoming', 'practice', 'courses', 'chats', 'activity']);
+const screenNames = new Set(['ask', 'today', 'upcoming', 'practice', 'courses', 'chats', 'activity']);
 function showScreen(name) {
   const selected = screenNames.has(name) ? name : 'ask';
   document.querySelectorAll('.screen').forEach(screen => screen.classList.toggle('hidden', screen.id !== `screen-${selected}`));
@@ -426,6 +434,7 @@ $('#screen-nav').addEventListener('click', event => {
 window.addEventListener('hashchange', () => showScreen(location.hash.slice(1)));
 // The Practice screen shows how things stand now, so it is read each time it opens.
 window.addEventListener('hashchange', () => { if (location.hash === '#practice') loadPractice() });
+window.addEventListener('hashchange', () => { if (location.hash === '#today') loadToday() });
 showScreen(location.hash.slice(1));
 const date = value => value ? new Date(value).toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}) : 'No date';
 const DAY = 86400000;
@@ -1195,6 +1204,83 @@ function closeReview() {
 }
 $('#review-close').addEventListener('click', closeReview);
 
+// Today: a short check-up of what you know, then how long to spend on what. The plan is
+// worked out on the server from the deadlines and the last week's answers, so it changes
+// as soon as the check-up is done.
+const span = minutes => minutes >= 60
+  ? `${Math.floor(minutes / 60)} h${minutes % 60 ? ` ${minutes % 60} min` : ''}`
+  : `${minutes} min`;
+function drawPlan(plan) {
+  const total = plan.minutes
+    ? `<b>${span(plan.minutes)}</b> today` + (plan.wanted_minutes > plan.minutes
+      ? ` <span class="muted">(cut from ${span(plan.wanted_minutes)} to fit your ${span(plan.limit_minutes)} a day)</span>` : '')
+    : 'Nothing needs studying today.';
+  const blocks = plan.blocks.map(block => `<div class="practice-course">
+      <h3>${esc(block.course)} · ${esc(block.title)}<span class="today-time">${span(block.minutes)}</span></h3>
+      <p class="practice-line">${esc(block.reason)}</p>
+      ${block.topics.length ? `<p class="practice-line">Work on: <b>${esc(block.topics.join(', '))}</b></p>` : ''}
+    </div>`).join('');
+  const review = plan.review_due ? `<div class="practice-course">
+      <h3>Review<span class="today-time">${span(plan.review_minutes)}</span></h3>
+      <p class="practice-line"><b>${plan.review_due}</b> practice question${plan.review_due === 1 ? '' : 's'} due again. <a href="#practice">Open Practice</a></p>
+    </div>` : '';
+  $('#today-plan').innerHTML = `<div class="practice-course"><h3>Plan</h3><p class="practice-line">${total}</p></div>${blocks}${review}`;
+}
+function drawCheckup(checkup) {
+  const box = $('#today-checkup');
+  const count = checkup.questions.length;
+  const left = count - checkup.answered;
+  const body = !checkup.prepared
+    ? `<p class="practice-line">Today's check-up isn't ready yet.</p>
+       <div class="practice-actions"><button type="button" class="primary-button" id="checkup-make">Prepare it now</button></div>`
+    : left
+      ? `<p class="practice-line"><b>${count}</b> questions, about ${Math.max(2, Math.round(count * 0.8))} minutes${checkup.answered ? ` · <b>${checkup.answered}</b> answered` : ''}. Do it first: the plan below changes with how it goes.</p>
+         <div class="practice-actions"><button type="button" class="primary-button" id="checkup-start">${checkup.answered ? 'Carry on' : 'Start the check-up'}</button></div>`
+      : `<p class="practice-line">Done: <b>${checkup.right}</b> of ${count} right. The plan below takes it into account.</p>`;
+  box.innerHTML = `<div class="practice-course"><h3>Check-up</h3>${body}</div>`;
+  $('#checkup-make')?.addEventListener('click', async event => {
+    event.target.disabled = true;
+    event.target.textContent = 'Writing your questions, about a minute…';
+    try { await getJson('/practice/checkup', {method: 'POST'}) } catch (error) { toast(error.message || String(error), 'error') }
+    loadToday();
+  });
+  $('#checkup-start')?.addEventListener('click', () => startCheckup(checkup));
+}
+// The unanswered questions, one after another. They stay on the screen once answered, so
+// the last one's explanation can be read; only the summary and the plan are redrawn.
+function startCheckup(checkup) {
+  const list = $('#checkup-questions');
+  $('#checkup-start')?.closest('.practice-actions')?.remove();
+  list.innerHTML = '<div class="answer"></div>';
+  const open = checkup.questions.filter(question => !question.answered);
+  let left = open.length;
+  for (const question of open) {
+    const holder = document.createElement('figure');
+    holder.className = 'figure';
+    list.firstChild.append(holder);
+    drawQuiz(holder, question.quiz, question.course, () => {
+      left -= 1;
+      if (left) return;
+      // The last answer is still being kept; give it a moment before reading the result.
+      setTimeout(async () => {
+        try {
+          const [plan, done] = await Promise.all([getJson('/practice/plan'), getJson('/practice/checkup')]);
+          drawCheckup(done);
+          drawPlan(plan);
+        } catch (_) {}
+      }, 900);
+    });
+  }
+}
+async function loadToday() {
+  const box = $('#today');
+  let plan, checkup;
+  try { [plan, checkup] = await Promise.all([getJson('/practice/plan'), getJson('/practice/checkup')]) } catch (error) { box.innerHTML = `<div class="notice">${esc(error.message || error)}</div>`; return }
+  box.innerHTML = '<div id="today-checkup"></div><div id="checkup-questions"></div><div id="today-plan"></div>';
+  drawCheckup(checkup);
+  drawPlan(plan);
+}
+
 // The open conversation; follow-ups are sent with its id so the tutor sees earlier turns.
 let currentSession = null;
 
@@ -1601,6 +1687,7 @@ async function deleteCourseNote(courseId, noteId, button) {
 loadChats();
 watchJob();
 if (location.hash === '#practice') loadPractice();
+if (location.hash === '#today') loadToday();
 load().catch(error => {
   $('#status-line').textContent = 'Could not load your courses.';
   fail(error);
