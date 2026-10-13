@@ -25,3 +25,7 @@ data/practice.json
 data/practice.tmp
 data/pages/
 data/demo-pages/
+data/chat_threads.json
+data/chat_threads.tmp
+data/checkups.json
+data/checkups.tmp

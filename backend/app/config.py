@@ -31,8 +31,11 @@ class Settings(BaseSettings):
     # Enough for most of a textbook chapter, which a study guide of it is written from.
     rag_detailed_context_tokens: int = Field(default=16000, ge=300, le=40000)
     rag_detailed_max_output_tokens: int = Field(default=12000, ge=256, le=32000)
-    # Adds online context next to course materials; costs one search per question.
+    # Lets the tutor add online context when the course files match little or the
+    # question asks for it; each search is paid for. False never searches.
     rag_web_search: bool = True
+    # Search the web on every question, as it used to.
+    rag_web_search_always: bool = False
     browser_mode: str = Field(default="local", pattern="^(local|cloud|mock)$")
     database_url: str = _REAL_DATABASE_URL
     learn_url: str = "https://learn.uwaterloo.ca"

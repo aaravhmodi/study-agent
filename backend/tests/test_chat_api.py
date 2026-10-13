@@ -12,6 +12,8 @@ class FakeRag:
 
     calls: list[dict[str, Any]] = []
     depths: list[Any] = []
+    # What the conversation has sent so far; this stand-in keeps none.
+    thread = None
 
     def __init__(self, settings: Any) -> None:
         pass

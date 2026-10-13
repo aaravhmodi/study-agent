@@ -165,6 +165,7 @@ class FakeTutor:
     """Stands in for RagService in the chat endpoint."""
 
     seen: list[list[Picture]] = []
+    thread = None
 
     def __init__(self, settings: Settings) -> None:
         pass

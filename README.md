@@ -157,7 +157,7 @@ OpenAI holds a copy of the course files' text in a vector store, and sees each q
 
 1. The page posts the question to `/chat`.
 2. The server searches the vector store once, for that course if one is chosen, and keeps the best distinct passages within a token budget.
-3. It sends a fixed, cached set of teaching instructions, your notes for the course, the last few exchanges and the passages to the chat model.
+3. It sends a fixed, cached set of teaching instructions, your notes for the course and the passages to the chat model. A follow-up continues the earlier response instead, so everything already sent is read from the prompt cache and only the new question and passages the conversation hasn't seen are sent. The web is searched only when the course files match little or you ask for it.
 4. It validates the answer: figures become drawings, and each course question the tutor cites is located in the saved PDF and turned into a screenshot reference.
 5. The answer is saved to the conversation and, for a first question, to the answer cache.
 

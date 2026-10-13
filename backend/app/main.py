@@ -30,6 +30,7 @@ from app.services.access import (
 )
 from app.services.chat_images import ImageError, prepare_picture
 from app.services.chat_sessions import SESSIONS_FILE, ChatSessionStore
+from app.services.chat_thread import THREADS_FILE, ThreadStore
 from app.services.course_notes import (
     NOTES_FILE,
     CourseNote,
@@ -115,6 +116,7 @@ def chat(request: ChatRequest) -> ChatResponse:
     session = store.get(request.session_id) if request.session_id else None
     if request.session_id and session is None:
         raise HTTPException(status_code=404, detail="Chat session not found")
+    threads = _threads()
     try:
         prepared = [prepare_picture(image.data_url) for image in request.images]
     except ImageError as exc:
@@ -129,6 +131,8 @@ def chat(request: ChatRequest) -> ChatResponse:
             depth=request.depth,
             history=session.turns if session else None,
             pictures=pictures,
+            # What the conversation has already sent, so a follow-up sends only what is new.
+            thread=threads.get(session.id) if session else None,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -138,6 +142,7 @@ def chat(request: ChatRequest) -> ChatResponse:
     # The conversation keeps a thumbnail and what each picture said, not the picture.
     kept = [TurnImage(thumbnail=picture.thumbnail, text=picture.text) for picture in pictures]
     store.add_turn(session.id, request.question, request.course_code, response, images=kept)
+    threads.put(session.id, tutor.thread)
     return response.model_copy(update={"session_id": session.id, "images": kept})
 
 
@@ -159,11 +164,17 @@ def chat_session(session_id: str) -> ChatSession:
 def delete_chat_session(session_id: str) -> dict[str, bool]:
     if not ChatSessionStore(_sessions_path()).delete(session_id):
         raise HTTPException(status_code=404, detail="Chat session not found")
+    _threads().put(session_id, None)
     return {"deleted": True}
 
 
 def _sessions_path() -> Path:
     return get_settings().data_dir / SESSIONS_FILE
+
+
+def _threads() -> ThreadStore:
+    # Kept beside the conversations they belong to.
+    return ThreadStore(_sessions_path().with_name(THREADS_FILE))
 
 
 @app.get("/courses/{course_id}/notes", response_model=list[CourseNote])

@@ -9,7 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, NamedTuple, cast
 
-from openai import BadRequestError, NotFoundError, OpenAI
+from openai import APIStatusError, BadRequestError, NotFoundError, OpenAI
 from sqlalchemy import select
 
 from app.config import Settings
@@ -20,6 +20,7 @@ from app.schemas.chat_session import ChatTurn
 from app.services.answer_cache import AnswerCache, cache_key, index_fingerprint
 from app.services.answer_format import clean_answer, clean_citations, display_filename
 from app.services.chat_images import Picture
+from app.services.chat_thread import Thread, unseen
 from app.services.course_figures import course_figure_guide
 from app.services.course_notes import NOTES_FILE, course_in_question, tutor_notes
 from app.services.figure_guide import FIGURE_GUIDE
@@ -57,6 +58,14 @@ MAX_PICTURE_TEXT = 4000
 _CACHE_KEY = "study-agent-tutor"
 # Earlier exchanges sent with a follow-up question.
 FOLLOW_UP_TURNS = 3
+# The course files "matched little" when the search found less than this many tokens,
+# about two passages; only then is a web search worth paying for unasked.
+THIN_MATCH_TOKENS = 800
+_ASKS_FOR_WEB = re.compile(
+    r"\b(search (the )?(web|internet|online)|look (it |this )?up online|on the (web|internet)"
+    r"|from the internet|online sources?|google)\b",
+    re.IGNORECASE,
+)
 
 # Smaller, less overlapping chunks than OpenAI's default (800 tokens, 400 overlap):
 # the same context budget then holds more distinct, more focused passages.
@@ -169,6 +178,8 @@ class RagService:
         self.client = client or OpenAI(api_key=settings.openai_api_key, max_retries=6)
         self.manifest_path = settings.data_dir / "rag_manifest.json"
         self.downloads_dir = settings.downloads_dir
+        # The conversation's thread after the last answer, for the caller to keep.
+        self.thread: Thread | None = None
 
     def index_database(
         self, progress: Callable[[str], None] | None = None
@@ -340,13 +351,19 @@ class RagService:
         depth: Depth = "detailed",
         history: list[ChatTurn] | None = None,
         pictures: list[Picture] | None = None,
+        thread: Thread | None = None,
     ) -> ChatResponse:
         """Answer a question from the course files, as a quick summary or a study guide.
 
         ``pictures`` are what the student attached, already read: the model looks at
         them, and what they say also steers the search of the course files.
+
+        ``thread`` is what the conversation has already sent. With it, a follow-up
+        continues the earlier response and sends only what is new; ``self.thread`` is
+        then the conversation's thread after this answer, for the caller to keep.
         """
 
+        self.thread = None
         pictures = pictures or []
         manifest = self._load_manifest()
         vector_store_id = manifest.get("vector_store_id")
@@ -380,20 +397,30 @@ class RagService:
         if not fresh and not earlier and not pictures and (saved := cache.get(key)):
             return saved.model_copy(update={"cached": True, "usage": None})
         lecture_ids = matching_resource_ids(question, files, normalized_course_code)
+        # A follow-up continues the earlier response when there is one to continue: the
+        # course, its notes and everything said so far are already there, at the cached
+        # rate, so they are not sent again.
+        continuing = thread if earlier and thread is not None and thread.can_continue else None
         context = []
-        if normalized_course_code:
+        if normalized_course_code and continuing is None:
             context.append(f"Course: {normalized_course_code}")
-        if note:
+        if note and continuing is None:
             context.append(
                 f"Instructor notes for {note_course} (what the professor said about its "
                 "assessments, saved by the student; background for the answer, not what the "
                 f"student is asking about; newest first):\n{note}"
             )
-        if graphs:
+        if graphs and continuing is None:
             context.append(graphs)
         named_chapters = _chapter_numbers(question)
-        outline = _chapter_outline(
-            files, note_course, named_chapters | _chapter_numbers(note or "")
+        # Continuing, the outline is sent again only for a chapter this question names.
+        outline_chapters = named_chapters | (
+            _chapter_numbers(note or "") if continuing is None else set()
+        )
+        outline = (
+            _chapter_outline(files, note_course, outline_chapters)
+            if continuing is None or outline_chapters
+            else None
         )
         if outline:
             context.append(outline)
@@ -403,7 +430,13 @@ class RagService:
                 for resource_id in lecture_ids
             )
             context.append(f"Lecture files: {names}")
-        if earlier:
+        if continuing is not None:
+            # The conversation itself is already with the model.
+            context.append(
+                "Answer the new question as a follow-up; do not repeat what was already "
+                f"explained.\nNew question: {question}"
+            )
+        elif earlier:
             context.append(
                 "Earlier in this conversation (answer the new question as a follow-up; "
                 "do not repeat what was already explained):"
@@ -461,22 +494,46 @@ class RagService:
             )
         passages, documents = self._located(chapter_text + found, files)
         context.append("")
-        context.append(format_passages(passages))
+        if continuing is None:
+            context.append(format_passages(passages))
+        else:
+            # Only the passages the conversation has not been sent; the earlier ones are
+            # kept with these, since the answer may cite either.
+            fresh_passages = unseen(passages, continuing)
+            context.append(
+                format_passages(fresh_passages).replace("Course passages", "More course passages")
+                if fresh_passages
+                else "No new course passages: the ones above cover this."
+            )
+            passages, documents = self._located(continuing.passages + fresh_passages, files)
         tools: list[dict[str, Any]] = []
-        if self.settings.rag_web_search:
+        if self._search_the_web(question, chapter_text + found):
             tools.append({"type": "web_search", "search_context_size": "low"})
-        response = self.client.responses.create(
-            model=self.settings.openai_chat_model,
+        request: dict[str, Any] = {
+            "model": self.settings.openai_chat_model,
             # Static instructions form a stable prefix that OpenAI can cache.
-            instructions=TUTOR_INSTRUCTIONS[depth],
-            input=_model_input("\n".join(context), pictures),
-            tools=cast(Any, tools),
+            "instructions": TUTOR_INSTRUCTIONS[depth],
+            "input": _model_input("\n".join(context), pictures),
+            "tools": tools,
             # One web search at most; course passages are already in the input.
-            max_tool_calls=1,
-            prompt_cache_key=_CACHE_KEY,
-            reasoning=cast(Any, {"effort": self.settings.openai_chat_reasoning_effort}),
-            max_output_tokens=budget.max_output_tokens,
-        )
+            "max_tool_calls": 1,
+            "prompt_cache_key": _CACHE_KEY,
+            "reasoning": {"effort": self.settings.openai_chat_reasoning_effort},
+            "max_output_tokens": budget.max_output_tokens,
+        }
+        if continuing is not None:
+            request["previous_response_id"] = continuing.response_id
+        try:
+            response = self.client.responses.create(**request)
+        except APIStatusError as exc:
+            if continuing is None or exc.status_code not in (400, 404):
+                raise
+            # The earlier response is gone (they are kept 30 days) or can't be continued:
+            # answer the old way, from scratch, which starts a new thread.
+            logger.warning("Could not continue the conversation (%s)", exc.status_code)
+            return self.ask(
+                question, course_code, fresh=fresh, depth=depth, history=history, pictures=pictures
+            )
         answer = clean_answer(str(getattr(response, "output_text", "")))
         if not answer:
             raise RuntimeError("OpenAI returned an empty answer")
@@ -495,7 +552,28 @@ class RagService:
         )
         if not earlier and not pictures:
             cache.put(key, result)
+        response_id = str(getattr(response, "id", "") or "")
+        if response_id:
+            self.thread = Thread(
+                response_id=response_id,
+                passages=passages,
+                input_tokens=result.usage.input_tokens if result.usage else 0,
+            )
         return result
+
+    def _search_the_web(self, question: str, matched: list[Passage]) -> bool:
+        """Whether this question gets a web search.
+
+        A search is paid for each time, and the course files answer most questions (two
+        answers in forty cited the web). So it is offered when the files matched little,
+        when the student asks for it, or always if RAG_WEB_SEARCH_ALWAYS is set.
+        """
+
+        if not self.settings.rag_web_search:
+            return False
+        if self.settings.rag_web_search_always or _ASKS_FOR_WEB.search(question):
+            return True
+        return sum(passage.tokens for passage in matched) < THIN_MATCH_TOKENS
 
     def read_picture(self, picture: Picture) -> Picture:
         """Have the model read an attached picture, so its content outlives the turn.
