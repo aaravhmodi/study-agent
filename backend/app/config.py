@@ -20,19 +20,19 @@ class Settings(BaseSettings):
     )
     rag_max_results: int = Field(default=6, ge=1, le=50)
     # Course text sent with each question; passages stop once this many tokens are used.
-    rag_context_tokens: int = Field(default=1800, ge=300, le=20000)
+    rag_context_tokens: int = Field(default=3000, ge=300, le=20000)
     # Search results below this relevance score (0 to 1) are not sent.
     rag_min_score: float = Field(default=0.3, ge=0, le=1)
     # Room for a worked explanation with figures and a set of practice questions; an
     # answer cut short loses its last question.
-    rag_max_output_tokens: int = Field(default=2500, ge=256, le=32000)
+    rag_max_output_tokens: int = Field(default=4500, ge=256, le=32000)
     # A study-guide answer reads more of the course and has room to teach a whole chapter.
     rag_detailed_max_results: int = Field(default=14, ge=1, le=50)
     # Enough for most of a textbook chapter, which a study guide of it is written from.
-    rag_detailed_context_tokens: int = Field(default=8000, ge=300, le=40000)
-    rag_detailed_max_output_tokens: int = Field(default=6000, ge=256, le=32000)
+    rag_detailed_context_tokens: int = Field(default=16000, ge=300, le=40000)
+    rag_detailed_max_output_tokens: int = Field(default=12000, ge=256, le=32000)
     # Adds online context next to course materials; costs one search per question.
-    rag_web_search: bool = False
+    rag_web_search: bool = True
     browser_mode: str = Field(default="local", pattern="^(local|cloud|mock)$")
     database_url: str = _REAL_DATABASE_URL
     learn_url: str = "https://learn.uwaterloo.ca"

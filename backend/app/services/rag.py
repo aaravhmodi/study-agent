@@ -123,14 +123,14 @@ several paragraphs: a plain-language definition, the intuition behind it, the go
 formula with every symbol defined, a small example with numbers, and how it links to the \
 others.
 ## Worked examples
-One or two examples in numbered steps, from routine to exam level, from the materials \
+Two or three examples in numbered steps, from routine to exam level, from the materials \
 when possible. If a result is a function, a diagram or a circuit, end with a figure of it.
 ## Common mistakes
-Three or four bullets, each with why it is wrong and what to do instead.
+Three to six bullets, each with why it is wrong and what to do instead.
 ## Check yourself
-Three questions that test understanding, not recall, each as a quiz block.
+Five questions that test understanding, not recall, each as a quiz block.
 ## Study checklist
-Three or four prioritized bullets: the pages or problems to work through and when to \
+Three to six prioritized bullets: the pages or problems to work through and when to \
 revisit (tomorrow, next week).
 
 For other questions (a single fact, a plan, a comparison, a problem to solve), answer \
@@ -676,8 +676,9 @@ class RagService:
                 if graphs
                 else {}
             ),
-            # Bump when the answer instructions or output shape changes.
-            "format": 10,
+            # Bump when the saved response format changes (4: course questions shown
+            # from the student's files).
+            "format": 9,
         }
 
     def _passages(
