@@ -74,6 +74,27 @@
       }
     },
     {
+      "id": "0a768935-e90f-5d4e-a009-14c6d09d1ca5",
+      "name": "Send answer to ntfy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.NTFY_SERVER }}",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ topic: $env.NTFY_TOPIC, title: 'Home server assistant', message: $json.output }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      }
+    },
+    {
       "id": "a4d2d8d6-83c2-5620-b023-88c02234007b",
       "name": "OpenAI",
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
@@ -446,6 +467,17 @@
           {
             "node": "Assistant",
             "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assistant": {
+      "main": [
+        [
+          {
+            "node": "Send answer to ntfy",
+            "type": "main",
             "index": 0
           }
         ]

@@ -261,6 +261,23 @@ def assistant() -> dict:
             },
         },
         {
+            "id": _id(f"{NAME}/Send answer to ntfy"),
+            "name": "Send answer to ntfy",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [680, 300],
+            "parameters": {
+                "method": "POST",
+                "url": "={{ $env.NTFY_SERVER }}",
+                "sendBody": True,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": "={{ JSON.stringify({ topic: $env.NTFY_TOPIC, "
+                "title: 'Home server assistant', message: $json.output }) }}",
+                "options": {"timeout": 15000},
+            },
+        },
+        {
             "id": _id(f"{NAME}/{model}"),
             "name": model,
             "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
@@ -294,6 +311,9 @@ def assistant() -> dict:
         model: into_agent("ai_languageModel"),
         memory: into_agent("ai_memory"),
         **{node["name"]: into_agent("ai_tool") for node in tools()},
+    }
+    connections[AGENT] = {
+        "main": [[{"node": "Send answer to ntfy", "type": "main", "index": 0}]]
     }
     flow = workflow(
         NAME,
