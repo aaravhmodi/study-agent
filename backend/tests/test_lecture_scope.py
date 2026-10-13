@@ -139,18 +139,19 @@ def test_unknown_lecture_falls_back_to_the_whole_course(tmp_path: Path) -> None:
     assert "Lecture files" not in call["input"]
 
 
-def test_web_search_adds_online_context_cheaply(tmp_path: Path) -> None:
+def test_web_search_adds_online_context_cheaply_when_switched_on(tmp_path: Path) -> None:
     responses = FakeResponses()
 
-    _service(tmp_path, responses).ask("Explain shear force.", "SYDE 286")
+    _service(tmp_path, responses, rag_web_search=True).ask("Explain shear force.", "SYDE 286")
 
     assert responses.calls[0]["tools"] == [{"type": "web_search", "search_context_size": "low"}]
 
 
-def test_web_search_can_be_turned_off(tmp_path: Path) -> None:
+def test_web_search_is_off_unless_asked_for(tmp_path: Path) -> None:
+    # A search per question costs more than the answer; the course files come first.
     responses = FakeResponses()
 
-    _service(tmp_path, responses, rag_web_search=False).ask("Explain shear force.", "SYDE 286")
+    _service(tmp_path, responses).ask("Explain shear force.", "SYDE 286")
 
     assert responses.calls[0]["tools"] == []
 

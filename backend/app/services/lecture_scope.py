@@ -16,7 +16,7 @@ _FAMILIES: dict[str, tuple[str, ...]] = {
 }
 _QUESTION_REF = re.compile(
     r"\b(lectures?|lec|weeks?|chapters?|ch|tutorials?|tut|modules?|units?|labs?)"
-    r"\.?\s*#?\s*(\d{1,2})(?:\s*(?:-|–|to|through)\s*(\d{1,2}))?\b",
+    r"\.?\s*#?\s*(\d{1,2})(?:\s*(?:-|\u2013|\u2014|to|through)\s*(\d{1,2}))?\b",
     flags=re.IGNORECASE,
 )
 # Ranges larger than this are probably not a list of units ("weeks 1-52").

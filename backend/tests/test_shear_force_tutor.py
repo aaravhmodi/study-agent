@@ -97,16 +97,16 @@ def test_a_quick_summary_keeps_the_token_budget_small(tmp_path: Path) -> None:
 
     call = responses.calls[0]
     assert call["reasoning"] == {"effort": "low"}
-    assert call["max_output_tokens"] == 4500
-    # Passages are sent in the input, so the model gets no file search of its own
-    # and at most one web search.
-    assert [tool["type"] for tool in call["tools"]] == ["web_search"]
+    assert call["max_output_tokens"] == 2500
+    # Passages are sent in the input, so the model gets no file search of its own, and
+    # no web search unless it is switched on.
+    assert call["tools"] == []
     assert call["max_tool_calls"] == 1
     assert call["prompt_cache_key"] == "study-agent-tutor"
     search = service.client.vector_stores.calls[0]  # type: ignore[attr-defined]
     assert search["max_num_results"] == 18
     assert search["ranking_options"] == {"score_threshold": 0.3}
-    assert Settings().rag_context_tokens == 3000
+    assert Settings().rag_context_tokens == 1800
 
 
 def test_a_study_guide_reads_more_of_the_course_and_may_run_longer(tmp_path: Path) -> None:
@@ -122,7 +122,7 @@ def test_a_study_guide_reads_more_of_the_course_and_may_run_longer(tmp_path: Pat
     service.ask("Explain chapter 3.", SHEAR_COURSE)
 
     quick, detailed = responses.calls
-    assert quick["max_output_tokens"] == 4500 and detailed["max_output_tokens"] == 12000
+    assert quick["max_output_tokens"] == 2500 and detailed["max_output_tokens"] == 6000
     searches = service.client.vector_stores.calls  # type: ignore[attr-defined]
     assert [search["max_num_results"] for search in searches] == [18, 42]
     # A chapter lives in one file: a summary takes three passages from it, a guide all eight.
