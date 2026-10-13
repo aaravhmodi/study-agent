@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -366,6 +367,7 @@ def assessments() -> list[dict[str, Any]]:
                 "title": assessment.title,
                 "type": assessment.assessment_type,
                 "due_at": _iso(assessment.due_at),
+                "due_local": _local(assessment.due_at, get_settings().timezone),
                 "description": assessment.description,
                 "status": _assessment_status(assessment.due_at, assessment.status),
                 "source_url": assessment.source_url,
@@ -662,6 +664,16 @@ def _iso(value: datetime | None) -> str | None:
     if value.tzinfo is None:
         value = value.replace(tzinfo=UTC)
     return value.astimezone().isoformat(timespec="minutes")
+
+
+def _local(value: datetime | None, timezone: str) -> str | None:
+    """The time as a clock there shows it, e.g. "Mon 16 Nov 2026, 11:59 PM"."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    there = value.astimezone(ZoneInfo(timezone))
+    return f"{there:%a} {there.day} {there:%b %Y}, {there.hour % 12 or 12}:{there:%M %p}"
 
 
 def _assessment_status(due_at: datetime | None, stored_status: str) -> str:
