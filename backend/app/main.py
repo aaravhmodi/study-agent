@@ -45,8 +45,10 @@ from app.services.rag import RagService
 from app.services.refresh import rebuild_index, sync_learn
 from app.services.saved_files import saved_file
 from app.services.study_context import relevant_coursework, study_guidance
+from app.today import register as register_today
 
 app = FastAPI(title="StudyAgent", version="0.1.0")
+register_today(app)
 _DASHBOARD_PAGE = Path(__file__).parent / "web" / "dashboard.html"
 # The page itself holds no data; everything it loads needs the session cookie.
 _OPEN_PATHS = {"/dashboard", "/health", "/login", "/logout"}

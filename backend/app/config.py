@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     browser_use_api_key: str | None = None
     browser_use_executable: str = "browser-use"
     timezone: str = "America/Toronto"
+    # The Today screen: the most study time a day's plan asks for, and how many
+    # questions the daily check-up has.
+    study_minutes_per_day: int = Field(default=180, ge=30, le=720)
+    checkup_questions: int = Field(default=6, ge=1, le=15)
     # Needed to serve the dashboard beyond this computer; every request then needs it.
     dashboard_password: str | None = Field(default=None, min_length=12)
     # Lets a program on your own network (n8n) call the API with an

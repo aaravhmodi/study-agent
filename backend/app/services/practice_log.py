@@ -138,6 +138,11 @@ class PracticeLog:
         waiting.sort(key=lambda item: (item.right, item.due_at))
         return waiting[:limit]
 
+    def items(self) -> list[PracticeItem]:
+        """Every question practised, with its attempts."""
+
+        return list(self._load().values())
+
     def scores(self, *, now: datetime | None = None) -> list[CourseScore]:
         """Each course's standing, the course with the most due first."""
 
