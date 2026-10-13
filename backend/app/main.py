@@ -1,12 +1,13 @@
 # ruff: noqa: E501
 
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import select
 
@@ -37,6 +38,7 @@ from app.services.course_notes import (
     delete_note,
     list_notes,
 )
+from app.services.course_upload import CoursePdfError, save_course_pdf
 from app.services.jobs import JobRunner, JobStatus
 from app.services.learn_links import viewer_url
 from app.services.pdf_pages import PdfError, render_pdf_page
@@ -49,6 +51,7 @@ from app.today import register as register_today
 
 app = FastAPI(title="StudyAgent", version="0.1.0")
 register_today(app)
+logger = logging.getLogger(__name__)
 _DASHBOARD_PAGE = Path(__file__).parent / "web" / "dashboard.html"
 # The page itself holds no data; everything it loads needs the session cookie.
 _OPEN_PATHS = {"/dashboard", "/health", "/login", "/logout"}
@@ -303,6 +306,35 @@ def course_detail(course_id: str) -> dict[str, Any]:
         if course is None or not course.active:
             raise HTTPException(status_code=404, detail="Course not found")
         return _course_detail_payload(course)
+
+
+@app.post("/courses/{course_id}/resources/pdf")
+def upload_course_pdf(course_id: str, file: Annotated[UploadFile, File()]) -> dict[str, Any]:
+    """Add a local PDF to a course and start indexing it for the tutor."""
+
+    if _jobs.status().state == "running":
+        raise HTTPException(status_code=409, detail="Wait for the current sync or index to finish.")
+    ensure_schema()
+    settings = get_settings()
+    with SessionLocal() as session:
+        course = session.get(Course, course_id)
+        if course is None or not course.active:
+            raise HTTPException(status_code=404, detail="Course not found.")
+        try:
+            resource = save_course_pdf(course, file.filename or "", file.file, settings)
+        except CoursePdfError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.warning("Could not process uploaded course PDF (%s)", type(exc).__name__)
+            raise HTTPException(
+                status_code=422, detail="Could not extract or transcribe this PDF."
+            ) from exc
+        session.add(resource)
+        session.commit()
+        resource_id = resource.id
+        title = resource.title
+    indexing_started = _jobs.start("index", rebuild_index)
+    return {"id": resource_id, "title": title, "indexing_started": indexing_started}
 
 
 @app.get("/assessments")

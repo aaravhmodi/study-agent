@@ -168,6 +168,8 @@ textarea:focus,select:focus{border-color:var(--ink);outline:none;box-shadow:inse
 .answer a.cite:hover{color:var(--ink);text-decoration-color:var(--pencil)}
 .answer .cite::before{content:"↳ "}
 .answer .online{font:11px var(--mono);color:var(--pencil);border:1px solid currentColor;border-radius:2px;padding:0 3px;margin-left:2px;vertical-align:1px}
+.course-upload{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0 16px;padding:12px;border:1px solid var(--rule);background:var(--sheet)}
+.course-upload input[type=file]{max-width:100%;font:13px var(--sans)}
 .sources{margin:28px 0 0;padding-top:12px;border-top:1px solid var(--rule);font-size:13.5px;max-width:70ch}
 .sources ol{margin:6px 0 0;padding-left:22px}
 .sources li{margin:3px 0}
@@ -1488,7 +1490,10 @@ async function openCourse(id, name, row) {
       <textarea id="course-note" aria-label="New note" maxlength="4000" placeholder="e.g. The midterm covers chapters 1-4; two R coding questions; 40 multiple choice."></textarea>
       <div class="note-actions"><select id="note-about" aria-label="About"><option value="">About the whole course</option>${c.assessments.map(a => `<option value="${esc(a.title)}">About: ${esc(a.title)}</option>`).join('')}</select><button class="secondary-button" data-save-note="${esc(c.id)}">Add note</button></div>
       <h3>Assessments</h3><div>${c.assessments.length ? c.assessments.map(a => `<button class="row" data-assessment="${esc(a.id)}" data-name="${esc(a.title)}"><span><b>${esc(a.title)}</b><span class="sub">${esc(a.type)} · ${esc(date(a.due_at))}</span></span><span class="side">${statusPill(a.status, a.due_at)}</span></button>`).join('') : '<div class="empty">No assessments found.</div>'}</div>
-      <h3>Coursework you have</h3><div>${c.resources.length ? c.resources.map(r => `<div class="resource"><b>${resourceLink(r)}</b> <span class="type">${esc(String(r.type || '').toLowerCase())}</span>${r.description ? `<div class="sub">${esc(r.description)}</div>` : ''}</div>`).join('') : '<div class="empty">No resources found.</div>'}</div>
+      <h3>Coursework you have</h3>
+      <p class="sub">Add a PDF from your computer as searchable context for this course.</p>
+      <form class="course-upload" data-upload-course-pdf="${esc(c.id)}"><label class="label" for="course-pdf">PDF</label><input id="course-pdf" name="file" type="file" accept="application/pdf,.pdf" required><button class="secondary-button" type="submit">Add PDF</button></form>
+      <div>${c.resources.length ? c.resources.map(r => `<div class="resource"><b>${resourceLink(r)}</b> <span class="type">${esc(String(r.type || '').toLowerCase())}</span>${r.description ? `<div class="sub">${esc(r.description)}</div>` : ''}</div>`).join('') : '<div class="empty">No resources found.</div>'}</div>
       <h3>Announcements</h3><div>${c.announcements.length ? c.announcements.slice(0, 10).map(a => `<div class="resource"><b>${esc(a.title)}</b><div class="sub">${esc(a.body || '')}</div></div>`).join('') : '<div class="empty">No announcements stored.</div>'}</div>
     </div>`);
   });
@@ -1639,6 +1644,27 @@ document.querySelector('main').addEventListener('click', event => {
   if (target.dataset.saveNote) { saveCourseNote(target.dataset.saveNote, target); return }
   if (target.dataset.deleteNote) deleteCourseNote(target.dataset.courseId, target.dataset.deleteNote, target);
 });
+document.querySelector('main').addEventListener('submit', event => {
+  const form = event.target.closest('[data-upload-course-pdf]');
+  if (!form) return;
+  event.preventDefault();
+  uploadCoursePdf(form.dataset.uploadCoursePdf, form).catch(fail);
+});
+async function uploadCoursePdf(courseId, form) {
+  const file = form.querySelector('input[type=file]').files[0];
+  if (!file) { toast('Choose a PDF first.'); return }
+  const button = form.querySelector('button[type=submit]');
+  const done = setBusy(button, 'Adding PDF');
+  try {
+    const body = new FormData();
+    body.append('file', file);
+    const result = await getJson(`/courses/${encodeURIComponent(courseId)}/resources/pdf`, {method: 'POST', body});
+    await openCourse(courseId);
+    toast(result.indexing_started ? 'PDF added. It is being indexed for this course.' : 'PDF added. Use Re-index files after the current job finishes.');
+  } finally {
+    done();
+  }
+}
 function notesList(notes, courseId) {
   if (!notes.length) return '<div class="empty">No notes yet.</div>';
   return notes.map(n => `<div class="resource"><b>${esc(n.about || 'Course')}</b> <span class="type">${esc(date(n.added))}</span>
