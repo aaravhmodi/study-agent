@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
+from openai import APIError
 from sqlalchemy import select
 
 from app.config import get_settings
@@ -137,6 +138,17 @@ def chat(request: ChatRequest) -> ChatResponse:
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except APIError as exc:
+        # Provider exceptions can contain request details. Log only their safe class and status.
+        logger.warning(
+            "Tutor provider request failed (%s, status=%s)",
+            type(exc).__name__,
+            getattr(exc, "status_code", None),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="The tutor service is temporarily unavailable. Please try again.",
+        ) from exc
     # A session is only created once there is an answer to keep.
     if session is None:
         session = store.create(request.question, request.course_code)
@@ -274,7 +286,11 @@ def start_index() -> JobStatus:
 
 def _start_job(name: str, work: Callable[[Callable[[str], None]], str]) -> JobStatus:
     if not _jobs.start(name, work):
-        raise HTTPException(status_code=409, detail="Another task is still running.")
+        raise HTTPException(
+            status_code=503,
+            detail="The task queue is full. Please try again shortly.",
+            headers={"Retry-After": "30"},
+        )
     return _jobs.status()
 
 
@@ -284,7 +300,7 @@ def health() -> dict[str, Any]:
         "status": "ok",
         "browser_mode": get_settings().browser_mode,
         # A sync or an index is running: a deploy should wait rather than cut it off.
-        "busy": _jobs.status().state == "running",
+        "busy": (_jobs.status().state == "running" or bool(_jobs.status().queued)),
     }
 
 
@@ -324,8 +340,6 @@ def course_detail(course_id: str) -> dict[str, Any]:
 def upload_course_pdf(course_id: str, file: Annotated[UploadFile, File()]) -> dict[str, Any]:
     """Add a local PDF to a course and start indexing it for the tutor."""
 
-    if _jobs.status().state == "running":
-        raise HTTPException(status_code=409, detail="Wait for the current sync or index to finish.")
     ensure_schema()
     settings = get_settings()
     with SessionLocal() as session:
@@ -346,6 +360,12 @@ def upload_course_pdf(course_id: str, file: Annotated[UploadFile, File()]) -> di
         resource_id = resource.id
         title = resource.title
     indexing_started = _jobs.start("index", rebuild_index)
+    if not indexing_started:
+        raise HTTPException(
+            status_code=503,
+            detail="The PDF was saved, but the task queue is full. Re-index files when a slot opens.",
+            headers={"Retry-After": "30"},
+        )
     return {"id": resource_id, "title": title, "indexing_started": indexing_started}
 
 

@@ -237,7 +237,8 @@ def dashboard(
     console.print(f"[green][OK][/green] Dashboard at {url} (Ctrl+C to stop)")
     if open_browser:
         threading.Timer(1.5, webbrowser.open, args=(url,)).start()
-    uvicorn.run(web_app, host=host, port=port, log_level="warning")
+    # JobRunner is an in-process FIFO; multiple workers would each have an isolated queue.
+    uvicorn.run(web_app, host=host, port=port, log_level="warning", workers=1)
 
 
 @app.command()

@@ -329,6 +329,7 @@ button.row:hover b{text-decoration:underline;text-decoration-color:var(--pencil)
   </p>
   <section class="job-panel hidden" id="job-panel" aria-label="Sync and index progress">
     <div class="job-head"><b id="job-title" role="status" aria-live="polite"></b><span class="mono" id="job-time"></span><button type="button" class="quiet-button hidden" id="job-hide">Hide</button></div>
+    <p class="job-result hidden" id="job-queue" aria-live="polite"></p>
     <p class="job-result hidden" id="job-result"></p>
     <ol class="job-log" id="job-log" aria-label="Steps so far"></ol>
   </section>
@@ -542,7 +543,8 @@ const took = (from, to) => {
 let jobTimer, jobClock, shownLines = 0, shownJob = '';
 function showJob(job) {
   const running = job.state === 'running';
-  $('#job-sync').disabled = $('#job-index').disabled = running;
+  const occupied = running || (job.queued || []).length > 0;
+  $('#job-sync').disabled = $('#job-index').disabled = occupied;
   $('#job-signin-wrap').classList.toggle('hidden', !job.signin_url);
   if (job.signin_url) $('#job-signin').href = job.signin_url;
 
@@ -558,6 +560,11 @@ function showJob(job) {
   const names = JOBS[job.name] || {running: job.name, done: `${job.name} completed`, failed: `${job.name} failed`};
   panel.className = `job-panel ${job.state}`;
   $('#job-title').textContent = running ? `${names.running}…` : `${job.state === 'done' ? '✓' : '✗'} ${names[job.state]}`;
+  const queued = $('#job-queue');
+  const jobNames = {sync: 'Sync LEARN', index: 'Re-index files'};
+  queued.classList.toggle('hidden', !(job.queued || []).length);
+  queued.textContent = (job.queued || []).length
+    ? `Queued next: ${job.queued.map(name => jobNames[name] || name).join(', ')}` : '';
   clearInterval(jobClock);
   const time = $('#job-time');
   if (running) {

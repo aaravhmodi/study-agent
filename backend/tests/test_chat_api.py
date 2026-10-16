@@ -1,10 +1,12 @@
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 from app import main
 from app.schemas.chat import ChatResponse
 from fastapi.testclient import TestClient
+from openai import APIConnectionError
 
 
 class FakeRag:
@@ -24,6 +26,10 @@ class FakeRag:
         FakeRag.depths.append(kwargs.get("depth"))
         if question == "fail":
             raise RuntimeError("No indexed materials found for SYDE 999.")
+        if question == "provider fail":
+            raise APIConnectionError(
+                request=httpx.Request("POST", "https://api.openai.com/v1/responses")
+            )
         return ChatResponse(answer=f"Answer to {question}")
 
 
@@ -68,6 +74,11 @@ def test_unknown_session_and_failed_answers_do_not_create_sessions(client: TestC
 
     assert missing.status_code == 404
     assert failed.status_code == 503
+    provider_failed = client.post("/chat", json={"question": "provider fail"})
+    assert provider_failed.status_code == 502
+    assert provider_failed.json() == {
+        "detail": "The tutor service is temporarily unavailable. Please try again."
+    }
     assert client.get("/chat/sessions").json() == []
 
 

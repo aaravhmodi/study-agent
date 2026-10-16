@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 def _wait(runner: JobRunner) -> None:
     for thread in threading.enumerate():
-        if thread.name.startswith("job-"):
+        if thread.name == "job-worker":
             thread.join(timeout=5)
     assert runner.status().state != "running"
 
@@ -37,7 +37,7 @@ def test_a_task_reports_its_progress_and_result() -> None:
     assert status.started_at <= status.lines[0].at <= status.lines[-1].at <= status.finished_at
 
 
-def test_only_one_task_runs_at_a_time() -> None:
+def test_tasks_run_in_fifo_order_one_at_a_time() -> None:
     runner = JobRunner()
     release = threading.Event()
 
@@ -46,15 +46,12 @@ def test_only_one_task_runs_at_a_time() -> None:
         return "finished"
 
     assert runner.start("sync", slow)
-    assert not runner.start("index", lambda progress: "never runs")
+    assert runner.start("index", lambda progress: "ran second")
     assert runner.status().name == "sync"
+    assert runner.status().queued == ["index"]
     release.set()
     _wait(runner)
-
-    # Once it is over, the next one may start.
-    assert runner.start("index", lambda progress: "ran")
-    _wait(runner)
-    assert runner.status().message == "ran"
+    assert runner.status().message == "ran second"
 
 
 def test_a_failed_task_says_why_without_leaking_secrets() -> None:
@@ -89,8 +86,9 @@ def test_the_dashboard_starts_tasks_and_reports_them(monkeypatch: pytest.MonkeyP
 
     assert client.get("/jobs").json()["state"] == "idle"
     assert client.post("/jobs/sync").json()["state"] == "running"
-    busy = client.post("/jobs/index")
-    assert (busy.status_code, busy.json()) == (409, {"detail": "Another task is still running."})
+    queued = client.post("/jobs/index")
+    assert queued.status_code == 200
+    assert client.get("/jobs").json()["queued"] == ["index"]
     # The health check says so, for a deploy to wait on.
     assert client.get("/health").json()["busy"] is True
     release.set()
@@ -98,14 +96,15 @@ def test_the_dashboard_starts_tasks_and_reports_them(monkeypatch: pytest.MonkeyP
     assert client.get("/health").json()["busy"] is False
 
     done = client.get("/jobs").json()
-    assert (done["name"], done["state"], done["message"]) == ("sync", "done", "Synced 6 courses.")
-    assert [line["text"] for line in done["lines"]] == ["Scanning SYDE 212..."]
-    assert done["lines"][0]["at"] and done["started_at"] and done["finished_at"]
+    assert (done["name"], done["state"], done["message"]) == (
+        "index",
+        "done",
+        "Indexed 2 new or changed files.",
+    )
+    assert done["started_at"] and done["finished_at"]
     # The page links to the server's sign-in window when there is one.
     assert done["signin_url"] == "http://server:6080/vnc.html"
 
-    assert client.post("/jobs/index").status_code == 200
-    _wait(runner)
     assert client.get("/jobs").json()["message"] == "Indexed 2 new or changed files."
 
 

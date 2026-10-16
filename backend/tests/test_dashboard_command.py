@@ -15,4 +15,6 @@ def test_dashboard_command_serves_the_web_app_locally(monkeypatch: pytest.Monkey
 
     assert result.exit_code == 0, result.output
     assert "http://127.0.0.1:8123/dashboard" in result.output
-    assert calls == [(web_app, {"host": "127.0.0.1", "port": 8123, "log_level": "warning"})]
+    assert calls == [
+        (web_app, {"host": "127.0.0.1", "port": 8123, "log_level": "warning", "workers": 1})
+    ]
